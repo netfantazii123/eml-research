@@ -1,0 +1,204 @@
+{
+  "trees": [
+    {
+      "kind": "eml",
+      "left": {
+        "kind": "eml",
+        "left": {
+          "kind": "eml",
+          "left": {
+            "kind": "eml",
+            "left": {
+              "kind": "const",
+              "value": -1.5470951177254144
+            },
+            "right": {
+              "kind": "eml",
+              "left": {
+                "kind": "var",
+                "var_idx": 16
+              },
+              "right": {
+                "kind": "var",
+                "var_idx": 10
+              }
+            }
+          },
+          "right": {
+            "kind": "eml",
+            "left": {
+              "kind": "eml",
+              "left": {
+                "kind": "eml",
+                "left": {
+                  "kind": "var",
+                  "var_idx": 16
+                },
+                "right": {
+                  "kind": "var",
+                  "var_idx": 10
+                }
+              },
+              "right": {
+                "kind": "eml",
+                "left": {
+                  "kind": "const",
+                  "value": -0.4666110803051784
+                },
+                "right": {
+                  "kind": "const",
+                  "value": 0.0913740052870815
+                }
+              }
+            },
+            "right": {
+              "kind": "var",
+              "var_idx": 11
+            }
+          }
+        },
+        "right": {
+          "kind": "eml",
+          "left": {
+            "kind": "eml",
+            "left": {
+              "kind": "const",
+              "value": 1.4316143880568624
+            },
+            "right": {
+              "kind": "const",
+              "value": 0.8777326005929975
+            }
+          },
+          "right": {
+            "kind": "eml",
+            "left": {
+              "kind": "var",
+              "var_idx": 7
+            },
+            "right": {
+              "kind": "var",
+              "var_idx": 0
+            }
+          }
+        }
+      },
+      "right": {
+        "kind": "eml",
+        "left": {
+          "kind": "var",
+          "var_idx": 15
+        },
+        "right": {
+          "kind": "eml",
+          "left": {
+            "kind": "eml",
+            "left": {
+              "kind": "eml",
+              "left": {
+                "kind": "eml",
+                "left": {
+                  "kind": "const",
+                  "value": 0.402854587147913
+                },
+                "right": {
+                  "kind": "var",
+                  "var_idx": 4
+                }
+              },
+              "right": {
+                "kind": "const",
+                "value": -1.6866152962359982
+              }
+            },
+            "right": {
+              "kind": "eml",
+              "left": {
+                "kind": "eml",
+                "left": {
+                  "kind": "const",
+                  "value": -1.5470951177254144
+                },
+                "right": {
+                  "kind": "const",
+                  "value": 1.893110070905983
+                }
+              },
+              "right": {
+                "kind": "const",
+                "value": 1.396368353012424
+              }
+            }
+          },
+          "right": {
+            "kind": "eml",
+            "left": {
+              "kind": "var",
+              "var_idx": 14
+            },
+            "right": {
+              "kind": "eml",
+              "left": {
+                "kind": "var",
+                "var_idx": 17
+              },
+              "right": {
+                "kind": "var",
+                "var_idx": 20
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "feature_names": [
+    "h0",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h8",
+    "h9",
+    "holes",
+    "bumpiness",
+    "agg_h",
+    "max_h",
+    "wells",
+    "row_trans",
+    "col_trans",
+    "cleared",
+    "landing_h",
+    "next_I",
+    "next_O",
+    "next_T",
+    "next_S",
+    "next_Z",
+    "next_J",
+    "next_L"
+  ],
+  "meta": {
+    "final_lines": 122.0,
+    "base_lines": 13.333333333333334,
+    "oracle_lines": 105.0,
+    "ratio_pct": 116.1904761904762,
+    "dataset_size": 251492,
+    "variant": 2,
+    "params": {
+      "seed": 1002,
+      "generations": 561,
+      "population": 540,
+      "depth_penalty": "strong",
+      "max_depth": 7,
+      "var_bonus": 0.0351292773096378
+    },
+    "batch": {
+      "n_variants": 5,
+      "spread": 0.3,
+      "run_dir": "runs\\2026-07-12_17-49-26_distill_batch"
+    }
+  }
+}

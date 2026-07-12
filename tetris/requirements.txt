@@ -1,0 +1,8 @@
+# Базовые зависимости (CPU). GUI — tkinter (входит в стандартный Python).
+numpy
+torch
+matplotlib
+
+# Для машин с NVIDIA GPU (серверы, чужие компы) вместо CPU-сборки torch:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+# Код сам подхватит CUDA (cnn_oracle.get_device), ничего менять не нужно.

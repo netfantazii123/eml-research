@@ -1,0 +1,361 @@
+{
+  "trees": [
+    {
+      "kind": "eml",
+      "left": {
+        "kind": "eml",
+        "left": {
+          "kind": "eml",
+          "left": {
+            "kind": "var",
+            "var_idx": 17
+          },
+          "right": {
+            "kind": "const",
+            "value": -1.1236495495826975
+          }
+        },
+        "right": {
+          "kind": "eml",
+          "left": {
+            "kind": "var",
+            "var_idx": 23
+          },
+          "right": {
+            "kind": "const",
+            "value": -0.4744652372312501
+          }
+        }
+      },
+      "right": {
+        "kind": "eml",
+        "left": {
+          "kind": "eml",
+          "left": {
+            "kind": "eml",
+            "left": {
+              "kind": "var",
+              "var_idx": 2
+            },
+            "right": {
+              "kind": "var",
+              "var_idx": 25
+            }
+          },
+          "right": {
+            "kind": "const",
+            "value": -0.58909773658787
+          }
+        },
+        "right": {
+          "kind": "eml",
+          "left": {
+            "kind": "const",
+            "value": 1.3516924534524462
+          },
+          "right": {
+            "kind": "const",
+            "value": 0.7405170443978131
+          }
+        }
+      }
+    },
+    {
+      "kind": "eml",
+      "left": {
+        "kind": "const",
+        "value": -0.8901060957588687
+      },
+      "right": {
+        "kind": "eml",
+        "left": {
+          "kind": "const",
+          "value": -0.7859120294961981
+        },
+        "right": {
+          "kind": "eml",
+          "left": {
+            "kind": "eml",
+            "left": {
+              "kind": "var",
+              "var_idx": 5
+            },
+            "right": {
+              "kind": "var",
+              "var_idx": 15
+            }
+          },
+          "right": {
+            "kind": "eml",
+            "left": {
+              "kind": "const",
+              "value": 0.49140134927581913
+            },
+            "right": {
+              "kind": "var",
+              "var_idx": 2
+            }
+          }
+        }
+      }
+    },
+    {
+      "kind": "eml",
+      "left": {
+        "kind": "eml",
+        "left": {
+          "kind": "var",
+          "var_idx": 13
+        },
+        "right": {
+          "kind": "eml",
+          "left": {
+            "kind": "const",
+            "value": 0.3865390038703951
+          },
+          "right": {
+            "kind": "const",
+            "value": 0.7963402156574584
+          }
+        }
+      },
+      "right": {
+        "kind": "eml",
+        "left": {
+          "kind": "eml",
+          "left": {
+            "kind": "var",
+            "var_idx": 26
+          },
+          "right": {
+            "kind": "eml",
+            "left": {
+              "kind": "eml",
+              "left": {
+                "kind": "var",
+                "var_idx": 25
+              },
+              "right": {
+                "kind": "const",
+                "value": 1.6544828560429972
+              }
+            },
+            "right": {
+              "kind": "var",
+              "var_idx": 2
+            }
+          }
+        },
+        "right": {
+          "kind": "var",
+          "var_idx": 16
+        }
+      }
+    },
+    {
+      "kind": "eml",
+      "left": {
+        "kind": "const",
+        "value": -0.793565878847732
+      },
+      "right": {
+        "kind": "eml",
+        "left": {
+          "kind": "eml",
+          "left": {
+            "kind": "const",
+            "value": -1.8774856135700042
+          },
+          "right": {
+            "kind": "eml",
+            "left": {
+              "kind": "var",
+              "var_idx": 21
+            },
+            "right": {
+              "kind": "var",
+              "var_idx": 14
+            }
+          }
+        },
+        "right": {
+          "kind": "eml",
+          "left": {
+            "kind": "var",
+            "var_idx": 7
+          },
+          "right": {
+            "kind": "var",
+            "var_idx": 20
+          }
+        }
+      }
+    },
+    {
+      "kind": "eml",
+      "left": {
+        "kind": "var",
+        "var_idx": 10
+      },
+      "right": {
+        "kind": "eml",
+        "left": {
+          "kind": "eml",
+          "left": {
+            "kind": "var",
+            "var_idx": 19
+          },
+          "right": {
+            "kind": "const",
+            "value": -1.37534310606052
+          }
+        },
+        "right": {
+          "kind": "eml",
+          "left": {
+            "kind": "eml",
+            "left": {
+              "kind": "const",
+              "value": 0.15465654695072928
+            },
+            "right": {
+              "kind": "var",
+              "var_idx": 25
+            }
+          },
+          "right": {
+            "kind": "eml",
+            "left": {
+              "kind": "eml",
+              "left": {
+                "kind": "eml",
+                "left": {
+                  "kind": "var",
+                  "var_idx": 17
+                },
+                "right": {
+                  "kind": "var",
+                  "var_idx": 5
+                }
+              },
+              "right": {
+                "kind": "const",
+                "value": 0.1924494627938147
+              }
+            },
+            "right": {
+              "kind": "var",
+              "var_idx": 6
+            }
+          }
+        }
+      }
+    },
+    {
+      "kind": "eml",
+      "left": {
+        "kind": "eml",
+        "left": {
+          "kind": "const",
+          "value": -1.4576641125308178
+        },
+        "right": {
+          "kind": "eml",
+          "left": {
+            "kind": "var",
+            "var_idx": 25
+          },
+          "right": {
+            "kind": "const",
+            "value": -0.2991975334006036
+          }
+        }
+      },
+      "right": {
+        "kind": "eml",
+        "left": {
+          "kind": "eml",
+          "left": {
+            "kind": "var",
+            "var_idx": 6
+          },
+          "right": {
+            "kind": "eml",
+            "left": {
+              "kind": "eml",
+              "left": {
+                "kind": "eml",
+                "left": {
+                  "kind": "const",
+                  "value": 1.6678497271801946
+                },
+                "right": {
+                  "kind": "const",
+                  "value": 0.9188328377381292
+                }
+              },
+              "right": {
+                "kind": "eml",
+                "left": {
+                  "kind": "const",
+                  "value": -0.2484599691744953
+                },
+                "right": {
+                  "kind": "var",
+                  "var_idx": 10
+                }
+              }
+            },
+            "right": {
+              "kind": "const",
+              "value": -1.2278957277866356
+            }
+          }
+        },
+        "right": {
+          "kind": "const",
+          "value": 0.18199980249680303
+        }
+      }
+    }
+  ],
+  "feature_names": [
+    "h0",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h8",
+    "h9",
+    "holes",
+    "bumpiness",
+    "agg_h",
+    "max_h",
+    "wells",
+    "row_trans",
+    "col_trans",
+    "piece_I",
+    "piece_O",
+    "piece_T",
+    "piece_S",
+    "piece_Z",
+    "piece_J",
+    "piece_L",
+    "rot_0",
+    "rot_1",
+    "rot_2",
+    "rot_3"
+  ],
+  "meta": {
+    "final_lines": 30.666666666666664,
+    "base_lines": 0.0,
+    "oracle_lines": 0.0,
+    "ratio_pct": 0.0,
+    "dataset_size": 2735,
+    "depth_penalty": "medium",
+    "joint": true
+  }
+}

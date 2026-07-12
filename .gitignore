@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# IDE / локальные настройки инструментов
+.idea/
+.vscode/
+.claude/
+
+# Сборка C (eml_try_1) — пересобирается через CMake
+build/
+.cache/
+*.dll
+*.exe
+*.a
+
+# Выходы обучения — тяжёлые и воспроизводимые
+logs/
+runs/
+*.pt
+!flappy_bird_with_ai/models/best_ga.pt
+*.npz
+
+# Внутренние планы — не для публикации
+PROJECT_BLUEPRINT.md
+
+# Архивы и бэкапы
+*.zip

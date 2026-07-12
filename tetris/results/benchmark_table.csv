@@ -1,0 +1,9 @@
+metric,cnn,eml
+avg_lines,365.27,355.60
+max_lines,398,399
+avg_placements,940,901
+latency_us_median,517.80,103.50
+eml_vs_cnn_pct,,97.4
+eml_speedup_x,,5.0
+ast_size_nodes,,43
+n_games,30,30

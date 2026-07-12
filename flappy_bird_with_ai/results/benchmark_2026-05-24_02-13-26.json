@@ -1,0 +1,426 @@
+{
+  "GA": {
+    "method": "GA",
+    "elapsed": 0.3499778000405058,
+    "total_frames": 11934,
+    "test_scores": [
+      0,
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+      1,
+      1,
+      0
+    ],
+    "test_avg": 0.4,
+    "test_max": 1,
+    "history": [
+      {
+        "generation": 0,
+        "best_fitness": 300.0,
+        "avg_fitness": 60.6,
+        "best_score": 3
+      },
+      {
+        "generation": 1,
+        "best_fitness": 303.0,
+        "avg_fitness": 76.4,
+        "best_score": 3
+      },
+      {
+        "generation": 2,
+        "best_fitness": 317.0,
+        "avg_fitness": 93.06666666666666,
+        "best_score": 3
+      },
+      {
+        "generation": 3,
+        "best_fitness": 300.0,
+        "avg_fitness": 93.06666666666666,
+        "best_score": 3
+      },
+      {
+        "generation": 4,
+        "best_fitness": 127.0,
+        "avg_fitness": 74.66666666666667,
+        "best_score": 1
+      }
+    ],
+    "saved_path": "models\\ga_2026-05-24_02-13-26_score-1.pt"
+  },
+  "EML-weak": {
+    "method": "EML-weak",
+    "elapsed": 0.8491541999392211,
+    "total_frames": 2802,
+    "test_scores": [
+      0,
+      2,
+      1,
+      0,
+      5,
+      1,
+      1,
+      6,
+      1,
+      1
+    ],
+    "test_avg": 1.8,
+    "test_max": 6,
+    "history": [
+      {
+        "generation": 0,
+        "best_fitness": 1.7950049103654035,
+        "avg_fitness": 0.31897270424099805,
+        "best_depth": 3,
+        "best_size": 9,
+        "best_formula": "eml(vel, eml(eml(gap, 1.748), eml(-1.012, gap)))",
+        "intensity": 1.0,
+        "phase": "DATA"
+      },
+      {
+        "generation": 1,
+        "best_fitness": 7.957208246973636,
+        "avg_fitness": 0.7447939456275392,
+        "best_depth": 5,
+        "best_size": 13,
+        "best_formula": "eml(y, eml(eml(gap, 1.748), eml(-1.012, eml(dx, eml(gap, -0.427)))))",
+        "intensity": 0.8571428571428572,
+        "phase": "DATA"
+      },
+      {
+        "generation": 2,
+        "best_fitness": 7.957208246973636,
+        "avg_fitness": 1.6590598754055832,
+        "best_depth": 5,
+        "best_size": 13,
+        "best_formula": "eml(y, eml(eml(gap, 1.748), eml(-1.012, eml(dx, eml(gap, -0.427)))))",
+        "intensity": 0.7142857142857143,
+        "phase": "DATA"
+      },
+      {
+        "generation": 3,
+        "best_fitness": 683.5,
+        "avg_fitness": 111.03333333333333,
+        "best_depth": 5,
+        "best_size": 13,
+        "best_formula": "eml(y, eml(eml(gap, 1.748), eml(-1.012, eml(dx, eml(y, -1.623)))))",
+        "intensity": 0.5714285714285714,
+        "phase": "GAME"
+      },
+      {
+        "generation": 4,
+        "best_fitness": 559.8333333333334,
+        "avg_fitness": 127.91666666666667,
+        "best_depth": 5,
+        "best_size": 13,
+        "best_formula": "eml(y, eml(eml(gap, 1.748), eml(-1.012, eml(dx, eml(y, -1.623)))))",
+        "intensity": 0.4285714285714286,
+        "phase": "GAME"
+      },
+      {
+        "generation": 5,
+        "best_fitness": 744.8333333333334,
+        "avg_fitness": 143.5611111111111,
+        "best_depth": 5,
+        "best_size": 13,
+        "best_formula": "eml(y, eml(eml(gap, 1.748), eml(-1.012, eml(dx, eml(y, -1.623)))))",
+        "intensity": 0.2857142857142857,
+        "phase": "GAME"
+      },
+      {
+        "generation": 6,
+        "best_fitness": 1136.5,
+        "avg_fitness": 186.51666666666668,
+        "best_depth": 5,
+        "best_size": 13,
+        "best_formula": "eml(y, eml(eml(gap, 1.748), eml(-1.012, eml(dx, eml(y, -1.623)))))",
+        "intensity": 0.1428571428571429,
+        "phase": "GAME"
+      },
+      {
+        "generation": 7,
+        "best_fitness": 1254.3333333333335,
+        "avg_fitness": 203.86666666666667,
+        "best_depth": 4,
+        "best_size": 11,
+        "best_formula": "eml(y, eml(eml(gap, 1.748), eml(-1.012, eml(dx, 0.253))))",
+        "intensity": 0.1,
+        "phase": "GAME"
+      },
+      {
+        "generation": 8,
+        "best_fitness": 934.1666666666666,
+        "avg_fitness": 161.05,
+        "best_depth": 5,
+        "best_size": 13,
+        "best_formula": "eml(y, eml(eml(gap, 1.748), eml(-1.012, eml(dx, eml(y, -1.623)))))",
+        "intensity": 0.1,
+        "phase": "GAME"
+      },
+      {
+        "generation": 9,
+        "best_fitness": 621.3333333333333,
+        "avg_fitness": 162.77222222222224,
+        "best_depth": 4,
+        "best_size": 11,
+        "best_formula": "eml(y, eml(eml(gap, 1.748), eml(-1.012, eml(dx, 0.253))))",
+        "intensity": 0.1,
+        "phase": "GAME"
+      }
+    ],
+    "formula": "eml(y, eml(eml(gap, 1.748), eml(-1.012, eml(dx, 0.253))))",
+    "depth": 4,
+    "saved_path": "models\\eml-weak_2026-05-24_02-13-26_score-6.json"
+  },
+  "EML-medium": {
+    "method": "EML-medium",
+    "elapsed": 0.8155365999555215,
+    "total_frames": 2941,
+    "test_scores": [
+      0,
+      4,
+      1,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "test_avg": 0.7,
+    "test_max": 4,
+    "history": [
+      {
+        "generation": 0,
+        "best_fitness": 2.78345765438685,
+        "avg_fitness": 0.3368268179033404,
+        "best_depth": 3,
+        "best_size": 7,
+        "best_formula": "eml(y, eml(eml(y, 1.083), 0.718))",
+        "intensity": 1.0,
+        "phase": "DATA"
+      },
+      {
+        "generation": 1,
+        "best_fitness": 6.33638096420122,
+        "avg_fitness": 0.7883877709513751,
+        "best_depth": 3,
+        "best_size": 9,
+        "best_formula": "eml(eml(eml(-0.857, -1.761), 1.657), eml(0.533, y))",
+        "intensity": 0.8571428571428572,
+        "phase": "DATA"
+      },
+      {
+        "generation": 2,
+        "best_fitness": 6.33638096420122,
+        "avg_fitness": 1.21322113502472,
+        "best_depth": 3,
+        "best_size": 9,
+        "best_formula": "eml(eml(eml(-0.857, -1.761), 1.657), eml(0.533, y))",
+        "intensity": 0.7142857142857143,
+        "phase": "DATA"
+      },
+      {
+        "generation": 3,
+        "best_fitness": 231.66666666666666,
+        "avg_fitness": 54.44444444444444,
+        "best_depth": 2,
+        "best_size": 5,
+        "best_formula": "eml(y, eml(gap, y))",
+        "intensity": 0.5714285714285714,
+        "phase": "GAME"
+      },
+      {
+        "generation": 4,
+        "best_fitness": 175.16666666666669,
+        "avg_fitness": 72.35,
+        "best_depth": 1,
+        "best_size": 3,
+        "best_formula": "eml(y, -2.820)",
+        "intensity": 0.4285714285714286,
+        "phase": "GAME"
+      },
+      {
+        "generation": 5,
+        "best_fitness": 363.3333333333333,
+        "avg_fitness": 102.78333333333333,
+        "best_depth": 0,
+        "best_size": 1,
+        "best_formula": "y",
+        "intensity": 0.2857142857142857,
+        "phase": "GAME"
+      },
+      {
+        "generation": 6,
+        "best_fitness": 369.5,
+        "avg_fitness": 93.60555555555555,
+        "best_depth": 3,
+        "best_size": 13,
+        "best_formula": "eml(eml(y, eml(gap, y)), eml(eml(gap, y), eml(gap, dx)))",
+        "intensity": 0.1428571428571429,
+        "phase": "GAME"
+      },
+      {
+        "generation": 7,
+        "best_fitness": 423.5,
+        "avg_fitness": 107.97777777777779,
+        "best_depth": 3,
+        "best_size": 13,
+        "best_formula": "eml(eml(y, eml(gap, y)), eml(eml(gap, y), eml(gap, dx)))",
+        "intensity": 0.1,
+        "phase": "GAME"
+      },
+      {
+        "generation": 8,
+        "best_fitness": 564.1666666666666,
+        "avg_fitness": 159.65555555555557,
+        "best_depth": 3,
+        "best_size": 13,
+        "best_formula": "eml(eml(y, eml(gap, y)), eml(eml(gap, y), eml(gap, dx)))",
+        "intensity": 0.1,
+        "phase": "GAME"
+      },
+      {
+        "generation": 9,
+        "best_fitness": 612.0,
+        "avg_fitness": 175.92222222222225,
+        "best_depth": 4,
+        "best_size": 17,
+        "best_formula": "eml(eml(y, eml(gap, y)), eml(eml(gap, y), eml(eml(vel, -1.506), eml(gap, dx))))",
+        "intensity": 0.1,
+        "phase": "GAME"
+      }
+    ],
+    "formula": "eml(eml(y, eml(gap, y)), eml(eml(gap, y), eml(eml(vel, -1.506), eml(gap, dx))))",
+    "depth": 4,
+    "saved_path": "models\\eml-medium_2026-05-24_02-13-26_score-4.json"
+  },
+  "EML-strong": {
+    "method": "EML-strong",
+    "elapsed": 0.8478910999838263,
+    "total_frames": 2884,
+    "test_scores": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      5,
+      0,
+      1,
+      0
+    ],
+    "test_avg": 0.8,
+    "test_max": 5,
+    "history": [
+      {
+        "generation": 0,
+        "best_fitness": 1.3169534203674205,
+        "avg_fitness": 0.21584400317692432,
+        "best_depth": 3,
+        "best_size": 9,
+        "best_formula": "eml(dx, eml(eml(-1.165, gap), eml(dx, 0.908)))",
+        "intensity": 1.0,
+        "phase": "DATA"
+      },
+      {
+        "generation": 1,
+        "best_fitness": 1.5189829209421093,
+        "avg_fitness": 0.4626570264822209,
+        "best_depth": 4,
+        "best_size": 15,
+        "best_formula": "eml(eml(-0.386, eml(gap, vel)), eml(-1.858, eml(eml(-0.740, y), eml(vel, 1.600))))",
+        "intensity": 0.8571428571428572,
+        "phase": "DATA"
+      },
+      {
+        "generation": 2,
+        "best_fitness": 1.5189829209421093,
+        "avg_fitness": 0.6372092551908265,
+        "best_depth": 4,
+        "best_size": 15,
+        "best_formula": "eml(eml(-0.386, eml(gap, vel)), eml(-1.858, eml(eml(-0.740, y), eml(vel, 1.600))))",
+        "intensity": 0.7142857142857143,
+        "phase": "DATA"
+      },
+      {
+        "generation": 3,
+        "best_fitness": 80.0,
+        "avg_fitness": 25.1,
+        "best_depth": 4,
+        "best_size": 15,
+        "best_formula": "eml(eml(-0.386, eml(gap, vel)), eml(-1.858, eml(eml(-0.740, y), eml(vel, 1.600))))",
+        "intensity": 0.5714285714285714,
+        "phase": "GAME"
+      },
+      {
+        "generation": 4,
+        "best_fitness": 135.83333333333331,
+        "avg_fitness": 44.35555555555556,
+        "best_depth": 5,
+        "best_size": 21,
+        "best_formula": "eml(eml(-0.386, eml(eml(-1.592, y), eml(y, dx))), eml(-1.858, eml(eml(-0.740, y), eml(eml(dx, gap), 1.600))))",
+        "intensity": 0.4285714285714286,
+        "phase": "GAME"
+      },
+      {
+        "generation": 5,
+        "best_fitness": 283.66666666666663,
+        "avg_fitness": 74.92777777777778,
+        "best_depth": 4,
+        "best_size": 19,
+        "best_formula": "eml(eml(dx, eml(eml(gap, dx), eml(gap, gap))), eml(-1.858, eml(eml(-0.740, y), eml(vel, 1.600))))",
+        "intensity": 0.2857142857142857,
+        "phase": "GAME"
+      },
+      {
+        "generation": 6,
+        "best_fitness": 203.5,
+        "avg_fitness": 58.733333333333334,
+        "best_depth": 5,
+        "best_size": 23,
+        "best_formula": "eml(eml(dx, eml(eml(gap, -0.386), eml(eml(dx, y), gap))), eml(-1.858, eml(eml(-0.740, y), eml(vel, eml(gap, gap)))))",
+        "intensity": 0.1428571428571429,
+        "phase": "GAME"
+      },
+      {
+        "generation": 7,
+        "best_fitness": 389.83333333333337,
+        "avg_fitness": 125.13333333333334,
+        "best_depth": 5,
+        "best_size": 19,
+        "best_formula": "eml(eml(dx, eml(eml(gap, -0.386), vel)), eml(-1.858, eml(eml(-0.740, y), eml(vel, eml(gap, gap)))))",
+        "intensity": 0.1,
+        "phase": "GAME"
+      },
+      {
+        "generation": 8,
+        "best_fitness": 397.1666666666667,
+        "avg_fitness": 113.64444444444445,
+        "best_depth": 5,
+        "best_size": 19,
+        "best_formula": "eml(eml(dx, eml(eml(gap, -0.386), vel)), eml(-1.858, eml(eml(-0.740, y), eml(vel, eml(gap, gap)))))",
+        "intensity": 0.1,
+        "phase": "GAME"
+      },
+      {
+        "generation": 9,
+        "best_fitness": 395.83333333333337,
+        "avg_fitness": 102.23333333333333,
+        "best_depth": 5,
+        "best_size": 21,
+        "best_formula": "eml(eml(dx, eml(eml(gap, -0.386), eml(eml(gap, dx), gap))), eml(-1.858, eml(eml(-0.740, y), eml(vel, 1.600))))",
+        "intensity": 0.1,
+        "phase": "GAME"
+      }
+    ],
+    "formula": "eml(eml(dx, eml(eml(gap, -0.386), vel)), eml(-1.858, eml(eml(-0.740, y), eml(vel, eml(gap, gap)))))",
+    "depth": 5,
+    "saved_path": "models\\eml-strong_2026-05-24_02-13-26_score-5.json"
+  }
+}

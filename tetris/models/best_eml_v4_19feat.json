@@ -1,0 +1,143 @@
+{
+  "trees": [
+    {
+      "kind": "eml",
+      "left": {
+        "kind": "const",
+        "value": 1.0313433616502685
+      },
+      "right": {
+        "kind": "eml",
+        "left": {
+          "kind": "eml",
+          "left": {
+            "kind": "eml",
+            "left": {
+              "kind": "var",
+              "var_idx": 13
+            },
+            "right": {
+              "kind": "var",
+              "var_idx": 10
+            }
+          },
+          "right": {
+            "kind": "const",
+            "value": -0.2923318528054426
+          }
+        },
+        "right": {
+          "kind": "eml",
+          "left": {
+            "kind": "eml",
+            "left": {
+              "kind": "eml",
+              "left": {
+                "kind": "var",
+                "var_idx": 0
+              },
+              "right": {
+                "kind": "eml",
+                "left": {
+                  "kind": "var",
+                  "var_idx": 0
+                },
+                "right": {
+                  "kind": "const",
+                  "value": 0.23560715658902032
+                }
+              }
+            },
+            "right": {
+              "kind": "eml",
+              "left": {
+                "kind": "eml",
+                "left": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "var",
+                    "var_idx": 18
+                  },
+                  "right": {
+                    "kind": "var",
+                    "var_idx": 11
+                  }
+                },
+                "right": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "var",
+                    "var_idx": 15
+                  },
+                  "right": {
+                    "kind": "var",
+                    "var_idx": 11
+                  }
+                }
+              },
+              "right": {
+                "kind": "eml",
+                "left": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "var",
+                    "var_idx": 9
+                  },
+                  "right": {
+                    "kind": "var",
+                    "var_idx": 5
+                  }
+                },
+                "right": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "var",
+                    "var_idx": 11
+                  },
+                  "right": {
+                    "kind": "var",
+                    "var_idx": 7
+                  }
+                }
+              }
+            }
+          },
+          "right": {
+            "kind": "var",
+            "var_idx": 17
+          }
+        }
+      }
+    }
+  ],
+  "feature_names": [
+    "h0",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h8",
+    "h9",
+    "holes",
+    "bumpiness",
+    "agg_h",
+    "max_h",
+    "wells",
+    "row_trans",
+    "col_trans",
+    "cleared",
+    "landing_h"
+  ],
+  "meta": {
+    "final_lines": 121.66666666666669,
+    "base_lines": 19.333333333333332,
+    "oracle_lines": 105.0,
+    "ratio_pct": 115.87301587301589,
+    "dataset_size": 251492,
+    "depth_penalty": "medium",
+    "joint": true
+  }
+}
