@@ -55,7 +55,8 @@ def cmd_train(args):
     import reports
     import train_oracle
 
-    out = train_oracle.train(args.branch, epochs=args.epochs)
+    out = train_oracle.train(args.branch, epochs=args.epochs, lr=args.lr,
+                             batch_size=args.batch_size)
     path = os.path.join(config.RESULTS_DIR, f'training_{args.branch.upper()}.png')
     os.makedirs(config.RESULTS_DIR, exist_ok=True)
     reports.plot_training(out['history'],
@@ -356,6 +357,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('--branch', default='A', choices=['A', 'B', 'a', 'b'],
                    help='A: MLP на признаках, B: CNN на пикселях')
     p.add_argument('--epochs', type=int, default=None)
+    # Те же ручки, что и во вкладке «Обучение»: параметры прогона, а не правка
+    # config — иначе CLI и GUI считают разное при одинаковых числах на экране.
+    p.add_argument('--lr', type=float, default=None)
+    p.add_argument('--batch-size', type=int, default=None)
     p.set_defaults(func=cmd_train)
 
     p = sub.add_parser('distill', help='дистилляция оракула в EML-формулы')

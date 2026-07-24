@@ -987,13 +987,21 @@ class PhotoTab:
         import storage
 
         branch = self.branch.get()
-        path = (storage.oracle_path(branch) if engine == 'oracle'
-                else storage.formulas_path(branch))
-        try:
-            stamp = os.path.getmtime(path)
-        except OSError:
-            stamp = None
-        key = (branch, engine, stamp)
+        # Ветка B на формулах зависит от ДВУХ файлов: вход формул — эмбеддинг
+        # CNN, поэтому переобучение оракула B меняет ответ EML-движка ровно так
+        # же, как новая дистилляция.
+        paths = [storage.oracle_path(branch)] if engine == 'oracle' else [
+            storage.formulas_path(branch)]
+        if engine == 'eml' and branch == 'B':
+            paths.append(storage.oracle_path('B'))
+
+        stamps = []
+        for path in paths:
+            try:
+                stamps.append(os.path.getmtime(path))
+            except OSError:
+                stamps.append(None)
+        key = (branch, engine, tuple(stamps))
         if key not in self._predictors:
             predictor = vision.Predictor(branch=branch, engine=engine)
             # Держать все версии подряд незачем — интересна только свежая.
