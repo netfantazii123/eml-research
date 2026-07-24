@@ -23,6 +23,17 @@ runs/
 !flappy_bird_with_ai/models/best_ga.pt
 *.npz
 
+# Датасет аэроснимков (83 МБ картинок) — см. aerial_classifier/README.md
+aerial_classifier/dataset/
+
+# Бэкап моделей, снятый перед правкой масштаба признаков: старые формулы
+# считаны в ДРУГОМ пространстве признаков и годятся только как исторический
+# слепок, в репозиторий им не надо.
+aerial_classifier/models_pre_scalefix/
+
+# Кэш pytest
+.pytest_cache/
+
 # Внутренние планы — не для публикации
 PROJECT_BLUEPRINT.md
 
