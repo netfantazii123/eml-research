@@ -107,40 +107,53 @@ def confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray,
 
 # ── Полный прогон ─────────────────────────────────────────────────────────────
 
-def save_best(trees: list, branch: str, meta: dict, input_names: list[str], *,
-              verbose: bool = True, run_dir: str | None = None) -> dict:
+def archive_run(trees: list, branch: str, meta: dict, input_names: list[str], *,
+                run_dir: str | None = None, name: str | None = None,
+                filename: str | None = None):
     """
-    Сохранить прогон, не затирая лучший результат худшим.
+    Записать прогон в runs/ и положить именованную копию в библиотеку.
+
+    Ничего не решает про «лучшесть» — только сохраняет. Разделение с
+    promote_if_better нужно батчу: там в библиотеку идут ВСЕ варианты, а в
+    активный слот претендует один.
+
+    Returns: (ModelEntry, путь к копии в runs/).
+    """
+    branch = branch.upper()
+    run_dir = run_dir or os.path.join(
+        config.RUNS_DIR, time.strftime('%Y%m%d_%H%M%S') + f'_run_{branch}')
+    os.makedirs(run_dir, exist_ok=True)
+
+    meta = dict(meta)
+    meta['library_name'] = storage.reserve_name('eml', branch, name, meta)
+    run_path = storage.save_formulas(
+        trees, branch=branch, meta=meta, input_names=input_names,
+        path=os.path.join(run_dir, filename or f'formulas_{branch}.json'))
+    entry = storage.add_to_library('eml', branch, meta['library_name'], meta,
+                                   source_path=run_path, overwrite=True)
+    return entry, run_path
+
+
+def promote_if_better(entry, *, verbose: bool = True) -> dict:
+    """
+    Сделать модель активной, только если она не хуже уже лежащей ПО VAL.
 
     Раньше любой прогон с save=True (а это умолчание и в GUI, и в CLI) молча
     перезаписывал models/best_eml_X.json. Один неудачный сид — и отобранный
     батчем набор формул терялся без следа, причём заметить это было не по чему.
 
-    Теперь:
-      * прогон ВСЕГДА пишется в runs/ — ничего не пропадает;
-      * models/best_eml_X.json обновляется, только если новый прогон не хуже
-        сохранённого ПО VAL (test для отбора не трогаем);
+    Правила:
+      * сравнение только по val — test смотрят один раз, в самом конце;
       * прежний файл на всякий случай остаётся рядом как .prev.json;
-      * прерванный пользователем прогон не претендует на лучший никогда.
-
-    Returns: {'run_path', 'best_path' | None, 'promoted': bool, 'reason': str}.
+      * прерванный пользователем прогон не претендует на активный никогда.
     """
-    branch = branch.upper()
-    metrics = meta.get('metrics', {})
-    new_val = float(metrics.get('val', {}).get('eml_bal_acc', -1.0))
-
-    run_dir = run_dir or os.path.join(
-        config.RUNS_DIR, time.strftime('%Y%m%d_%H%M%S') + f'_run_{branch}')
-    os.makedirs(run_dir, exist_ok=True)
-    run_path = storage.save_formulas(
-        trees, branch=branch, meta=meta, input_names=input_names,
-        path=os.path.join(run_dir, f'formulas_{branch}.json'))
-
-    prev_meta = storage.formulas_meta(branch)
-    prev_val = prev_meta.get('metrics', {}).get('val', {}).get('eml_bal_acc')
+    branch = entry.branch
+    new_val = entry.val_score if entry.val_score is not None else -1.0
+    prev_val = storage.formulas_meta(branch).get(
+        'metrics', {}).get('val', {}).get('eml_bal_acc')
     best_path = storage.formulas_path(branch)
 
-    if meta.get('stopped'):
+    if entry.meta.get('stopped'):
         promoted, reason = False, "прогон прерван пользователем"
     elif prev_val is None:
         promoted, reason = True, "сохранённых формул не было"
@@ -153,26 +166,44 @@ def save_best(trees: list, branch: str, meta: dict, input_names: list[str], *,
 
     if promoted:
         if os.path.exists(best_path):
-            backup = best_path.replace('.json', '.prev.json')
-            shutil.copyfile(best_path, backup)
-        storage.save_formulas(trees, branch=branch, meta=meta,
-                              input_names=input_names, path=best_path)
+            shutil.copyfile(best_path, best_path.replace('.json', '.prev.json'))
+        storage.activate(entry)
 
     if verbose:
-        print(f"\n[distill] прогон -> {run_path}")
         if promoted:
-            print(f"[distill] лучший обновлён ({reason}) -> {best_path}")
+            print(f"[distill] активной стала «{entry.name}» ({reason})"
+                  f" -> {best_path}")
         else:
-            print(f"[distill] лучший НЕ тронут ({reason}): {best_path}")
-    return {'run_path': run_path, 'best_path': best_path if promoted else None,
-            'promoted': promoted, 'reason': reason}
+            print(f"[distill] активная модель НЕ тронута ({reason})")
+    return {'promoted': promoted, 'reason': reason,
+            'best_path': best_path if promoted else None,
+            'entry': entry, 'library_name': entry.name}
+
+
+def save_best(trees: list, branch: str, meta: dict, input_names: list[str], *,
+              verbose: bool = True, run_dir: str | None = None,
+              name: str | None = None) -> dict:
+    """
+    Сохранить прогон целиком: архив в runs/, копия в библиотеку, и активный
+    слот, если прогон не хуже прежнего.
+
+    Returns: {'run_path', 'best_path' | None, 'promoted', 'reason', 'entry'}.
+    """
+    entry, run_path = archive_run(trees, branch, meta, input_names,
+                                  run_dir=run_dir, name=name)
+    if verbose:
+        print(f"\n[distill] прогон -> {run_path}")
+        print(f"[distill] в библиотеку как «{entry.name}» -> {entry.path}")
+    result = promote_if_better(entry, verbose=verbose)
+    result['run_path'] = run_path
+    return result
 
 
 def run(branch: str = 'A', *, depth_penalty: str | None = None,
         generations: int | None = None, population: int | None = None,
         acc_phase: bool | None = None, seed: int = 0,
         save: bool = True, verbose: bool = True,
-        progress_cb=None, should_stop=None) -> dict:
+        progress_cb=None, should_stop=None, name: str | None = None) -> dict:
     """
     Собрать датасет -> дистиллировать -> оценить -> сохранить формулы.
 
@@ -237,7 +268,7 @@ def run(branch: str = 'A', *, depth_penalty: str | None = None,
     saved = None
     if save:
         saved = save_best(result['trees'], branch, meta, bundle['input_names'],
-                          verbose=verbose)
+                          verbose=verbose, name=name)
 
     if verbose:
         print_report(meta, result['trees'], bundle['input_names'])
@@ -296,6 +327,7 @@ def run_batch(branch: str = 'A', n_variants: int | None = None,
     n_variants = n_variants if n_variants is not None else config.EML_BATCH_VARIANTS
     penalties = list(config.DEPTH_PENALTIES.keys())
     runs, best, best_val = [], None, -1.0
+    stamp = time.strftime('%Y%m%d-%H%M')
     summary_dir = os.path.join(config.RUNS_DIR,
                                time.strftime('%Y%m%d_%H%M%S') + f'_distill_{branch}')
     os.makedirs(summary_dir, exist_ok=True)
@@ -312,11 +344,22 @@ def run_batch(branch: str = 'A', n_variants: int | None = None,
         out = run(branch, depth_penalty=penalty, seed=i, save=False,
                   verbose=verbose, progress_cb=cb, should_stop=should_stop)
         val_score = out['meta']['metrics']['val']['eml_bal_acc']
+
+        # Каждый вариант — в библиотеку под говорящим именем. Выбрать потом
+        # можно только из сохранённого, а варианты батча отличаются друг от
+        # друга сильнее, чем иные правки метода.
+        entry, _ = archive_run(
+            out['trees'], branch, out['meta'], out['bundle']['input_names'],
+            run_dir=summary_dir, filename=f'variant_{i}_{penalty}.json',
+            name=f"{stamp}_seed{i}-{penalty}_bal{val_score:.3f}")
+        out['entry'] = entry
+
         runs.append({'seed': i, 'depth_penalty': penalty,
                      'val_bal_acc': val_score,
                      'test_bal_acc': out['meta']['metrics']['test']['eml_bal_acc'],
                      'nodes': out['meta']['total_nodes'],
-                     'stopped': out['meta'].get('stopped', False)})
+                     'stopped': out['meta'].get('stopped', False),
+                     'library_name': entry.name})
         if val_score > best_val:
             best_val, best = val_score, out
         if should_stop is not None and should_stop():
@@ -326,26 +369,27 @@ def run_batch(branch: str = 'A', n_variants: int | None = None,
 
     # Тот же защищённый путь, что и у одиночного прогона: батч тоже не должен
     # затирать лучший результат, если ему не повезло с сидами.
-    saved = save_best(best['trees'], branch, best['meta'],
-                      best['bundle']['input_names'], verbose=False,
-                      run_dir=summary_dir)
+    saved = promote_if_better(best['entry'], verbose=False)
     with open(os.path.join(summary_dir, 'summary.json'), 'w', encoding='utf-8') as f:
         json.dump({'branch': branch, 'runs': runs, 'best': best['meta'],
-                   'saved': saved}, f, indent=2, ensure_ascii=False)
+                   'saved': {k: v for k, v in saved.items() if k != 'entry'}},
+                  f, indent=2, ensure_ascii=False)
 
     if verbose:
         print(f"\n{'=' * 72}\nСВОДКА ПО ВАРИАНТАМ (лучший выбран по val)")
-        print(f"{'#':>3} {'penalty':>9} {'val bal':>9} {'test bal':>9} {'узлов':>7}")
+        print(f"{'#':>3} {'penalty':>9} {'val bal':>9} {'test bal':>9} "
+              f"{'узлов':>7}  имя в библиотеке")
         for r in runs:
-            mark = ' <-' if r['val_bal_acc'] == best_val else ''
+            mark = ' <-' if r['val_bal_acc'] == best_val else '   '
             print(f"{r['seed']:>3} {r['depth_penalty']:>9} "
                   f"{r['val_bal_acc']:>9.4f} {r['test_bal_acc']:>9.4f} "
-                  f"{r['nodes']:>7}{mark}")
+                  f"{r['nodes']:>7}{mark} {r['library_name']}")
         if saved['promoted']:
-            print(f"лучшие формулы -> {saved['best_path']}")
+            print(f"активной стала «{saved['library_name']}» "
+                  f"-> {saved['best_path']}")
         else:
-            print(f"лучший НЕ обновлён ({saved['reason']}), "
-                  f"прогон лежит в {saved['run_path']}")
+            print(f"активная НЕ тронута ({saved['reason']}); все варианты "
+                  f"лежат в библиотеке")
         print(f"сводка -> {summary_dir}/summary.json")
 
     return {'best': best, 'runs': runs, 'summary_dir': summary_dir,

@@ -56,7 +56,7 @@ def cmd_train(args):
     import train_oracle
 
     out = train_oracle.train(args.branch, epochs=args.epochs, lr=args.lr,
-                             batch_size=args.batch_size)
+                             batch_size=args.batch_size, name=args.name)
     path = os.path.join(config.RESULTS_DIR, f'training_{args.branch.upper()}.png')
     os.makedirs(config.RESULTS_DIR, exist_ok=True)
     reports.plot_training(out['history'],
@@ -75,7 +75,8 @@ def cmd_distill(args):
     else:
         pipeline.run(args.branch, depth_penalty=args.depth_penalty,
                      generations=args.generations, population=args.population,
-                     acc_phase=not args.no_acc_phase, seed=args.seed)
+                     acc_phase=not args.no_acc_phase, seed=args.seed,
+                     name=args.name)
 
 
 # ── report ────────────────────────────────────────────────────────────────────
@@ -263,6 +264,94 @@ def cmd_verify_c(args):
     return 0 if ok else 1
 
 
+# ── models ────────────────────────────────────────────────────────────────────
+
+def cmd_models(args):
+    """
+    Библиотека моделей: список, активация, переименование, удаление.
+
+    Лучшая в каждой группе (вид × ветка) помечается звёздочкой и выбирается
+    ПО VAL — той же метрикой, по которой идёт отбор внутри прогона. Test для
+    выбора не используется: его смотрят один раз, в самом конце.
+    """
+    import storage
+
+    branch = args.branch.upper() if args.branch else None
+
+    if args.activate:
+        return _models_apply(storage, args.activate, branch, 'activate')
+    if args.delete:
+        return _models_apply(storage, args.delete, branch, 'delete')
+    if args.rename:
+        old, new = args.rename
+        return _models_apply(storage, old, branch, 'rename', new)
+
+    entries = storage.list_models(kind=args.kind, branch=branch)
+    if not entries:
+        print("\nбиблиотека пуста. Модель попадает в неё сама при "
+              "`train` и `distill`.")
+        print(f"папка: {storage.library_dir()}")
+        return 0
+
+    print(f"\nБИБЛИОТЕКА МОДЕЛЕЙ ({storage.library_dir()})")
+    print("★ лучшая по val в своей группе   • активная сейчас\n")
+    header = (f"   {'вид':<7} {'ветка':<5} {'имя':<34} {'val bal':>8} "
+              f"{'test bal':>9} {'сложность':>10}")
+    print(header)
+    print('-' * len(header))
+    for entry in entries:
+        marks = ('★' if entry.is_best else ' ') + ('•' if entry.is_active else ' ')
+        val = f"{entry.val_score:.4f}" if entry.val_score is not None else '—'
+        test = f"{entry.test_score:.4f}" if entry.test_score is not None else '—'
+        unit = 'пар.' if entry.kind == 'oracle' else 'узл.'
+        size = f"{entry.size} {unit}" if entry.size is not None else '—'
+        kind = 'оракул' if entry.kind == 'oracle' else 'формулы'
+        print(f"{marks} {kind:<7} {entry.branch:<5} {entry.name:<34} "
+              f"{val:>8} {test:>9} {size:>10}")
+
+    print("\nактивные сейчас:")
+    for kind in storage.KINDS:
+        for br in ('A', 'B'):
+            name = storage.active_name(kind, br)
+            label = 'оракул ' if kind == 'oracle' else 'формулы'
+            shown = name or '— (слот пуст или модель не из библиотеки)'
+            print(f"  {label} {br}: {shown}")
+    print("\nсделать активной:  python main.py models --activate <имя>")
+    return 0
+
+
+def _models_apply(storage, name: str, branch: str | None, action: str,
+                  new_name: str | None = None) -> int:
+    """Найти модель по имени и выполнить над ней действие."""
+    matches = [e for e in storage.list_models(branch=branch) if e.name == name]
+    if not matches:
+        print(f"модель «{name}» не найдена. Список: python main.py models")
+        return 1
+    if len(matches) > 1:
+        # Имена уникальны внутри группы (вид × ветка), но не между группами.
+        print(f"под именем «{name}» найдено несколько моделей — уточните "
+              f"--branch и --kind:")
+        for e in matches:
+            print(f"  {e.kind} ветка {e.branch}")
+        return 1
+
+    entry = matches[0]
+    if action == 'activate':
+        path = storage.activate(entry)
+        print(f"активной стала «{entry.name}» -> {path}")
+    elif action == 'delete':
+        if entry.is_active:
+            print(f"«{entry.name}» сейчас активна. Активный слот "
+                  f"({storage.active_path(entry.kind, entry.branch)}) "
+                  f"останется на месте, из библиотеки модель будет удалена.")
+        storage.delete_model(entry)
+        print(f"удалено: {entry.path}")
+    else:
+        renamed = storage.rename_model(entry, new_name)
+        print(f"«{entry.name}» -> «{renamed.name}»")
+    return 0
+
+
 # ── bench ─────────────────────────────────────────────────────────────────────
 
 def cmd_bench(args):
@@ -361,6 +450,8 @@ def build_parser() -> argparse.ArgumentParser:
     # config — иначе CLI и GUI считают разное при одинаковых числах на экране.
     p.add_argument('--lr', type=float, default=None)
     p.add_argument('--batch-size', type=int, default=None)
+    p.add_argument('--name', default=None,
+                   help='имя копии в библиотеке (по умолчанию время + метрика)')
     p.set_defaults(func=cmd_train)
 
     p = sub.add_parser('distill', help='дистилляция оракула в EML-формулы')
@@ -375,6 +466,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('--no-acc-phase', action='store_true',
                    help='только DATA-фаза (для отладки)')
     p.add_argument('--seed', type=int, default=0)
+    p.add_argument('--name', default=None,
+                   help='имя копии в библиотеке (по умолчанию время + метрика)')
     p.set_defaults(func=cmd_distill)
 
     p = sub.add_parser('report', help='графики в results/')
@@ -391,6 +484,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('--out', default=None)
     p.set_defaults(func=cmd_verify_c)
 
+    p = sub.add_parser('models', help='библиотека моделей: список и выбор')
+    p.add_argument('--kind', default=None, choices=['oracle', 'eml'],
+                   help='показать только оракулов или только формулы')
+    p.add_argument('--branch', default=None, choices=['A', 'B', 'a', 'b'])
+    p.add_argument('--activate', metavar='ИМЯ',
+                   help='сделать модель активной')
+    p.add_argument('--rename', nargs=2, metavar=('ИМЯ', 'НОВОЕ'),
+                   help='переименовать модель')
+    p.add_argument('--delete', metavar='ИМЯ',
+                   help='удалить модель из библиотеки')
+    p.set_defaults(func=cmd_models)
+
     p = sub.add_parser('bench', help='сравнение скорости оракул vs формулы')
     p.add_argument('-n', type=int, default=500)
     p.set_defaults(func=cmd_bench)
@@ -400,7 +505,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser('gui', help='графический интерфейс')
     p.add_argument('--tab', default=None,
-                   choices=['data', 'features', 'train', 'distill', 'test'],
+                   choices=['data', 'features', 'train', 'distill', 'models',
+                            'test'],
                    help='вкладка, открытая при старте')
     p.set_defaults(func=cmd_gui)
 
@@ -409,7 +515,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main():
     args = build_parser().parse_args()
-    if hasattr(args, 'branch'):
+    # У models ветка необязательна (None = все ветки), поэтому проверяем не
+    # только наличие атрибута, но и значение.
+    if getattr(args, 'branch', None):
         args.branch = args.branch.upper()
     sys.exit(args.func(args) or 0)
 

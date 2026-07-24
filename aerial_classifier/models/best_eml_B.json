@@ -820,6 +820,7 @@
     "generations": null,
     "population": null,
     "distill_seconds": 428.9244694709778,
-    "total_seconds": 446.2464337348938
+    "total_seconds": 446.2464337348938,
+    "library_name": "батч-seed1-medium-28узлов"
   }
 }

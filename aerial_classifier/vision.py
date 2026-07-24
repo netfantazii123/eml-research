@@ -58,14 +58,19 @@ class Predictor:
     Args:
         branch: 'A' (признаки) или 'B' (эмбеддинг CNN).
         engine: 'eml' — дистиллированные формулы, 'oracle' — нейросеть.
+        path:   конкретный файл модели вместо активного слота. Через него
+                вкладки теста прогоняют кадр любой моделью из библиотеки —
+                сравнить две сохранённые модели на одном кадре иначе никак.
     """
 
-    def __init__(self, branch: str = 'A', engine: str = 'eml'):
+    def __init__(self, branch: str = 'A', engine: str = 'eml',
+                 path: str | None = None):
         self.branch = branch.upper()
         self.engine = engine.lower()
         if self.engine not in ('eml', 'oracle'):
             raise ValueError(f"engine должен быть 'eml' или 'oracle', "
                              f"получено {engine!r}")
+        self.path = path
         self._model = None
         self._clf = None
         self._load()
@@ -79,11 +84,13 @@ class Predictor:
             self._model = (oracle_mod.FeatureMLP() if self.branch == 'A'
                            else oracle_mod.PixelCNN())
             self.meta = storage.load_oracle(self._model, branch=self.branch,
+                                            path=self.path,
                                             device=self._device)
             self._model.eval()
         else:
             import eml_distiller as dist
-            self._clf, payload = storage.load_classifier(branch=self.branch)
+            self._clf, payload = storage.load_classifier(branch=self.branch,
+                                                         path=self.path)
             # Формулы индексируют входы по номеру — сообщаем движку, какое
             # пространство сейчас активно, иначе to_string() наврёт с именами.
             dist.configure_inputs(len(payload['input_names']),
@@ -101,7 +108,9 @@ class Predictor:
     def label(self) -> str:
         """Короткое имя движка для подписи в интерфейсе."""
         name = 'EML-формулы' if self.engine == 'eml' else 'нейросеть-оракул'
-        return f"{name} (ветка {self.branch})"
+        model = self.meta.get('library_name') if self.meta else None
+        suffix = f", {model}" if model and self.path else ""
+        return f"{name} (ветка {self.branch}{suffix})"
 
     @property
     def conf_is_probability(self) -> bool:

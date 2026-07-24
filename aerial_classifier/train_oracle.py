@@ -67,7 +67,7 @@ def augment(batch: torch.Tensor) -> torch.Tensor:
 
 def train(branch: str = 'A', epochs: int | None = None, verbose: bool = True,
           seed: int = 0, lr: float | None = None, batch_size: int | None = None,
-          progress_cb=None, should_stop=None) -> dict:
+          progress_cb=None, should_stop=None, name: str | None = None) -> dict:
     """
     Обучить оракула выбранной ветки.
 
@@ -82,6 +82,9 @@ def train(branch: str = 'A', epochs: int | None = None, verbose: bool = True,
         should_stop: callable() -> bool — опрашивается между эпохами. True =
             прекратить и вернуть ЛУЧШИЙ на этот момент чекпоинт, а не мусор:
             кнопка «Стоп» должна останавливать обучение, а не выбрасывать его.
+        name: имя копии в библиотеке моделей (models/library/). Без него имя
+            собирается из времени и метрики. Активный слот models/oracle_X.pt
+            обновляется в любом случае.
 
     Returns:
         dict с моделью, метриками и историей обучения.
@@ -233,16 +236,51 @@ def train(branch: str = 'A', epochs: int | None = None, verbose: bool = True,
         # уже обученной модели, не переобучая её заново.
         'history': history,
     }
+    # Имя библиотечной копии пишется в meta ДО сохранения: по нему потом
+    # опознаётся, какая именно модель лежит в активном слоте.
+    meta['library_name'] = storage.reserve_name('oracle', branch, name, meta)
     path = storage.save_oracle(model, branch=branch, meta=meta)
+    entry = storage.add_to_library('oracle', branch, meta['library_name'], meta,
+                                   source_path=path, overwrite=True)
 
     if verbose:
         print(f"\n[train] лучшая эпоха {best_epoch}: "
               f"val bal {best_val_bal_acc:.4f} (acc {best_val_acc:.4f}), "
               f"test bal {test_bal_acc:.4f} (acc {test_acc:.4f})  ({elapsed:.0f} c)")
-        print(f"[train] сохранено -> {path}")
+        print(f"[train] активная модель -> {path}")
+        print(f"[train] в библиотеку как «{entry.name}» -> {entry.path}")
+        _warn_if_not_best(entry, verbose=True)
 
-    return {'model': model, 'meta': meta, 'history': history,
+    return {'model': model, 'meta': meta, 'history': history, 'entry': entry,
+            'regressed': _warn_if_not_best(entry, verbose=False),
             'splits': (train_idx, val_idx, test_idx)}
+
+
+def _warn_if_not_best(entry, verbose: bool = True) -> dict | None:
+    """
+    Предупредить, если только что обученная модель хуже лучшей в библиотеке.
+
+    Обучение, в отличие от дистилляции, всегда занимает активный слот: после
+    `train` там должна лежать именно та модель, которую только что обучили —
+    иначе команда врала бы о своём действии. Но тихо заменить хорошего оракула
+    неудачным прогоном на двадцать эпох тоже нельзя, поэтому регресс
+    проговаривается вслух, а прежняя модель никуда не девается: она осталась в
+    библиотеке, и вернуть её — одна команда.
+    """
+    best = next((e for e in storage.list_models('oracle', entry.branch)
+                 if e.is_best), None)
+    if (best is None or best.name == entry.name
+            or best.val_score is None or entry.val_score is None
+            or entry.val_score >= best.val_score):
+        return None
+    if verbose:
+        print(f"\n[train] ВНИМАНИЕ: активной стала модель ХУЖЕ лучшей "
+              f"сохранённой")
+        print(f"        сейчас активна «{entry.name}» — val {entry.val_score:.4f}")
+        print(f"        лучшая  «{best.name}» — val {best.val_score:.4f}")
+        print(f"        вернуть: python main.py models --activate {best.name}")
+    return {'best_name': best.name, 'best_val': best.val_score,
+            'current_val': entry.val_score}
 
 
 @torch.no_grad()

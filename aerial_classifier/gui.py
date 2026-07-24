@@ -547,6 +547,8 @@ class TrainTab(WorkerTab):
         self.p_epochs = ParamRow(params, "эпох", config.TRAIN_EPOCHS, int)
         self.p_lr = ParamRow(params, "LR", config.TRAIN_LR, float)
         self.p_batch = ParamRow(params, "batch", config.TRAIN_BATCH_SIZE, int)
+        # Имя копии в библиотеке. Пустое = время плюс метрика.
+        self.p_name = ParamRow(params, "имя модели", "", str)
 
         _sep(panel)
         self.btn = _btn(panel, "Обучить", self.run, bg=GREEN, fg=BG,
@@ -584,9 +586,10 @@ class TrainTab(WorkerTab):
         # сессии, меняя поведение и соседних вкладок, и последующих запусков.
         lr = self.p_lr.get(config.TRAIN_LR)
         batch = self.p_batch.get(config.TRAIN_BATCH_SIZE)
+        name = (self.p_name.get('') or '').strip() or None
         self.history = {'train_loss': [], 'val_acc': [], 'val_bal_acc': []}
         self._last_draw = 0.0
-        if self.start(self._work, branch, epochs, lr, batch):
+        if self.start(self._work, branch, epochs, lr, batch, name):
             self.btn.config(state=tk.DISABLED, text="Обучение...")
             self.btn_stop.config(state=tk.NORMAL)
             self.info.config(text=f"ветка {branch}: обучение...")
@@ -596,14 +599,14 @@ class TrainTab(WorkerTab):
         self.btn_stop.config(state=tk.DISABLED)
         self.info.config(text="останавливаю после эпохи...")
 
-    def _work(self, branch, epochs, lr, batch):
+    def _work(self, branch, epochs, lr, batch, name=None):
         import train_oracle
 
         def progress(payload):
             self.queue.put({'type': 'epoch', **payload})
 
         out = train_oracle.train(branch, epochs=epochs, verbose=False,
-                                 lr=lr, batch_size=batch,
+                                 lr=lr, batch_size=batch, name=name,
                                  progress_cb=progress,
                                  should_stop=self.should_stop)
         self.queue.put({'type': 'trained', 'history': out['history'],
@@ -645,7 +648,8 @@ class TrainTab(WorkerTab):
                      f"test bal: {meta.get('test_bal_acc', 0):.4f}\n"
                      f"test acc: {meta.get('test_acc', 0):.4f}\n"
                      f"эпох: {meta.get('epochs_run', 0)}\n"
-                     f"время: {meta.get('seconds', 0):.0f} c{note}")
+                     f"время: {meta.get('seconds', 0):.0f} c{note}\n\n"
+                     f"в библиотеке:\n{meta.get('library_name', '—')}")
             self._draw()
         elif event['type'] == 'error':
             messagebox.showerror("Ошибка обучения", event['text'])
@@ -716,6 +720,7 @@ class DistillTab(WorkerTab):
         self.p_gen = ParamRow(params, "поколений", config.EML_GENERATIONS, int)
         self.p_pop = ParamRow(params, "популяция", config.EML_POPULATION, int)
         self.p_seed = ParamRow(params, "сид", 0, int)
+        self.p_name = ParamRow(params, "имя модели", "", str)
         _label(panel, "штраф за сложность:", fill=tk.X, padx=8, pady=(6, 0))
         self.penalty = tk.StringVar(value=config.DEPTH_PENALTY_DEFAULT)
         ttk.Combobox(panel, textvariable=self.penalty, font=("Consolas", 8),
@@ -765,7 +770,8 @@ class DistillTab(WorkerTab):
                           self.p_gen.get(config.EML_GENERATIONS),
                           self.p_pop.get(config.EML_POPULATION),
                           self.penalty.get(), self.acc_phase.get(),
-                          self.p_seed.get(0)):
+                          self.p_seed.get(0),
+                          (self.p_name.get('') or '').strip() or None):
             return
         self.data_hist, self.acc_hist = {}, []
         self._last_draw = 0.0
@@ -779,7 +785,8 @@ class DistillTab(WorkerTab):
         self.btn_stop.config(state=tk.DISABLED)
         self.info.config(text="останавливаю после поколения...")
 
-    def _work(self, branch, generations, population, penalty, acc_phase, seed):
+    def _work(self, branch, generations, population, penalty, acc_phase, seed,
+              name=None):
         import pipeline
 
         # Прогресс приходит каждое поколение — это тысячи событий за прогон.
@@ -797,7 +804,7 @@ class DistillTab(WorkerTab):
         out = pipeline.run(branch, depth_penalty=penalty,
                            generations=generations, population=population,
                            acc_phase=acc_phase, save=True, verbose=False,
-                           seed=seed, progress_cb=progress,
+                           seed=seed, name=name, progress_cb=progress,
                            should_stop=self.should_stop)
         self.queue.put({'type': 'distilled', 'meta': out['meta'],
                         'result': out['result'], 'saved': out.get('saved'),
@@ -821,11 +828,11 @@ class DistillTab(WorkerTab):
             metrics = meta.get('metrics', {}).get('test', {})
             oracle_bal = metrics.get('oracle_bal_acc', 0) or 1
             saved = event.get('saved') or {}
-            note = ""
+            note = f"\n\nв библиотеке:\n{meta.get('library_name', '—')}"
             if meta.get('stopped'):
-                note = "\n\n(прервано вручную —\nне сохранено как лучшее)"
+                note += "\n\n(прервано вручную —\nне стало активной)"
             elif saved and not saved.get('promoted'):
-                note = f"\n\nлучший не тронут:\n{saved.get('reason', '')}"
+                note += f"\n\nактивная не тронута:\n{saved.get('reason', '')}"
             self.info.config(
                 text=f"узлов: {meta.get('total_nodes', 0)}\n"
                      f"глубина: {meta.get('max_depth', 0)}\n"
@@ -907,6 +914,196 @@ class DistillTab(WorkerTab):
         self.plot.draw()
 
 
+# ── Вкладка: Модели ───────────────────────────────────────────────────────────
+
+ACTIVE_CHOICE = "— активная —"
+
+
+def _model_choices(kind: str, branch: str) -> list[str]:
+    """
+    Список для выпадающего меню: «активная» плюс модели библиотеки.
+
+    Первым пунктом всегда активная модель — в большинстве случаев нужна
+    именно она, а конкретная версия выбирается, когда сравнивают две.
+    """
+    import storage
+    return [ACTIVE_CHOICE] + [e.label() for e in storage.list_models(kind, branch)]
+
+
+def _resolve_choice(choice: str, kind: str, branch: str) -> str | None:
+    """Пункт меню -> путь к файлу модели (None = активный слот)."""
+    import storage
+    if not choice or choice == ACTIVE_CHOICE:
+        return None
+    for entry in storage.list_models(kind, branch):
+        if entry.label() == choice:
+            return entry.path
+    return None                      # модель удалили — молча берём активную
+
+
+class ModelsTab:
+    """
+    Библиотека моделей: что сохранено, что активно, что лучшее.
+
+    Обучение и дистилляция стоят от секунд до часа, а разброс GA по сидам
+    больше разницы между правками метода — поэтому «какую модель мы сейчас
+    меряем» это не мелочь интерфейса. Здесь видно все сохранённые модели с их
+    характеристиками, и любую можно сделать активной.
+    """
+
+    def __init__(self, root: tk.Tk, parent: tk.Frame, lock: BusyLock | None = None):
+        self.root = root
+        self.entries: list = []
+
+        panel = tk.Frame(parent, bg=BG2, width=250)
+        panel.pack(side=tk.LEFT, fill=tk.Y)
+        panel.pack_propagate(False)
+
+        _section(panel, "БИБЛИОТЕКА")
+        _btn(panel, "Обновить список", self.refresh, fill=tk.X, padx=6, pady=3)
+        self.btn_activate = _btn(panel, "Сделать активной", self.activate,
+                                 bg=GREEN, fg=BG, fill=tk.X, padx=6, pady=3)
+        self.btn_rename = _btn(panel, "Переименовать...", self.rename,
+                               fill=tk.X, padx=6, pady=3)
+        self.btn_delete = _btn(panel, "Удалить...", self.delete, bg=RED, fg=BG,
+                               fill=tk.X, padx=6, pady=3)
+        _sep(panel)
+        _label(panel, "★ лучшая по val\n• активная сейчас", fg=FG2,
+               fill=tk.X, padx=8, pady=(0, 4))
+        _sep(panel)
+        self.info = _label(panel, "выберите модель в списке", fill=tk.X,
+                           padx=8, pady=4)
+
+        right = tk.Frame(parent, bg=BG)
+        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        _label(right, "сохранённые модели", fg=ACCENT, font=MONO_B,
+               fill=tk.X, padx=8, pady=(8, 2))
+
+        columns = ('marks', 'kind', 'branch', 'name', 'val', 'test', 'size',
+                   'when')
+        self.tree = ttk.Treeview(right, columns=columns, show='headings',
+                                 selectmode='browse', height=18)
+        for column, title, width, anchor in (
+                ('marks', '', 40, 'center'),
+                ('kind', 'вид', 80, 'w'),
+                ('branch', 'ветка', 55, 'center'),
+                ('name', 'имя', 300, 'w'),
+                ('val', 'val bal', 80, 'e'),
+                ('test', 'test bal', 80, 'e'),
+                ('size', 'сложность', 110, 'e'),
+                ('when', 'сохранено', 120, 'w')):
+            self.tree.heading(column, text=title)
+            self.tree.column(column, width=width, anchor=anchor)
+        self.tree.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
+        self.tree.bind('<<TreeviewSelect>>', lambda e: self._on_select())
+        self.tree.tag_configure('best', foreground=GREEN)
+        self.tree.tag_configure('active', foreground=ACCENT)
+
+        _label(right, "Активная модель — та, которую берут экспорт в C, "
+                      "verify-c, bench и вкладки теста\nпо умолчанию. Прогоны "
+                      "попадают в библиотеку сами; лучшая выбирается по val.",
+               fg=FG2, fill=tk.X, padx=10, pady=(0, 8))
+
+        if lock is not None:
+            lock.subscribe(self._on_lock)
+        self.refresh()
+
+    def _on_lock(self, owner):
+        """Пока идёт обучение/дистилляция, файлы моделей не трогаем."""
+        state = tk.DISABLED if owner is not None else tk.NORMAL
+        for button in (self.btn_activate, self.btn_rename, self.btn_delete):
+            button.config(state=state)
+
+    def refresh(self):
+        import storage
+
+        self.tree.delete(*self.tree.get_children())
+        self.entries = storage.list_models()
+        for i, entry in enumerate(self.entries):
+            marks = ('★' if entry.is_best else '') + ('•' if entry.is_active else '')
+            unit = 'пар.' if entry.kind == 'oracle' else 'узл.'
+            tags = []
+            if entry.is_active:
+                tags.append('active')
+            elif entry.is_best:
+                tags.append('best')
+            self.tree.insert(
+                '', tk.END, iid=str(i), tags=tags, values=(
+                    marks,
+                    'оракул' if entry.kind == 'oracle' else 'формулы',
+                    entry.branch,
+                    entry.name,
+                    f"{entry.val_score:.4f}" if entry.val_score is not None else '—',
+                    f"{entry.test_score:.4f}" if entry.test_score is not None else '—',
+                    f"{entry.size} {unit}" if entry.size is not None else '—',
+                    time.strftime('%d.%m %H:%M', time.localtime(entry.saved_at))))
+        if not self.entries:
+            self.info.config(text="библиотека пуста.\n\nМодели попадают сюда\n"
+                                  "сами при обучении\nи дистилляции.")
+
+    def _selected(self):
+        selection = self.tree.selection()
+        if not selection:
+            return None
+        index = int(selection[0])
+        return self.entries[index] if index < len(self.entries) else None
+
+    def _on_select(self):
+        entry = self._selected()
+        if entry is not None:
+            self.info.config(text=entry.details())
+
+    def activate(self):
+        import storage
+
+        entry = self._selected()
+        if entry is None:
+            messagebox.showinfo("Не выбрано", "Выберите модель в списке.")
+            return
+        if entry.is_active:
+            messagebox.showinfo("Уже активна",
+                                f"«{entry.name}» и так активна.")
+            return
+        storage.activate(entry)
+        self.refresh()
+        self.info.config(text=f"активной стала\n«{entry.name}»")
+
+    def rename(self):
+        import storage
+        from tkinter import simpledialog
+
+        entry = self._selected()
+        if entry is None:
+            messagebox.showinfo("Не выбрано", "Выберите модель в списке.")
+            return
+        new_name = simpledialog.askstring("Переименовать",
+                                          "Новое имя модели:",
+                                          initialvalue=entry.name,
+                                          parent=self.root)
+        if not new_name or new_name == entry.name:
+            return
+        renamed = storage.rename_model(entry, new_name)
+        self.refresh()
+        self.info.config(text=f"новое имя:\n«{renamed.name}»")
+
+    def delete(self):
+        import storage
+
+        entry = self._selected()
+        if entry is None:
+            messagebox.showinfo("Не выбрано", "Выберите модель в списке.")
+            return
+        note = ("\n\nЭта модель сейчас активна. Активный слот останется на "
+                "месте, из библиотеки исчезнет только копия."
+                if entry.is_active else "")
+        if not messagebox.askyesno("Удалить модель",
+                                   f"Удалить «{entry.name}» безвозвратно?{note}"):
+            return
+        storage.delete_model(entry)
+        self.refresh()
+        self.info.config(text="удалено")
+
+
 # ── Вкладка: Тест · Фото ──────────────────────────────────────────────────────
 
 class PhotoTab:
@@ -934,8 +1131,28 @@ class PhotoTab:
             tk.Radiobutton(panel, text=f"ветка {value}", variable=self.branch,
                            value=value, bg=BG2, fg=FG, selectcolor=BG3,
                            font=("Consolas", 8), activebackground=BG2,
-                           anchor='w', command=self.classify).pack(fill=tk.X,
-                                                                   padx=6)
+                           anchor='w',
+                           command=self._on_branch).pack(fill=tk.X, padx=6)
+
+        # Выбор конкретных моделей. Сравнивать «формулы против оракула» и
+        # «эту версию формул против той» — одна и та же операция, поэтому
+        # движки выбираются независимо.
+        _section(panel, "МОДЕЛИ")
+        _label(panel, "оракул:", fill=tk.X, padx=8)
+        self.pick_oracle = tk.StringVar(value=ACTIVE_CHOICE)
+        self.combo_oracle = ttk.Combobox(panel, textvariable=self.pick_oracle,
+                                         font=("Consolas", 7), state='readonly')
+        self.combo_oracle.pack(fill=tk.X, padx=6, pady=(0, 4))
+        self.combo_oracle.bind('<<ComboboxSelected>>', lambda e: self.classify())
+
+        _label(panel, "формулы:", fill=tk.X, padx=8)
+        self.pick_eml = tk.StringVar(value=ACTIVE_CHOICE)
+        self.combo_eml = ttk.Combobox(panel, textvariable=self.pick_eml,
+                                      font=("Consolas", 7), state='readonly')
+        self.combo_eml.pack(fill=tk.X, padx=6, pady=(0, 4))
+        self.combo_eml.bind('<<ComboboxSelected>>', lambda e: self.classify())
+        _btn(panel, "Обновить список моделей", self.refresh_models,
+             fill=tk.X, padx=6, pady=3)
 
         _section(panel, "ИСТОЧНИК")
         self.btn_random = _btn(panel, "Случайная из датасета", self.random_sample,
@@ -966,12 +1183,31 @@ class PhotoTab:
 
         if lock is not None:
             lock.subscribe(self._on_lock)
+        self.refresh_models()
 
     def _on_lock(self, owner):
         """Пока идёт обучение/дистилляция, модели с диска не читаем."""
         state = tk.DISABLED if owner is not None else tk.NORMAL
         self.btn_random.config(state=state)
         self.btn_open.config(state=state)
+        if owner is None:
+            # Прогон закончился — в библиотеке появилась новая модель.
+            self.refresh_models()
+
+    def refresh_models(self):
+        """Перечитать библиотеку в оба выпадающих списка."""
+        branch = self.branch.get()
+        for combo, var, kind in ((self.combo_oracle, self.pick_oracle, 'oracle'),
+                                 (self.combo_eml, self.pick_eml, 'eml')):
+            choices = _model_choices(kind, branch)
+            combo['values'] = choices
+            if var.get() not in choices:
+                var.set(ACTIVE_CHOICE)
+
+    def _on_branch(self):
+        """Смена ветки: у неё свои модели, список надо пересобрать."""
+        self.refresh_models()
+        self.classify()
 
     def _predictor(self, engine: str) -> vision.Predictor:
         """
@@ -987,11 +1223,14 @@ class PhotoTab:
         import storage
 
         branch = self.branch.get()
+        kind = 'oracle' if engine == 'oracle' else 'eml'
+        choice = (self.pick_oracle if engine == 'oracle' else self.pick_eml).get()
+        chosen = _resolve_choice(choice, kind, branch)
+
         # Ветка B на формулах зависит от ДВУХ файлов: вход формул — эмбеддинг
         # CNN, поэтому переобучение оракула B меняет ответ EML-движка ровно так
         # же, как новая дистилляция.
-        paths = [storage.oracle_path(branch)] if engine == 'oracle' else [
-            storage.formulas_path(branch)]
+        paths = [chosen or storage.active_path(kind, branch)]
         if engine == 'eml' and branch == 'B':
             paths.append(storage.oracle_path('B'))
 
@@ -1001,9 +1240,10 @@ class PhotoTab:
                 stamps.append(os.path.getmtime(path))
             except OSError:
                 stamps.append(None)
-        key = (branch, engine, tuple(stamps))
+        key = (branch, engine, chosen, tuple(stamps))
         if key not in self._predictors:
-            predictor = vision.Predictor(branch=branch, engine=engine)
+            predictor = vision.Predictor(branch=branch, engine=engine,
+                                         path=chosen)
             # Держать все версии подряд незачем — интересна только свежая.
             self._predictors = {k: v for k, v in self._predictors.items()
                                 if k[:2] != (branch, engine)}
@@ -1224,6 +1464,13 @@ class VideoTab(WorkerTab):
                 command=self._on_model_change))
             self.model_radios[-1].pack(fill=tk.X, padx=6)
 
+        self.pick_model = tk.StringVar(value=ACTIVE_CHOICE)
+        self.combo_model = ttk.Combobox(panel, textvariable=self.pick_model,
+                                        font=("Consolas", 7), state='readonly')
+        self.combo_model.pack(fill=tk.X, padx=6, pady=4)
+        self.combo_model.bind('<<ComboboxSelected>>',
+                              lambda e: self._on_model_change())
+
         params = _section(panel, "ОВЕРЛЕЙ")
         self.p_stride = ParamRow(params, "шаг окна", vision.DEFAULT_STRIDE, int)
         self.p_alpha = ParamRow(params, "прозрачность", 0.35, float)
@@ -1254,6 +1501,7 @@ class VideoTab(WorkerTab):
 
         if lock is not None:
             lock.subscribe(self._on_lock)
+        self.refresh_models()
         self._tick()
 
     def _on_lock(self, owner):
@@ -1261,12 +1509,29 @@ class VideoTab(WorkerTab):
         state = tk.DISABLED if owner is not None else tk.NORMAL
         for button in self.src_buttons:
             button.config(state=state)
+        if owner is None:
+            self.refresh_models()
+
+    def refresh_models(self):
+        """Список моделей для текущей пары (ветка, движок)."""
+        kind = 'oracle' if self.engine.get() == 'oracle' else 'eml'
+        choices = _model_choices(kind, self.branch.get())
+        self.combo_model['values'] = choices
+        if self.pick_model.get() not in choices:
+            self.pick_model.set(ACTIVE_CHOICE)
+
+    def _current_model(self) -> tuple[str, str, str | None]:
+        """(ветка, движок, путь) — то, чем сейчас должна размечаться картинка."""
+        branch, engine = self.branch.get(), self.engine.get()
+        kind = 'oracle' if engine == 'oracle' else 'eml'
+        return branch, engine, _resolve_choice(self.pick_model.get(), kind, branch)
 
     def _on_model_change(self):
-        """Смена ветки/движка на ходу = перезапуск источника с новой моделью."""
+        """Смена модели на ходу = перезапуск источника с новой моделью."""
+        self.refresh_models()
         if self._running_model is None or not self.busy:
             return
-        if self._running_model == (self.branch.get(), self.engine.get()):
+        if self._running_model == self._current_model():
             return
         self._start_source(self._source)
 
@@ -1301,11 +1566,11 @@ class VideoTab(WorkerTab):
             self.thread.join(timeout=2.0)
         _drain(self.frames)
         self._refresh_settings()      # чтобы первый же кадр считался как надо
-        branch, engine = self.branch.get(), self.engine.get()
-        if not self.start(self._work, source, branch, engine):
+        branch, engine, path = self._current_model()
+        if not self.start(self._work, source, branch, engine, path):
             return
         self._source = source
-        self._running_model = (branch, engine)
+        self._running_model = (branch, engine, path)
         self.btn_stop.config(state=tk.NORMAL)
         self.recording = []
         self.recording_bytes = 0
@@ -1320,8 +1585,8 @@ class VideoTab(WorkerTab):
         self.btn_stop.config(state=tk.DISABLED)
 
     # ── Рабочий поток ─────────────────────────────────────────────────────
-    def _work(self, source, branch, engine):
-        predictor = vision.Predictor(branch=branch, engine=engine)
+    def _work(self, source, branch, engine, path=None):
+        predictor = vision.Predictor(branch=branch, engine=engine, path=path)
         video = None
         if source == 'synthetic':
             stream = self._synthetic_stream()
@@ -1462,7 +1727,10 @@ class VideoTab(WorkerTab):
                 f"FPS: {fps:.1f}\n"
                 f"кадр: {frame.shape[1]}x{frame.shape[0]}")
         if self._running_model:
-            text += f"\nмодель: {'/'.join(self._running_model)}"
+            branch, engine, _ = self._running_model
+            text += f"\nмодель: {branch}/{engine}"
+            if self.pick_model.get() != ACTIVE_CHOICE:
+                text += f"\n{self.pick_model.get().strip()[:22]}"
         if payload['accuracy'] is not None:
             text += f"\n\nточность разметки:\n{payload['accuracy'] * 100:.1f}%"
         if self.rec_var.get() or self.recording:
@@ -1573,6 +1841,14 @@ def _style_notebook(root: tk.Tk) -> None:
               foreground=[("selected", ACCENT)])
     style.configure("TCombobox", fieldbackground=BG3, background=BG3,
                     foreground=FG, arrowcolor=FG2)
+    # Таблица библиотеки моделей: тот же тёмный фон, что и у остального окна.
+    style.configure("Treeview", background=BG2, fieldbackground=BG2,
+                    foreground=FG, borderwidth=0, font=("Consolas", 8),
+                    rowheight=20)
+    style.configure("Treeview.Heading", background=BG3, foreground=ACCENT,
+                    font=("Consolas", 8, "bold"), borderwidth=0)
+    style.map("Treeview", background=[("selected", BG3)],
+              foreground=[("selected", ACCENT)])
 
 
 # ── Точка входа ───────────────────────────────────────────────────────────────
@@ -1580,7 +1856,7 @@ def _style_notebook(root: tk.Tk) -> None:
 def main(initial_tab: str | None = None) -> None:
     root = tk.Tk()
     root.title("Aerial Classifier — Данные · Признаки · Обучение · "
-               "Дистилляция · Тест")
+               "Дистилляция · Модели · Тест")
     root.geometry("1280x820")
     root.configure(bg=BG)
     root.minsize(1040, 680)
@@ -1594,6 +1870,7 @@ def main(initial_tab: str | None = None) -> None:
                       ("features", "  Признаки  "),
                       ("train", "  Обучение  "),
                       ("distill", "  Дистилляция  "),
+                      ("models", "  Модели  "),
                       ("test", "  Тест  ")]:
         frames[key] = tk.Frame(nb, bg=BG)
         nb.add(frames[key], text=text)
@@ -1605,6 +1882,7 @@ def main(initial_tab: str | None = None) -> None:
     FeaturesTab(root, frames["features"])
     TrainTab(root, frames["train"], lock=lock)
     DistillTab(root, frames["distill"], lock=lock)
+    ModelsTab(root, frames["models"], lock=lock)
     TestTab(root, frames["test"], lock=lock)
 
     if initial_tab in frames:
