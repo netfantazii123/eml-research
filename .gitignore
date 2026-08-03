@@ -31,6 +31,16 @@ aerial_classifier/dataset/
 # слепок, в репозиторий им не надо.
 aerial_classifier/models_pre_scalefix/
 
+# Кэш распакованных датасетов (привязан к папке на конкретной машине)
+aerial_classifier/cache/
+
+# Выбранный датасет и страховочные копии активных моделей — машинно-локальное:
+# в dataset.json лежит путь этой машины, в .prev.json — предыдущая версия
+# активной модели на случай отката. Сами модели (best_eml_*.json) в репозитории
+# остаются: это конечный артефакт проекта.
+aerial_classifier/models/dataset.json
+*.prev.json
+
 # Кэш pytest
 .pytest_cache/
 

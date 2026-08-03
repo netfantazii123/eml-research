@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "aerial_features.h"
-#include "aerial_eml_A.h"
+#include "aerial_eml_C.h"
 
 /* Тестовая обвязка: читает сырые кадры, печатает признаки и класс. */
 int main(int argc, char **argv)

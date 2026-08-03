@@ -71,7 +71,9 @@ def cmd_distill(args):
     import pipeline
 
     if args.batch:
-        pipeline.run_batch(args.branch, n_variants=args.variants)
+        pipeline.run_batch(args.branch, n_variants=args.variants,
+                           generations=args.generations,
+                           population=args.population)
     elif args.branch == 'C':
         # У ветки C свои ручки: острова, процессы и продолжение прогона.
         # Смешивать их с generations/population веток A и B в одном наборе

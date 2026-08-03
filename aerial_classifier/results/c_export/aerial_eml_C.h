@@ -3,21 +3,20 @@
  * АВТОГЕНЕРАЦИЯ (export.py). Руками не править.
  *
  * Ветка: C   Классы: BEACH, MOTO, PEOPLE, ROADS
- * Узлов AST: 63, макс. глубина: 9
- * Участков оси: 5 (порогов 4)
- * Точность на test: 0.5839 (сбалансированная 0.5645)
+ * Узлов AST: 39, макс. глубина: 9
+ * Участков оси: 4 (порогов 3)
+ * Точность на test: 0.5561 (сбалансированная 0.5879)
  * Точность оракула: 0.8890 (сбалансированная 0.9017)
- * Совпадение с оракулом (fidelity): 0.5997
+ * Совпадение с оракулом (fidelity): 0.5720
  *
  * Вход: x[] — вектор признаков в [-1, 1], заполняется функцией
  *        aerial_extract_features() из aerial_features.h.
  *
  * Как формула сама расставила классы на своей оси:
- *             -inf .. -2.526        ->  BEACH
- *           -2.526 .. -1.445        ->  ROADS
- *           -1.445 .. +2.202e+04    ->  PEOPLE
- *       +2.202e+04 .. +2.202e+04    ->  MOTO
- *       +2.202e+04 .. +inf          ->  PEOPLE
+ *             -inf .. +1.595        ->  BEACH
+ *           +1.595 .. +309.2        ->  MOTO
+ *           +309.2 .. +2.203e+04    ->  ROADS
+ *       +2.203e+04 .. +inf          ->  PEOPLE
  *
  * Индексы входов:
  *   x[ 0] = mean_r
@@ -60,8 +59,8 @@
 
 #define AERIAL_N_CLASSES    4
 #define AERIAL_N_INPUTS     32
-#define AERIAL_N_INTERVALS  5
-#define AERIAL_N_THRESHOLDS 4
+#define AERIAL_N_INTERVALS  4
+#define AERIAL_N_THRESHOLDS 3
 
 /* Базовый оператор проекта: eml(x, y) = exp(clamp(x)) - ln(|y| + eps).
  * clamp обязателен — без него exp() улетает в inf на первом выбросе. */
@@ -72,18 +71,18 @@ static inline float eml_op(float x, float y)
     return expf(x) - logf(fabsf(y) + 1e-10f);
 }
 
-/* Единственная формула: 63 узлов, глубина 9. */
+/* Единственная формула: 39 узлов, глубина 9. */
 static inline float aerial_formula(const float *x)
 {
-    return eml_op(eml_op(eml_op(eml_op(eml_op(eml_op(x[26], eml_op(x[20], -0.761247f)), eml_op(eml_op(x[24], 0.139727f), eml_op(eml_op(eml_op(x[12], x[25]), x[15]), x[23]))), eml_op(eml_op(eml_op(x[13], 0.949673f), eml_op(-1.147095f, x[1])), 0.561358f)), eml_op(0.139727f, x[9])), eml_op(eml_op(x[13], 0.139727f), eml_op(x[7], x[23]))), eml_op(eml_op(eml_op(x[2], eml_op(x[16], 0.726630f)), eml_op(x[26], eml_op(eml_op(1.750095f, eml_op(eml_op(eml_op(x[13], 0.949673f), eml_op(-1.147095f, x[1])), x[31])), x[1]))), 0.036462f));
+    return eml_op(eml_op(eml_op(eml_op(eml_op(eml_op(x[22], -0.943589f), eml_op(x[6], x[10])), eml_op(eml_op(eml_op(x[29], eml_op(-1.439391f, -1.895271f)), eml_op(-1.329005f, eml_op(x[26], eml_op(x[20], -0.269028f)))), x[29])), eml_op(eml_op(-0.544783f, x[15]), x[13])), 1.591642f), eml_op(x[24], eml_op(x[26], eml_op(x[20], 0.883895f))));
 }
 
 /* Таблица порогов. Она подобрана эволюцией под эту конкретную формулу:
  * порядок классов на оси и расстояния между ними выбирала она сама, а
  * не мы. Метки участков могут повторяться — класс имеет право занимать
  * несколько зон, и линейный порядок классов ничего не ограничивает. */
-static const float aerial_thresholds[] = { -2.52619481f, -1.44539893f, 22021.0156f, 22024.2598f };
-static const int aerial_interval_class[AERIAL_N_INTERVALS] = { 0, 3, 2, 1, 2 };
+static const float aerial_thresholds[] = { 1.5950166f, 309.153473f, 22026.7148f };
+static const int aerial_interval_class[AERIAL_N_INTERVALS] = { 0, 1, 3, 2 };
 
 static const char *aerial_class_names[AERIAL_N_CLASSES] = {
     "BEACH", "MOTO", "PEOPLE", "ROADS"

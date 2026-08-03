@@ -483,7 +483,9 @@ def print_report(meta: dict, trees: list, input_names: list[str]):
 # ── Батч-дистилляция ──────────────────────────────────────────────────────────
 
 def run_batch(branch: str = 'A', n_variants: int | None = None,
-              verbose: bool = True, progress_cb=None, should_stop=None) -> dict:
+              verbose: bool = True, progress_cb=None, should_stop=None,
+              generations: int | None = None,
+              population: int | None = None) -> dict:
     """
     Несколько прогонов с разными сидами и штрафами за глубину.
 
@@ -510,6 +512,7 @@ def run_batch(branch: str = 'A', n_variants: int | None = None,
             def cb(payload, _i=i):
                 progress_cb({**payload, 'variant': _i, 'variants': n_variants})
         out = run(branch, depth_penalty=penalty, seed=i, save=False,
+                  generations=generations, population=population,
                   verbose=verbose, progress_cb=cb, should_stop=should_stop)
         val_score = out['meta']['metrics']['val']['eml_bal_acc']
 

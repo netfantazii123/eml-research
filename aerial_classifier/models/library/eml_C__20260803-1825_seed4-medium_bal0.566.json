@@ -43,20 +43,18 @@
   "calibration": null,
   "decoder": {
     "thresholds": [
-      -2.5261948073087277,
-      -1.4453989518257937,
-      22021.015610407136,
-      22024.258816340116
+      22024.229082949358,
+      22024.38992913022,
+      22026.922411632026
     ],
     "labels": [
-      0,
       3,
+      0,
       2,
-      1,
-      2
+      1
     ],
     "n_classes": 4,
-    "train_score": 0.6231733362390472
+    "train_score": 0.6317887279335114
   },
   "trees": [
     {
@@ -68,36 +66,75 @@
           "left": {
             "kind": "eml",
             "left": {
+              "kind": "var",
+              "var_idx": 27
+            },
+            "right": {
+              "kind": "var",
+              "var_idx": 31
+            }
+          },
+          "right": {
+            "kind": "eml",
+            "left": {
+              "kind": "var",
+              "var_idx": 24
+            },
+            "right": {
               "kind": "eml",
               "left": {
                 "kind": "eml",
                 "left": {
                   "kind": "var",
-                  "var_idx": 26
+                  "var_idx": 2
                 },
                 "right": {
+                  "kind": "var",
+                  "var_idx": 10
+                }
+              },
+              "right": {
+                "kind": "eml",
+                "left": {
+                  "kind": "const",
+                  "value": 1.84455862290821
+                },
+                "right": {
+                  "kind": "var",
+                  "var_idx": 26
+                }
+              }
+            }
+          }
+        },
+        "right": {
+          "kind": "var",
+          "var_idx": 16
+        }
+      },
+      "right": {
+        "kind": "eml",
+        "left": {
+          "kind": "var",
+          "var_idx": 2
+        },
+        "right": {
+          "kind": "eml",
+          "left": {
+            "kind": "eml",
+            "left": {
+              "kind": "eml",
+              "left": {
+                "kind": "eml",
+                "left": {
                   "kind": "eml",
                   "left": {
                     "kind": "var",
                     "var_idx": 20
                   },
                   "right": {
-                    "kind": "const",
-                    "value": -0.7612465520715728
-                  }
-                }
-              },
-              "right": {
-                "kind": "eml",
-                "left": {
-                  "kind": "eml",
-                  "left": {
                     "kind": "var",
-                    "var_idx": 24
-                  },
-                  "right": {
-                    "kind": "const",
-                    "value": 0.13972666297330605
+                    "var_idx": 10
                   }
                 },
                 "right": {
@@ -105,184 +142,124 @@
                   "left": {
                     "kind": "eml",
                     "left": {
-                      "kind": "eml",
-                      "left": {
-                        "kind": "var",
-                        "var_idx": 12
-                      },
-                      "right": {
-                        "kind": "var",
-                        "var_idx": 25
-                      }
+                      "kind": "var",
+                      "var_idx": 27
                     },
                     "right": {
                       "kind": "var",
-                      "var_idx": 15
+                      "var_idx": 22
                     }
                   },
                   "right": {
-                    "kind": "var",
-                    "var_idx": 23
+                    "kind": "eml",
+                    "left": {
+                      "kind": "eml",
+                      "left": {
+                        "kind": "var",
+                        "var_idx": 5
+                      },
+                      "right": {
+                        "kind": "var",
+                        "var_idx": 31
+                      }
+                    },
+                    "right": {
+                      "kind": "eml",
+                      "left": {
+                        "kind": "const",
+                        "value": 1.6168909986493136
+                      },
+                      "right": {
+                        "kind": "var",
+                        "var_idx": 4
+                      }
+                    }
                   }
                 }
-              }
-            },
-            "right": {
-              "kind": "eml",
-              "left": {
+              },
+              "right": {
                 "kind": "eml",
                 "left": {
                   "kind": "eml",
                   "left": {
-                    "kind": "var",
-                    "var_idx": 13
+                    "kind": "eml",
+                    "left": {
+                      "kind": "var",
+                      "var_idx": 16
+                    },
+                    "right": {
+                      "kind": "var",
+                      "var_idx": 0
+                    }
                   },
                   "right": {
-                    "kind": "const",
-                    "value": 0.9496731914331136
+                    "kind": "eml",
+                    "left": {
+                      "kind": "const",
+                      "value": 1.828901812651777
+                    },
+                    "right": {
+                      "kind": "var",
+                      "var_idx": 12
+                    }
                   }
                 },
                 "right": {
                   "kind": "eml",
                   "left": {
-                    "kind": "const",
-                    "value": -1.1470948210038667
+                    "kind": "var",
+                    "var_idx": 12
                   },
                   "right": {
                     "kind": "var",
-                    "var_idx": 1
+                    "var_idx": 19
                   }
                 }
-              },
-              "right": {
-                "kind": "const",
-                "value": 0.5613579745926098
               }
-            }
-          },
-          "right": {
-            "kind": "eml",
-            "left": {
-              "kind": "const",
-              "value": 0.13972666297330605
-            },
-            "right": {
-              "kind": "var",
-              "var_idx": 9
-            }
-          }
-        },
-        "right": {
-          "kind": "eml",
-          "left": {
-            "kind": "eml",
-            "left": {
-              "kind": "var",
-              "var_idx": 13
-            },
-            "right": {
-              "kind": "const",
-              "value": 0.13972666297330605
-            }
-          },
-          "right": {
-            "kind": "eml",
-            "left": {
-              "kind": "var",
-              "var_idx": 7
-            },
-            "right": {
-              "kind": "var",
-              "var_idx": 23
-            }
-          }
-        }
-      },
-      "right": {
-        "kind": "eml",
-        "left": {
-          "kind": "eml",
-          "left": {
-            "kind": "eml",
-            "left": {
-              "kind": "var",
-              "var_idx": 2
             },
             "right": {
               "kind": "eml",
               "left": {
                 "kind": "var",
-                "var_idx": 16
+                "var_idx": 14
               },
               "right": {
-                "kind": "const",
-                "value": 0.7266304586006638
+                "kind": "var",
+                "var_idx": 25
               }
             }
           },
           "right": {
             "kind": "eml",
             "left": {
-              "kind": "var",
-              "var_idx": 26
-            },
-            "right": {
               "kind": "eml",
               "left": {
                 "kind": "eml",
                 "left": {
                   "kind": "const",
-                  "value": 1.7500947144284238
+                  "value": -0.785261594935823
                 },
                 "right": {
-                  "kind": "eml",
-                  "left": {
-                    "kind": "eml",
-                    "left": {
-                      "kind": "eml",
-                      "left": {
-                        "kind": "var",
-                        "var_idx": 13
-                      },
-                      "right": {
-                        "kind": "const",
-                        "value": 0.9496731914331136
-                      }
-                    },
-                    "right": {
-                      "kind": "eml",
-                      "left": {
-                        "kind": "const",
-                        "value": -1.1470948210038667
-                      },
-                      "right": {
-                        "kind": "var",
-                        "var_idx": 1
-                      }
-                    }
-                  },
-                  "right": {
-                    "kind": "var",
-                    "var_idx": 31
-                  }
+                  "kind": "var",
+                  "var_idx": 16
                 }
               },
               "right": {
                 "kind": "var",
                 "var_idx": 1
               }
+            },
+            "right": {
+              "kind": "var",
+              "var_idx": 27
             }
           }
-        },
-        "right": {
-          "kind": "const",
-          "value": 0.036462237645831674
         }
       }
     }
   ],
   "formulas": [
-    "eml(eml(eml(eml(eml(eml(center_edge_diff, eml(coherence, -0.761)), eml(eml(center_gray_diff, 0.140), eml(eml(eml(mean_sat, center_sat_diff), grad_y), block_spread))), eml(eml(eml(std_sat, 0.950), eml(-1.147, mean_g)), 0.561)), eml(0.140, mean_yb)), eml(eml(std_sat, 0.140), eml(std_gray, block_spread))), eml(eml(eml(mean_b, eml(grad_mag, 0.727)), eml(center_edge_diff, eml(eml(1.750, eml(eml(eml(std_sat, 0.950), eml(-1.147, mean_g)), bright_frac)), mean_g))), 0.036))"
+    "eml(eml(eml(eml(radial_slope, bright_frac), eml(center_gray_diff, eml(eml(mean_b, std_rg), eml(1.845, center_edge_diff)))), grad_mag), eml(mean_b, eml(eml(eml(eml(eml(coherence, std_rg), eml(eml(radial_slope, block_std), eml(eml(std_b, bright_frac), eml(1.617, std_g)))), eml(eml(eml(grad_mag, mean_r), eml(1.829, mean_sat)), eml(mean_sat, anisotropy))), eml(grad_x, center_sat_diff)), eml(eml(eml(-0.785, grad_mag), mean_g), radial_slope))))"
   ],
   "meta": {
     "branch": "C",
@@ -837,157 +814,158 @@
     "metrics": {
       "train": {
         "n": 3534,
-        "eml_acc": 0.6112054329371817,
-        "eml_bal_acc": 0.6077020472093321,
+        "eml_acc": 0.5645161290322581,
+        "eml_bal_acc": 0.6196666563333622,
         "oracle_acc": 0.9711375212224108,
         "oracle_bal_acc": 0.9772517463873726,
-        "fidelity": 0.6276174306734579,
+        "fidelity": 0.5789473684210527,
         "confusion": [
           [
-            317,
-            14,
-            36,
-            61
+            387,
+            8,
+            15,
+            18
           ],
           [
-            40,
-            262,
-            173,
-            97
+            64,
+            325,
+            115,
+            68
           ],
           [
-            46,
-            226,
-            611,
-            211
+            80,
+            290,
+            525,
+            199
           ],
           [
-            185,
-            43,
-            242,
-            970
+            284,
+            170,
+            228,
+            758
           ]
         ]
       },
       "val": {
         "n": 758,
-        "eml_acc": 0.579155672823219,
-        "eml_bal_acc": 0.5684714070449792,
+        "eml_acc": 0.5224274406332454,
+        "eml_bal_acc": 0.5655183887090681,
         "oracle_acc": 0.9023746701846965,
         "oracle_bal_acc": 0.908938052733289,
-        "fidelity": 0.600263852242744,
+        "fidelity": 0.5461741424802111,
         "confusion": [
           [
-            63,
-            8,
+            77,
+            1,
             5,
-            16
+            9
           ],
           [
-            9,
-            50,
-            45,
-            19
+            18,
+            58,
+            25,
+            22
           ],
           [
-            13,
-            59,
-            123,
-            39
+            28,
+            65,
+            105,
+            36
           ],
           [
-            48,
-            10,
-            48,
-            203
+            64,
+            38,
+            51,
+            156
           ]
         ]
       },
       "test": {
         "n": 757,
-        "eml_acc": 0.583883751651255,
-        "eml_bal_acc": 0.564460351412134,
+        "eml_acc": 0.5151915455746368,
+        "eml_bal_acc": 0.5562441419986422,
         "oracle_acc": 0.8890356671070013,
         "oracle_bal_acc": 0.9016805090619182,
-        "fidelity": 0.5997357992073976,
+        "fidelity": 0.535006605019815,
         "confusion": [
           [
-            60,
-            4,
-            7,
-            21
+            81,
+            0,
+            5,
+            6
           ],
           [
-            12,
-            51,
-            39,
-            20
+            25,
+            50,
+            34,
+            13
           ],
           [
-            12,
-            63,
-            112,
-            48
+            16,
+            72,
+            93,
+            54
           ],
           [
-            41,
-            6,
-            42,
-            219
+            54,
+            38,
+            50,
+            166
           ]
         ]
       }
     },
-    "total_nodes": 63,
+    "total_nodes": 57,
     "max_depth": 9,
     "n_inputs_available": 32,
-    "n_inputs_used": 14,
+    "n_inputs_used": 17,
     "inputs_used": [
+      "mean_r",
       "mean_g",
       "mean_b",
-      "std_gray",
-      "mean_yb",
+      "std_g",
+      "std_b",
+      "std_rg",
       "mean_sat",
-      "std_sat",
-      "grad_y",
+      "grad_x",
       "grad_mag",
+      "anisotropy",
       "coherence",
-      "block_spread",
+      "block_std",
       "center_gray_diff",
       "center_sat_diff",
       "center_edge_diff",
+      "radial_slope",
       "bright_frac"
     ],
     "decoder": {
       "thresholds": [
-        -2.5261948073087277,
-        -1.4453989518257937,
-        22021.015610407136,
-        22024.258816340116
+        22024.229082949358,
+        22024.38992913022,
+        22026.922411632026
       ],
       "labels": [
-        0,
         3,
+        0,
         2,
-        1,
-        2
+        1
       ],
       "n_classes": 4,
-      "train_score": 0.6231733362390472
+      "train_score": 0.6317887279335114
     },
-    "n_intervals": 5,
-    "class_layout": "            -inf .. -2.526        ->  BEACH\n          -2.526 .. -1.445        ->  ROADS\n          -1.445 .. +2.202e+04    ->  PEOPLE\n      +2.202e+04 .. +2.202e+04    ->  MOTO\n      +2.202e+04 .. +inf          ->  PEOPLE",
+    "n_intervals": 4,
+    "class_layout": "            -inf .. +2.202e+04    ->  ROADS\n      +2.202e+04 .. +2.202e+04    ->  BEACH\n      +2.202e+04 .. +2.203e+04    ->  PEOPLE\n      +2.203e+04 .. +inf          ->  MOTO",
     "depth_penalty": "medium",
     "size_penalty": 0.0005,
-    "train_bal_acc_final": 0.6231733362390479,
-    "best_fitness": 0.584818763774492,
-    "generations_run": 60,
+    "train_bal_acc_final": 0.6317887279335115,
+    "best_fitness": 0.5995172593256375,
+    "generations_run": 200,
     "islands": 8,
     "workers": 8,
-    "seed": 0,
+    "seed": 4,
     "stopped": false,
-    "distill_seconds": 20.716647386550903,
-    "total_seconds": 21.21861743927002,
-    "library_name": "test-cli"
+    "distill_seconds": 230.36494755744934,
+    "total_seconds": 231.20173907279968,
+    "library_name": "20260803-1825_seed4-medium_bal0.566"
   }
 }
