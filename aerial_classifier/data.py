@@ -1,94 +1,127 @@
 """
-data.py — загрузка датасета аэрофотоснимков и стратифицированный сплит.
+data.py — загрузка датасета картинок по папкам-классам и стратифицированный сплит.
 
-BMP читается СВОИМ парсером на numpy, без Pillow/OpenCV. Это не упрямство:
-весь датасет — 24-битные несжатые BMP с BITMAPINFOHEADER (проверено по
-заголовкам всех 5049 файлов), для такого формата парсер занимает 30 строк.
-Проект целится в микроконтроллер, поэтому лишние тяжёлые зависимости в
-пайплайне нежелательны на любом этапе.
+СТРУКТУРА ДАТАСЕТА — одна подпапка на класс:
 
-Первый вызов load_dataset() читает BMP-файлы и кладёт распакованный массив в
-dataset/cache.npz (~62 МБ uint8). Дальше загрузка мгновенная.
+    <любая папка>/
+        BEACH/*.bmp      MOTO/*.png      PEOPLE/*.jpg      ROADS/...
+
+Имена классов, их количество и порядок берутся из файловой системы, а не из
+константы: папку выбирает пользователь. Порядок — алфавитный, потому что
+индекс класса попадает и в веса оракула, и в таблицу порогов ветки C, и
+зависеть от того, в каком порядке ОС отдала записи каталога, он не может.
+
+BMP читается СВОИМ парсером на numpy (imaging.read_bmp), без Pillow/OpenCV.
+Это не упрямство: исходный датасет — 24-битные несжатые BMP с
+BITMAPINFOHEADER (проверено по заголовкам всех 5049 файлов), для такого
+формата парсер занимает 30 строк, а проект целится в микроконтроллер, где
+лишние тяжёлые зависимости нежелательны на любом этапе. Остальные форматы и
+произвольные размеры поддержаны в imaging.py.
+
+Первый вызов load_dataset() читает файлы и кладёт распакованный массив в
+кэш (~62 МБ uint8 на исходном датасете). Дальше загрузка мгновенная.
 """
 
 import os
-import struct
 
 import numpy as np
 
 import config
+import imaging
+from imaging import IMAGE_EXTS, read_bmp, read_image     # noqa: F401 (ре-экспорт)
 
 
-# ── Парсер BMP ────────────────────────────────────────────────────────────────
+# ── Сканирование папки ────────────────────────────────────────────────────────
 
-def read_bmp(path: str) -> np.ndarray:
+def _image_files(directory: str) -> list[str]:
+    """Отсортированные имена файлов-картинок в папке (без рекурсии)."""
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return []
+    return sorted(n for n in names
+                  if n.lower().endswith(IMAGE_EXTS)
+                  and os.path.isfile(os.path.join(directory, n)))
+
+
+def scan_classes(root: str) -> list[str]:
     """
-    Прочитать 24-битный несжатый BMP в массив (H, W, 3) uint8 в порядке RGB.
+    Имена классов = подпапки root, в которых есть хотя бы одна картинка.
 
-    Поддерживается ровно тот подформат, в котором лежит датасет:
-    сигнатура 'BM', bpp=24, compression=0 (BI_RGB). Всё остальное — ошибка,
-    молча портить данные хуже, чем упасть.
+    Пустые подпапки пропускаются молча: класс без единого примера всё равно
+    сломал бы и стратификацию, и сбалансированную accuracy (деление на ноль в
+    recall), а чаще всего это просто забытая папка вроде `.ipynb_checkpoints`.
     """
-    with open(path, 'rb') as f:
-        raw = f.read()
+    if not os.path.isdir(root):
+        return []
+    out = []
+    for name in sorted(os.listdir(root)):
+        if name.startswith('.'):
+            continue
+        if _image_files(os.path.join(root, name)):
+            out.append(name)
+    return out
 
-    if raw[:2] != b'BM':
-        raise ValueError(f"{path}: не BMP (сигнатура {raw[:2]!r})")
 
-    pixel_offset, = struct.unpack('<I', raw[10:14])
-    width, height = struct.unpack('<ii', raw[18:26])
-    bpp, = struct.unpack('<H', raw[28:30])
-    compression, = struct.unpack('<I', raw[30:34])
+def describe_root(root: str) -> dict:
+    """
+    Что лежит в папке — до того, как её выберут.
 
-    if bpp != 24 or compression != 0:
-        raise ValueError(f"{path}: ожидался 24bpp BI_RGB, получено "
-                         f"bpp={bpp} compression={compression}")
-
-    # Отрицательная высота = строки сверху вниз; положительная = снизу вверх.
-    top_down = height < 0
-    height = abs(height)
-
-    # Каждая строка выровнена до кратности 4 байтам.
-    row_bytes = width * 3
-    padded_row = (row_bytes + 3) & ~3
-
-    buf = np.frombuffer(raw, dtype=np.uint8, count=padded_row * height,
-                        offset=pixel_offset)
-    img = buf.reshape(height, padded_row)[:, :row_bytes].reshape(height, width, 3)
-
-    if not top_down:
-        img = img[::-1]              # BMP хранит строки снизу вверх
-    return img[:, :, ::-1].copy()    # BGR -> RGB
+    Возвращает имена классов, число файлов по классам, встреченные расширения
+    и размеры первых картинок каждого класса. Нужен интерфейсу: показать это
+    ДО запуска обучения дешевле, чем объяснять потом, почему модель училась
+    на трёх классах вместо четырёх.
+    """
+    classes = scan_classes(root)
+    counts, exts, sizes, total_bytes = {}, set(), set(), 0
+    for class_name in classes:
+        class_dir = os.path.join(root, class_name)
+        files = _image_files(class_dir)
+        counts[class_name] = len(files)
+        for name in files:
+            exts.add(os.path.splitext(name)[1].lower())
+            total_bytes += os.path.getsize(os.path.join(class_dir, name))
+        for name in files[:1]:
+            try:
+                img = imaging.read_image(os.path.join(class_dir, name))
+                sizes.add(f"{img.shape[1]}x{img.shape[0]}")
+            except (OSError, ValueError, RuntimeError):
+                sizes.add('?')
+    return {'root': root, 'classes': classes, 'counts': counts,
+            'n_files': sum(counts.values()), 'total_bytes': total_bytes,
+            'exts': sorted(exts), 'sizes': sorted(sizes)}
 
 
 # ── Загрузка датасета ─────────────────────────────────────────────────────────
 
 def dataset_fingerprint() -> str:
     """
-    Дешёвый отпечаток содержимого dataset/: число файлов и суммарный размер.
+    Дешёвый отпечаток содержимого датасета: классы, число файлов, суммарный размер.
 
-    Полное хеширование 83 МБ на каждый запуск бессмысленно дорого, а вот
-    «в папку добавили/убрали картинки» этой пары чисел достаточно. Без неё
-    cache.npz не инвалидируется НИКОГДА: обновив датасет, пользователь молча
-    продолжит учиться на старом.
+    Полное хеширование 83 МБ на каждый запуск бессмысленно дорого, а вот «в
+    папку добавили/убрали картинки» или «выбрали другой набор классов» этих
+    трёх величин достаточно. Без отпечатка кэш не инвалидируется НИКОГДА:
+    сменив датасет, пользователь молча продолжит учиться на старом.
+
+    Имена классов входят в отпечаток обязательно: при переключении на папку с
+    тем же числом файлов (например, переименованную копию) размер и количество
+    совпали бы, а метки означали бы совсем другое.
 
     Пустая строка = посчитать не удалось (папок с классами нет). Это не ошибка:
-    так выглядит машина, куда принесли только кэш, — и тогда кэш надо
-    принять как есть, а не пытаться пересобрать его из несуществующих BMP.
+    так выглядит машина, куда принесли только кэш, — и тогда кэш надо принять
+    как есть, а не пытаться пересобрать его из несуществующих файлов.
     """
     n_files, total_bytes = 0, 0
     for class_name in config.CLASS_NAMES:
         class_dir = os.path.join(config.DATASET_DIR, class_name)
         if not os.path.isdir(class_dir):
             return ''
-        with os.scandir(class_dir) as it:
-            for entry in it:
-                if entry.name.lower().endswith('.bmp') and entry.is_file():
-                    n_files += 1
-                    total_bytes += entry.stat().st_size
+        for name in _image_files(class_dir):
+            n_files += 1
+            total_bytes += os.path.getsize(os.path.join(class_dir, name))
     if n_files == 0:
         return ''
-    return f"{n_files}:{total_bytes}"
+    return f"{'|'.join(config.CLASS_NAMES)}:{n_files}:{total_bytes}"
 
 
 def load_dataset(use_cache: bool = True, verbose: bool = True):
@@ -96,17 +129,21 @@ def load_dataset(use_cache: bool = True, verbose: bool = True):
     Загрузить весь датасет.
 
     Returns:
-        images: (N, 64, 64, 3) uint8
+        images: (N, IMG_SIZE, IMG_SIZE, 3) uint8
         labels: (N,) int64 — индекс в config.CLASS_NAMES
         paths:  (N,) список относительных путей (для отчётов об ошибках)
+
+    Картинка не того размера кропится по центру и масштабируется, а не
+    растягивается: растяжение изменило бы масштаб текстуры, на который
+    опираются coherence, block_std и другие признаки.
     """
     cache = config.CACHE_PATH
     if use_cache and os.path.exists(cache):
         d = np.load(cache, allow_pickle=True)
         current = dataset_fingerprint()
         cached = str(d['fingerprint']) if 'fingerprint' in d.files else None
-        # Пустой current = исходных BMP на этой машине нет, пересчитать нечем;
-        # старый кэш без отпечатка принимаем, но предупреждаем.
+        # Пустой current = исходных картинок на этой машине нет, пересчитать
+        # нечем; старый кэш без отпечатка принимаем, но предупреждаем.
         if not current or cached == current:
             if verbose:
                 print(f"[data] кэш: {cache}")
@@ -116,26 +153,31 @@ def load_dataset(use_cache: bool = True, verbose: bool = True):
             return d['images'], d['labels'], list(d['paths'])
         if verbose:
             print(f"[data] датасет изменился ({cached} -> {current}) — "
-                  f"перечитываю BMP")
+                  f"перечитываю картинки")
 
-    images, labels, paths = [], [], []
+    images, labels, paths, resized = [], [], [], 0
     for class_idx, class_name in enumerate(config.CLASS_NAMES):
         class_dir = os.path.join(config.DATASET_DIR, class_name)
         if not os.path.isdir(class_dir):
             raise FileNotFoundError(
                 f"нет папки класса {class_dir}. Ожидается структура "
-                f"{config.DATASET_DIR}/<CLASS>/*.bmp")
-        files = sorted(f for f in os.listdir(class_dir) if f.lower().endswith('.bmp'))
+                f"{config.DATASET_DIR}/<ИМЯ КЛАССА>/*{'|*'.join(IMAGE_EXTS)}")
+        files = _image_files(class_dir)
         if verbose:
-            print(f"[data] {class_name:>7}: {len(files)} файлов")
+            print(f"[data] {class_name:>12}: {len(files)} файлов")
         for name in files:
-            img = read_bmp(os.path.join(class_dir, name))
+            img = imaging.read_image(os.path.join(class_dir, name))
             if img.shape != (config.IMG_SIZE, config.IMG_SIZE, 3):
-                raise ValueError(f"{name}: размер {img.shape}, "
-                                 f"ожидался {config.IMG_SIZE}x{config.IMG_SIZE}x3")
+                img = imaging.fit_to_size(img, config.IMG_SIZE)
+                resized += 1
             images.append(img)
             labels.append(class_idx)
             paths.append(f"{class_name}/{name}")
+
+    if not images:
+        raise FileNotFoundError(
+            f"в {config.DATASET_DIR} не найдено ни одной картинки классов "
+            f"{', '.join(config.CLASS_NAMES)}")
 
     images = np.stack(images)
     labels = np.asarray(labels, dtype=np.int64)
@@ -145,6 +187,9 @@ def load_dataset(use_cache: bool = True, verbose: bool = True):
                         paths=np.array(paths, dtype=object),
                         fingerprint=dataset_fingerprint())
     if verbose:
+        if resized:
+            print(f"[data] приведено к {config.IMG_SIZE}x{config.IMG_SIZE}: "
+                  f"{resized} из {len(images)} (кроп по центру + масштаб)")
         print(f"[data] загружено {len(images)} картинок -> кэш {cache}")
     return images, labels, paths
 
