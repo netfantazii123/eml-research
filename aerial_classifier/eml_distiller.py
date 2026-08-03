@@ -213,8 +213,16 @@ def _collect_nodes(node: EMLNode) -> list[EMLNode]:
     return nodes
 
 
-def mutate_tree(root: EMLNode, intensity: float = 1.0) -> EMLNode:
-    """Мутация с адаптивной интенсивностью (1.0 = дикая, 0.1 = тонкая)."""
+def mutate_tree(root: EMLNode, intensity: float = 1.0,
+                max_depth: int | None = None) -> EMLNode:
+    """
+    Мутация с адаптивной интенсивностью (1.0 = дикая, 0.1 = тонкая).
+
+    max_depth=None — предел из config.EML_MAX_DEPTH (ветки A и B). Ветка C
+    держит одно дерево вместо N_CLASSES и передаёт свой, больший предел.
+    """
+    if max_depth is None:
+        max_depth = config.EML_MAX_DEPTH
     tree = root.clone()
     n_mutations = 1 + int(intensity * 2 * random.random())
 
@@ -230,7 +238,7 @@ def mutate_tree(root: EMLNode, intensity: float = 1.0) -> EMLNode:
             target.var_idx = random.randint(0, _N_INPUTS - 1)
 
         elif r < 0.6 and target.kind in ('const', 'var'):
-            if tree.depth() < config.EML_MAX_DEPTH:
+            if tree.depth() < max_depth:
                 target.kind = 'eml'
                 target.left = _random_leaf()
                 target.right = _random_leaf()
@@ -252,7 +260,7 @@ def mutate_tree(root: EMLNode, intensity: float = 1.0) -> EMLNode:
             target.left, target.right = new_sub.left, new_sub.right
             target.var_idx, target.value = new_sub.var_idx, new_sub.value
 
-    return _prune_tree(tree)
+    return _prune_tree(tree, max_depth)
 
 
 def _prune_tree(node: EMLNode, max_depth: int | None = None) -> EMLNode:
@@ -268,7 +276,8 @@ def _prune_tree(node: EMLNode, max_depth: int | None = None) -> EMLNode:
     return node
 
 
-def crossover(parent1: EMLNode, parent2: EMLNode) -> EMLNode:
+def crossover(parent1: EMLNode, parent2: EMLNode,
+              max_depth: int | None = None) -> EMLNode:
     """Заменить случайное поддерево parent1 поддеревом из parent2."""
     child = parent1.clone()
     target = random.choice(_collect_nodes(child))
@@ -276,7 +285,7 @@ def crossover(parent1: EMLNode, parent2: EMLNode) -> EMLNode:
     target.kind = donor.kind
     target.left, target.right = donor.left, donor.right
     target.var_idx, target.value = donor.var_idx, donor.value
-    return _prune_tree(child)
+    return _prune_tree(child, max_depth)
 
 
 def _tournament_select(fitness_scores, k: int = 5) -> int:
