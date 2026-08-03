@@ -661,8 +661,20 @@ def evolve_single(X: np.ndarray, y: np.ndarray, *, n_classes: int | None = None,
     full_weights = sample_weights(y, n_classes)
     t0 = time.time()
 
+    # Продолжать можно только СВОЙ прогон. Чекпоинт с другим числом входов,
+    # классов или особей — это чужой эксперимент; подхватить его молча значило
+    # бы получить результат, не соответствующий ни одним заявленным настройкам.
+    signature = {'n_inputs': int(X.shape[1]), 'n_classes': n_classes,
+                 'population': population, 'n_train': int(len(X)),
+                 'max_depth': params.max_depth, 'seed': rng_seed}
+
     # ── Старт или продолжение ────────────────────────────────────────────────
     state = load_checkpoint(checkpoint_path) if (resume and checkpoint_path) else None
+    if state and state.get('signature') != signature:
+        if verbose:
+            print(f"  [C] чекпоинт {checkpoint_path} от другого прогона "
+                  f"({state.get('signature')}) — начинаю заново")
+        state = None
     if state:
         pops = [[EMLNode.from_dict(d) for d in island] for island in state['islands']]
         start_gen = int(state['generation'])
@@ -762,6 +774,7 @@ def evolve_single(X: np.ndarray, y: np.ndarray, *, n_classes: int | None = None,
 
             if checkpoint_path and (gen % max(checkpoint_every, 1) < rounds):
                 save_checkpoint(checkpoint_path, {
+                    'signature': signature,
                     'generation': gen, 'history': history,
                     'best_fitness': best_fitness,
                     'best_tree': best_tree.to_dict(),

@@ -22,7 +22,14 @@ int main(int argc, char **argv)
             != (size_t)(AERIAL_IMG_SIZE * AERIAL_IMG_SIZE * 3)) break;
         aerial_extract_features(buf, f);
         for (i = 0; i < AERIAL_N_FEATURES; ++i) printf("%.6f ", f[i]);
-        printf("%d\n", aerial_classify(f));
+        printf("%d", aerial_classify(f));
+#ifdef AERIAL_N_INTERVALS
+        /* Ветка C: печатаем ещё и сам выход формулы. По нему видно, насколько
+         * float32 разошёлся с float64, — а значит, законно ли расхождение
+         * класса на кадре, легшем вплотную к порогу. */
+        printf(" %.9g", aerial_formula(f));
+#endif
+        printf("\n");
     }
     free(buf);
     fclose(fp);

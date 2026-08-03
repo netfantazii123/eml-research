@@ -154,3 +154,68 @@ def test_branch_b_export_has_no_feature_extractor(tmp_path):
                                 verbose=False)
     assert len(written) == 1
     assert written[0].endswith('aerial_eml_B.h')
+
+
+# ── Ветка C: одна формула и таблица порогов ───────────────────────────────────
+
+def toy_single(thresholds=(-2.5, 1.25, 22021.0156), labels=(0, 3, 2, 1)):
+    import eml_single as single
+
+    tree = dist.EMLNode('eml', left=dist.EMLNode('var', var_idx=20),
+                        right=dist.EMLNode('var', var_idx=3))
+    return single.EMLSingle(
+        tree, single.IntervalDecoder(list(thresholds), list(labels), 4))
+
+
+def test_single_header_has_thresholds_and_labels():
+    """Таблица порогов и метки участков попадают в C целиком."""
+    model = toy_single()
+    header = export.generate_single_header(model, list(config.FEATURE_NAMES),
+                                           {}, branch='C')
+    assert '#define AERIAL_N_INTERVALS  4' in header
+    assert '#define AERIAL_N_THRESHOLDS 3' in header
+    assert 'aerial_interval_class[AERIAL_N_INTERVALS] = { 0, 3, 2, 1 }' in header
+    assert 'aerial_classify' in header
+    # Калибровки у ветки C нет по построению: сравнивать нечего.
+    assert 'aerial_offset' not in header
+
+
+def test_single_header_thresholds_round_trip_through_float32():
+    """
+    Порог читается из C обратно ровно тем же float32.
+
+    Порог — это и есть граница решения. Записанный с недостаточной точностью,
+    он сместится, и часть кадров на устройстве получит другой класс: сверка
+    verify-c покраснеет при исправном во всём остальном экспорте.
+    """
+    values = [-2.5, 1.2345678e-05, 22021.015625, 22024.258]
+    model = toy_single(thresholds=values[:3], labels=(0, 1, 2, 3))
+    header = export.generate_single_header(model, list(config.FEATURE_NAMES),
+                                           {}, branch='C')
+    line = next(ln for ln in header.splitlines() if 'aerial_thresholds' in ln)
+    written = [float(v.strip().rstrip('f'))
+               for v in line.split('{')[1].split('}')[0].split(',')]
+    assert np.array_equal(np.float32(written), np.float32(values[:3]))
+
+
+def test_single_header_survives_a_degenerate_table():
+    """
+    Один участок — тоже валидный C.
+
+    Вырожденная формула (константа) даёт таблицу без порогов, а массив нулевой
+    длины в C некорректен: заголовок просто не скомпилировался бы, причём
+    только в том редком прогоне, где эволюция ничего не нашла.
+    """
+    header = export.generate_single_header(
+        toy_single(thresholds=(), labels=(2,)),
+        list(config.FEATURE_NAMES), {}, branch='C')
+    assert '#define AERIAL_N_THRESHOLDS 0' in header
+    assert 'aerial_thresholds[] = { 0.0f' in header
+
+
+def test_branch_c_export_keeps_feature_extractor(tmp_path):
+    """Ветка C работает на тех же признаках, что и A, — экстрактор ей нужен."""
+    written = export.export_all(toy_single(), list(config.FEATURE_NAMES), {},
+                                branch='C', out_dir=str(tmp_path), verbose=False)
+    names = sorted(p.rsplit('\\', 1)[-1].rsplit('/', 1)[-1] for p in written)
+    assert names == ['aerial_eml_C.h', 'aerial_features.h']

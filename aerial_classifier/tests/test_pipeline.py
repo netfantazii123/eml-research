@@ -185,3 +185,73 @@ def test_saved_formulas_reload_into_working_classifier(sandbox):
     assert np.allclose(loaded.offsets, source.offsets)
     assert np.allclose(loaded.scales, source.scales)
     assert np.array_equal(loaded.predict(X), source.predict(X))
+
+
+# ── Ветка C ───────────────────────────────────────────────────────────────────
+
+def single_model():
+    import eml_single as single
+
+    tree = dist.EMLNode('eml', left=dist.EMLNode('var', var_idx=20),
+                        right=dist.EMLNode('var', var_idx=3))
+    decoder = single.IntervalDecoder([-1.0, 0.5, 3.0], [0, 2, 1, 2], 4,
+                                     score=0.61)
+    return single.EMLSingle(tree, decoder)
+
+
+def test_single_formula_round_trip(sandbox):
+    """
+    Формула ветки C возвращается из JSON вместе со своей таблицей порогов.
+
+    Забыть таблицу — то же самое, что забыть калибровку в ветке A: формула
+    отработает, а класс молча окажется мусором. Поэтому она часть артефакта.
+    """
+    import eml_single as single
+
+    source = single_model()
+    meta = meta_with(0.55)
+    meta['branch'] = 'C'
+    meta['decoder'] = source.decoder.to_dict()
+    pipeline.save_best([source.tree], 'C', meta, names(), verbose=False,
+                       decoder=source.decoder.to_dict())
+
+    loaded, payload = storage.load_classifier(branch='C')
+    assert isinstance(loaded, single.EMLSingle)
+    assert payload['class_names'] == list(config.CLASS_NAMES)
+
+    rng = np.random.default_rng(1)
+    X = rng.uniform(-1, 1, (64, config.N_FEATURES))
+    assert np.array_equal(loaded.predict(X), source.predict(X))
+
+
+def test_branch_c_does_not_touch_other_branches(sandbox):
+    """Активные слоты веток A, B и C независимы."""
+    pipeline.save_best(trees(), 'A', meta_with(0.7), names(), verbose=False)
+    source = single_model()
+    meta = meta_with(0.4)
+    meta['branch'] = 'C'
+    pipeline.save_best([source.tree], 'C', meta, names(), verbose=False,
+                       decoder=source.decoder.to_dict())
+
+    assert stored_val('A') == pytest.approx(0.7)
+    assert stored_val('C') == pytest.approx(0.4)
+
+
+def test_foreign_class_set_is_refused(sandbox, monkeypatch):
+    """
+    Модель, обученную на других классах, применять нельзя.
+
+    После смены папки датасета набор классов другой, а формулы отработают как
+    ни в чём не бывало: метрики посчитаются, отчёт напечатается, и всё это
+    будет означать не то. Отказ с рецептом дешевле молчаливой бессмыслицы.
+    """
+    source = single_model()
+    meta = meta_with(0.5)
+    meta['branch'] = 'C'
+    pipeline.save_best([source.tree], 'C', meta, names(), verbose=False,
+                       decoder=source.decoder.to_dict())
+
+    monkeypatch.setattr(config, 'CLASS_NAMES', ['ДРУГИЕ', 'КЛАССЫ'])
+    monkeypatch.setattr(config, 'N_CLASSES', 2)
+    with pytest.raises(ValueError, match='обучены на классах'):
+        storage.load_classifier(branch='C')

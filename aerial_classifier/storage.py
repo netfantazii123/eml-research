@@ -62,21 +62,34 @@ def save_oracle(model, branch: str = 'A', path: str | None = None,
     """Сохранить state_dict оракула + метаданные обучения."""
     path = path or oracle_path(branch)
     _ensure_dir(path)
-    torch.save({'state_dict': model.state_dict(), 'meta': meta or {}}, path)
+    meta = dict(meta or {})
+    meta.setdefault('class_names', list(config.CLASS_NAMES))
+    torch.save({'state_dict': model.state_dict(), 'meta': meta}, path)
     return path
 
 
 def load_oracle(model, branch: str = 'A', path: str | None = None,
-                device=None) -> dict:
-    """Загрузить веса в существующий экземпляр модели. Возвращает meta."""
+                device=None, check_classes: bool = True) -> dict:
+    """
+    Загрузить веса в существующий экземпляр модели. Возвращает meta.
+
+    Несовпадение набора классов ловится ДО load_state_dict: при другом числе
+    классов torch и так упадёт, но сообщением про размерность тензора, из
+    которого причина («выбран другой датасет») не читается вовсе. А при том же
+    числе классов, но других именах, не упадёт ничего.
+    """
     path = path or oracle_path(branch)
     if not os.path.exists(path):
         raise FileNotFoundError(
             f"нет чекпоинта оракула {path}. Сначала: python main.py train "
             f"--branch {branch.upper()}")
     ckpt = torch.load(path, map_location=device or 'cpu', weights_only=False)
+    meta = ckpt.get('meta', {})
+    if check_classes:
+        check_class_names(meta.get('class_names'),
+                          f"оракул ветки {branch.upper()}")
     model.load_state_dict(ckpt['state_dict'])
-    return ckpt.get('meta', {})
+    return meta
 
 
 def oracle_meta(branch: str = 'A') -> dict:
@@ -93,30 +106,42 @@ def oracle_meta(branch: str = 'A') -> dict:
 def save_formulas(trees: list, branch: str = 'A', path: str | None = None,
                   meta: dict | None = None,
                   input_names: list[str] | None = None,
-                  calibration: dict | None = None) -> str:
+                  calibration: dict | None = None,
+                  decoder: dict | None = None) -> str:
     """
-    Сохранить набор EML-деревьев (по одному на класс) как JSON.
+    Сохранить EML-деревья как JSON.
 
     Args:
-        trees: список EMLNode длиной N_CLASSES; порядок = config.CLASS_NAMES.
-        input_names: имена входов формулы — признаки (ветка A) или
+        trees: ветки A и B — список EMLNode длиной N_CLASSES в порядке
+            config.CLASS_NAMES; ветка C — список из одного дерева.
+        input_names: имена входов формулы — признаки (ветки A и C) или
             имена координат эмбеддинга (ветка B).
         calibration: {'offsets': [...], 'scales': [...]} — константы выравнивания
-            выходов формул. Без них argmax между формулами не имеет смысла,
-            поэтому они часть артефакта, а не отладочная информация.
+            выходов формул (ветки A и B). Без них argmax между формулами не
+            имеет смысла, поэтому они часть артефакта, а не отладочная
+            информация.
+        decoder: таблица порогов ветки C. Ровно та же роль: без неё выход
+            формулы это просто число.
+
+    class_names пишутся в артефакт обязательно. Набор классов теперь зависит
+    от выбранной папки, и формулы, обученные на четырёх классах, при пяти
+    означают не то же самое — молча применить их было бы хуже, чем отказаться.
     """
     path = path or formulas_path(branch)
     _ensure_dir(path)
     if input_names is None:
-        input_names = (config.FEATURE_NAMES if branch.upper() == 'A'
+        input_names = (config.FEATURE_NAMES if branch.upper() != 'B'
                        else [f'e{i}' for i in range(config.CNN_EMBED_DIM)])
     if calibration is None and meta:
         calibration = meta.get('calibration')
+    if decoder is None and meta:
+        decoder = meta.get('decoder')
     payload = {
         'branch': branch.upper(),
-        'class_names': config.CLASS_NAMES,
+        'class_names': list(config.CLASS_NAMES),
         'input_names': input_names,
         'calibration': calibration,
+        'decoder': decoder,
         'trees': [t.to_dict() for t in trees],
         'formulas': [t.to_string() for t in trees],   # человекочитаемая копия
         'meta': meta or {},
@@ -124,6 +149,24 @@ def save_formulas(trees: list, branch: str = 'A', path: str | None = None,
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
     return path
+
+
+def check_class_names(payload_classes, what: str):
+    """
+    Сверить набор классов артефакта с текущим датасетом.
+
+    Молчаливое несовпадение — самая дорогая ошибка после смены папки: модель
+    отработает, метрики посчитаются, и всё будет означать не то. Поэтому не
+    предупреждение, а отказ с готовым рецептом.
+    """
+    if not payload_classes:
+        return                                   # старый артефакт без списка
+    if list(payload_classes) == list(config.CLASS_NAMES):
+        return
+    raise ValueError(
+        f"{what} обучены на классах {list(payload_classes)}, а сейчас выбран "
+        f"датасет с классами {list(config.CLASS_NAMES)}. Либо верните прежний "
+        f"датасет (python main.py --dataset <папка> ...), либо обучите заново.")
 
 
 def formulas_meta(branch: str = 'A', path: str | None = None) -> dict:
@@ -161,17 +204,28 @@ def load_formulas(node_cls, branch: str = 'A', path: str | None = None):
     return trees, payload
 
 
-def load_classifier(branch: str = 'A', path: str | None = None):
+def load_classifier(branch: str = 'A', path: str | None = None,
+                    check_classes: bool = True):
     """
-    Загрузить готовый EMLClassifier вместе с его калибровкой.
+    Загрузить готовую модель вместе с её константами.
 
-    Отдельная функция, потому что забыть применить калибровку после загрузки —
-    самая вероятная ошибка при использовании артефакта: формулы отработают,
-    argmax молча выдаст мусор.
+    Ветки A и B — EMLClassifier с калибровкой, ветка C — EMLSingle с таблицей
+    порогов. Отдельная функция, потому что забыть применить константы после
+    загрузки — самая вероятная ошибка при использовании артефакта: формулы
+    отработают, а ответ молча окажется мусором.
     """
     from eml_distiller import EMLClassifier, EMLNode
 
     trees, payload = load_formulas(EMLNode, branch=branch, path=path)
+    if check_classes:
+        check_class_names(payload.get('class_names'),
+                          f"формулы ветки {branch.upper()}")
+
+    if payload.get('decoder'):
+        from eml_single import EMLSingle, IntervalDecoder
+        return EMLSingle(trees[0],
+                         IntervalDecoder.from_dict(payload['decoder'])), payload
+
     calib = payload.get('calibration') or {}
     return EMLClassifier(trees, offsets=calib.get('offsets'),
                          scales=calib.get('scales')), payload

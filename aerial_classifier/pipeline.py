@@ -37,11 +37,22 @@ import storage
 
 # ── Сбор датасета для дистилляции ─────────────────────────────────────────────
 
+def oracle_branch_of(branch: str) -> str:
+    """
+    Чей оракул дистиллирует ветка.
+
+    Ветка C работает в том же пространстве признаков, что и A, и учится у того
+    же MLP: иначе сравнение «одна формула против четырёх» мерило бы заодно и
+    разницу оракулов.
+    """
+    return 'B' if branch.upper() == 'B' else 'A'
+
+
 def collect_dataset(branch: str = 'A', verbose: bool = True) -> dict:
     """
     Собрать всё, что нужно дистиллятору: входы формул, логиты оракула, метки.
 
-    Ветка A: входы = 32 инженерных признака.
+    Ветки A и C: входы = 32 инженерных признака, оракул = FeatureMLP.
     Ветка B: входы = bottleneck-эмбеддинг обученной CNN.
 
     Возвращает словарь с ключами inputs / logits / labels / splits / meta.
@@ -51,7 +62,7 @@ def collect_dataset(branch: str = 'A', verbose: bool = True) -> dict:
     train_idx, val_idx, test_idx = data.stratified_split(labels)
     device = oracle_mod.get_device()
 
-    if branch == 'A':
+    if oracle_branch_of(branch) == 'A':
         model = oracle_mod.FeatureMLP()
         meta = storage.load_oracle(model, branch='A', device=device)
         inputs = features_mod.load_or_compute(images, verbose=verbose)
@@ -109,7 +120,7 @@ def confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray,
 
 def archive_run(trees: list, branch: str, meta: dict, input_names: list[str], *,
                 run_dir: str | None = None, name: str | None = None,
-                filename: str | None = None):
+                filename: str | None = None, decoder: dict | None = None):
     """
     Записать прогон в runs/ и положить именованную копию в библиотеку.
 
@@ -128,6 +139,7 @@ def archive_run(trees: list, branch: str, meta: dict, input_names: list[str], *,
     meta['library_name'] = storage.reserve_name('eml', branch, name, meta)
     run_path = storage.save_formulas(
         trees, branch=branch, meta=meta, input_names=input_names,
+        decoder=decoder,
         path=os.path.join(run_dir, filename or f'formulas_{branch}.json'))
     entry = storage.add_to_library('eml', branch, meta['library_name'], meta,
                                    source_path=run_path, overwrite=True)
@@ -182,7 +194,7 @@ def promote_if_better(entry, *, verbose: bool = True) -> dict:
 
 def save_best(trees: list, branch: str, meta: dict, input_names: list[str], *,
               verbose: bool = True, run_dir: str | None = None,
-              name: str | None = None) -> dict:
+              name: str | None = None, decoder: dict | None = None) -> dict:
     """
     Сохранить прогон целиком: архив в runs/, копия в библиотеку, и активный
     слот, если прогон не хуже прежнего.
@@ -190,7 +202,7 @@ def save_best(trees: list, branch: str, meta: dict, input_names: list[str], *,
     Returns: {'run_path', 'best_path' | None, 'promoted', 'reason', 'entry'}.
     """
     entry, run_path = archive_run(trees, branch, meta, input_names,
-                                  run_dir=run_dir, name=name)
+                                  run_dir=run_dir, name=name, decoder=decoder)
     if verbose:
         print(f"\n[distill] прогон -> {run_path}")
         print(f"[distill] в библиотеку как «{entry.name}» -> {entry.path}")
@@ -199,20 +211,175 @@ def save_best(trees: list, branch: str, meta: dict, input_names: list[str], *,
     return result
 
 
+def checkpoint_path(branch: str, seed: int) -> str:
+    """Где лежит состояние длинного прогона, чтобы его можно было продолжить."""
+    return os.path.join(config.RUNS_DIR, 'checkpoints',
+                        f'eml_{branch.upper()}_seed{seed}.json')
+
+
+def run_single(branch: str = 'C', *, size_penalty: str | None = None,
+               generations: int | None = None, population: int | None = None,
+               islands: int | None = None, workers: int | None = None,
+               max_intervals: int | None = None, seed: int = 0,
+               resume: bool = True, checkpoint: str | None = None,
+               save: bool = True, verbose: bool = True,
+               progress_cb=None, should_stop=None,
+               name: str | None = None) -> dict:
+    """
+    Прогон ветки C: одна формула плюс подобранная под неё таблица порогов.
+
+    ЦЕЛЬ ОБУЧЕНИЯ — ОТВЕТЫ ОРАКУЛА, а не истинные метки. Это по-прежнему
+    дистилляция, как этапы 1 и 2: формула воспроизводит решающую функцию сети,
+    и её fidelity — осмысленная величина. Истинные метки идут только в отчёт.
+
+    Прогон рассчитан на часы: состояние пишется в checkpoint и resume=True
+    продолжает прерванный прогон с последнего сохранения.
+    """
+    import eml_single as single
+
+    branch = branch.upper()
+    t0 = time.time()
+    penalty_name = size_penalty or config.EMLC_SIZE_PENALTY_DEFAULT
+    bundle = collect_dataset(branch, verbose=verbose)
+    inputs, logits, labels = bundle['inputs'], bundle['logits'], bundle['labels']
+    train_idx, val_idx, test_idx = bundle['splits']
+    oracle_labels = logits.argmax(axis=1)
+
+    dist.configure_inputs(inputs.shape[1], bundle['input_names'])
+    ckpt = checkpoint if checkpoint is not None else checkpoint_path(branch, seed)
+
+    if verbose:
+        print(f"\n[distill] ветка {branch}: ОДНА формула на {config.N_CLASSES} "
+              f"классов, {inputs.shape[1]} входов, {len(train_idx)} примеров")
+        print(f"[distill] цель — ответы оракула (дистилляция), штраф "
+              f"{penalty_name}, чекпоинт {ckpt}")
+
+    result = single.evolve_single(
+        inputs[train_idx], oracle_labels[train_idx],
+        n_classes=config.N_CLASSES,
+        generations=generations, population=population, islands=islands,
+        workers=workers, max_intervals=max_intervals,
+        size_penalty=config.EMLC_SIZE_PENALTIES[penalty_name],
+        checkpoint_path=ckpt, resume=resume,
+        input_names=bundle['input_names'], rng_seed=seed, verbose=verbose,
+        progress_cb=progress_cb, should_stop=should_stop)
+
+    model = result['model']
+    metrics = {name_: evaluate(model, inputs, logits, labels, idx)
+               for name_, idx in (('train', train_idx), ('val', val_idx),
+                                  ('test', test_idx))}
+    used = model.used_inputs()
+    meta = {
+        'branch': branch,
+        'oracle': bundle['oracle_meta'],
+        'oracle_branch': oracle_branch_of(branch),
+        'metrics': metrics,
+        'total_nodes': model.total_nodes(),
+        'max_depth': model.max_depth(),
+        'n_inputs_available': inputs.shape[1],
+        'n_inputs_used': len(used),
+        'inputs_used': [bundle['input_names'][i] for i in used],
+        'decoder': model.decoder.to_dict(),
+        'n_intervals': model.decoder.n_intervals,
+        'class_layout': model.decoder.describe(config.CLASS_NAMES),
+        'depth_penalty': penalty_name,          # то же поле, что у веток A и B
+        'size_penalty': config.EMLC_SIZE_PENALTIES[penalty_name],
+        'train_bal_acc_final': result['train_score'],
+        'best_fitness': result['best_fitness'],
+        'generations_run': result['generation'],
+        'islands': result['islands'],
+        'workers': result['workers'],
+        'seed': seed,
+        'stopped': result.get('stopped', False),
+        'distill_seconds': result['seconds'],
+        'total_seconds': time.time() - t0,
+    }
+
+    saved = None
+    if save:
+        saved = save_best([model.tree], branch, meta, bundle['input_names'],
+                          verbose=verbose, name=name,
+                          decoder=model.decoder.to_dict())
+
+    # Чекпоинт живёт ровно столько, сколько прогон не закончен. Оставить его
+    # после нормального завершения значило бы, что следующий прогон с тем же
+    # сидом молча продолжит уже отработавший и сразу упрётся в patience.
+    if not result.get('stopped') and os.path.exists(ckpt):
+        os.remove(ckpt)
+
+    if verbose:
+        print_report_single(meta, model)
+
+    return {'trees': [model.tree], 'classifier': model, 'model': model,
+            'meta': meta, 'result': result, 'bundle': bundle, 'saved': saved}
+
+
+def print_report_single(meta: dict, model):
+    """Сводка прогона ветки C: метрики, сложность и раскладка классов на оси."""
+    m = meta['metrics']
+    print("\n" + "=" * 72)
+    print(f"ВЕТКА {meta['branch']}: оракул -> ОДНА EML-формула + "
+          f"{meta['n_intervals']} участков оси")
+    print("=" * 72)
+    print(f"{'сплит':<8} {'accuracy':>18} {'bal.accuracy':>20} {'fidelity':>10}")
+    print(f"{'':8} {'EML':>8} {'оракул':>9} {'EML':>9} {'оракул':>10} {'':>10}")
+    for split in ('train', 'val', 'test'):
+        s = m[split]
+        print(f"{split:<8} {s['eml_acc']:>8.4f} {s['oracle_acc']:>9.4f} "
+              f"{s['eml_bal_acc']:>9.4f} {s['oracle_bal_acc']:>10.4f} "
+              f"{s['fidelity']:>10.4f}")
+
+    test = m['test']
+    retained = (test['eml_bal_acc'] / test['oracle_bal_acc'] * 100
+                if test['oracle_bal_acc'] > 0 else 0.0)
+    print(f"\nформула держит {retained:.1f}% сбалансированной точности оракула "
+          f"на test")
+    print(f"сложность: {meta['total_nodes']} узлов AST, глубина "
+          f"{meta['max_depth']}, задействовано входов "
+          f"{meta['n_inputs_used']}/{meta['n_inputs_available']}, "
+          f"участков {meta['n_intervals']}")
+    print(f"использованы: {', '.join(meta['inputs_used'])}")
+
+    print("\nматрица ошибок EML на test (строки = истина):")
+    header = ' ' * 9 + ''.join(f"{c[:6]:>8}" for c in config.CLASS_NAMES)
+    print(header)
+    for i, row in enumerate(test['confusion']):
+        print(f"{config.CLASS_NAMES[i]:>8} " + ''.join(f"{v:>8}" for v in row))
+
+    # Главное, ради чего ветка и затевалась: куда формула сама расставила
+    # классы. Соседние на оси классы должны путаться чаще прочих — это
+    # проверяется по матрице ошибок выше.
+    print("\nкуда формула расставила классы на своей оси:")
+    print(meta['class_layout'])
+    print(f"\nf = {model.tree.to_string()}")
+    print("=" * 72)
+
+
 def run(branch: str = 'A', *, depth_penalty: str | None = None,
         generations: int | None = None, population: int | None = None,
         acc_phase: bool | None = None, seed: int = 0,
         save: bool = True, verbose: bool = True,
-        progress_cb=None, should_stop=None, name: str | None = None) -> dict:
+        progress_cb=None, should_stop=None, name: str | None = None,
+        **single_kwargs) -> dict:
     """
     Собрать датасет -> дистиллировать -> оценить -> сохранить формулы.
 
     progress_cb / should_stop пробрасываются в эволюцию: первый даёт живые
     кривые, второй — мягкую остановку с сохранением лучшего на этот момент.
 
+    Ветка C устроена иначе (одна формула вместо набора, таблица порогов вместо
+    калибровки) и уходит в run_single; здесь она перехватывается, чтобы у CLI,
+    интерфейса и батча оставалась одна точка входа.
+
     Returns: dict с формулами, метриками по всем сплитам и метаданными.
     """
     branch = branch.upper()
+    if branch == 'C':
+        return run_single(branch, size_penalty=depth_penalty,
+                          generations=generations, population=population,
+                          seed=seed, save=save, verbose=verbose,
+                          progress_cb=progress_cb, should_stop=should_stop,
+                          name=name, **single_kwargs)
     t0 = time.time()
     bundle = collect_dataset(branch, verbose=verbose)
     inputs, logits, labels = bundle['inputs'], bundle['logits'], bundle['labels']
@@ -325,7 +492,8 @@ def run_batch(branch: str = 'A', n_variants: int | None = None,
     сохраняется как основной, сводка по всем — в runs/.
     """
     n_variants = n_variants if n_variants is not None else config.EML_BATCH_VARIANTS
-    penalties = list(config.DEPTH_PENALTIES.keys())
+    penalties = list(config.EMLC_SIZE_PENALTIES if branch.upper() == 'C'
+                     else config.DEPTH_PENALTIES)
     runs, best, best_val = [], None, -1.0
     stamp = time.strftime('%Y%m%d-%H%M')
     summary_dir = os.path.join(config.RUNS_DIR,

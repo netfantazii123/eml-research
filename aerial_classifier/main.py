@@ -72,6 +72,17 @@ def cmd_distill(args):
 
     if args.batch:
         pipeline.run_batch(args.branch, n_variants=args.variants)
+    elif args.branch == 'C':
+        # У ветки C свои ручки: острова, процессы и продолжение прогона.
+        # Смешивать их с generations/population веток A и B в одном наборе
+        # флагов можно, а вот делать вид, что --no-acc-phase на неё влияет, —
+        # нельзя: ACC-фазы у неё нет.
+        pipeline.run_single(
+            'C', size_penalty=args.depth_penalty, generations=args.generations,
+            population=args.population, islands=args.islands,
+            workers=args.workers, max_intervals=args.max_intervals,
+            seed=args.seed, resume=not args.restart, checkpoint=args.checkpoint,
+            name=args.name)
     else:
         pipeline.run(args.branch, depth_penalty=args.depth_penalty,
                      generations=args.generations, population=args.population,
@@ -103,9 +114,14 @@ def cmd_report(args):
             f"(bal.acc {metrics[split]['eml_bal_acc']:.3f})", path)
         print(f"[report] {path}")
 
-    print("\nформулы:")
-    for c, tree in enumerate(clf.trees):
-        print(f"  f_{config.CLASS_NAMES[c]} = {tree.to_string()}")
+    if hasattr(clf, 'decoder'):                  # ветка C: одна формула
+        print(f"\nf = {clf.tree.to_string()}")
+        print("\nкуда формула расставила классы на своей оси:")
+        print(clf.decoder.describe(config.CLASS_NAMES))
+    else:
+        print("\nформулы:")
+        for c, tree in enumerate(clf.trees):
+            print(f"  f_{config.CLASS_NAMES[c]} = {tree.to_string()}")
 
 
 # ── export ────────────────────────────────────────────────────────────────────
@@ -127,33 +143,40 @@ def cmd_export(args):
 _HARNESS = r'''#include <stdio.h>
 #include <stdlib.h>
 #include "aerial_features.h"
-#include "aerial_eml_A.h"
+#include "aerial_eml_{branch}.h"
 
 /* Тестовая обвязка: читает сырые кадры, печатает признаки и класс. */
 int main(int argc, char **argv)
-{
+{{
     FILE *fp;
     int n, k, i;
     uint8_t *buf;
     float f[AERIAL_N_FEATURES];
 
-    if (argc < 3) { fprintf(stderr, "usage: harness <file> <n>\n"); return 1; }
+    if (argc < 3) {{ fprintf(stderr, "usage: harness <file> <n>\n"); return 1; }}
     fp = fopen(argv[1], "rb");
-    if (!fp) { fprintf(stderr, "cannot open %s\n", argv[1]); return 1; }
+    if (!fp) {{ fprintf(stderr, "cannot open %s\n", argv[1]); return 1; }}
     n = atoi(argv[2]);
     buf = (uint8_t *)malloc(AERIAL_IMG_SIZE * AERIAL_IMG_SIZE * 3);
 
-    for (k = 0; k < n; ++k) {
+    for (k = 0; k < n; ++k) {{
         if (fread(buf, 1, AERIAL_IMG_SIZE * AERIAL_IMG_SIZE * 3, fp)
             != (size_t)(AERIAL_IMG_SIZE * AERIAL_IMG_SIZE * 3)) break;
         aerial_extract_features(buf, f);
         for (i = 0; i < AERIAL_N_FEATURES; ++i) printf("%.6f ", f[i]);
-        printf("%d\n", aerial_classify(f));
-    }
+        printf("%d", aerial_classify(f));
+#ifdef AERIAL_N_INTERVALS
+        /* Ветка C: печатаем ещё и сам выход формулы. По нему видно, насколько
+         * float32 разошёлся с float64, — а значит, законно ли расхождение
+         * класса на кадре, легшем вплотную к порогу. */
+        printf(" %.9g", aerial_formula(f));
+#endif
+        printf("\n");
+    }}
     free(buf);
     fclose(fp);
     return 0;
-}
+}}
 '''
 
 
@@ -173,7 +196,7 @@ def cmd_verify_c(args):
     import storage
 
     n = args.n
-    branch = 'A'                     # C-экспорт признаков есть только у ветки A
+    branch = (args.branch or 'A').upper()   # экстрактор признаков есть у A и C
     clf, payload = storage.load_classifier(branch=branch)
     dist.configure_inputs(len(payload['input_names']), payload['input_names'])
 
@@ -193,7 +216,7 @@ def cmd_verify_c(args):
         batch.tofile(raw_path)
         harness_path = os.path.join(out_dir, 'harness.c')
         with open(harness_path, 'w', encoding='utf-8') as f:
-            f.write(_HARNESS)
+            f.write(_HARNESS.format(branch=branch))
 
         exe = os.path.join(tmp, 'harness.exe' if os.name == 'nt' else 'harness')
         compile_cmd = ['gcc', '-O2', '-I', out_dir, harness_path, '-o', exe, '-lm']
@@ -210,42 +233,60 @@ def cmd_verify_c(args):
             print(proc.stderr)
             return 1
 
+    n_features = config.N_FEATURES
     rows = [line.split() for line in proc.stdout.strip().splitlines()]
-    c_feats = np.array([[float(v) for v in r[:-1]] for r in rows])
-    c_pred = np.array([int(r[-1]) for r in rows])
+    c_feats = np.array([[float(v) for v in r[:n_features]] for r in rows])
+    c_pred = np.array([int(r[n_features]) for r in rows])
+    c_value = (np.array([float(r[n_features + 1]) for r in rows])
+               if len(rows[0]) > n_features + 1 else None)
 
     py_feats = features_mod.extract_batch(batch)
-    py_scores = clf.scores(py_feats.astype(np.float64))
-    py_pred = py_scores.argmax(axis=1)
-
     diff = np.abs(c_feats - py_feats)
     max_diff = float(diff.max())
-    agree = float((c_pred == py_pred).mean())
 
     # Расхождение класса — не обязательно ошибка. C считает во float, Python во
-    # float64; на семпле, где два лучших класса идут вплотную, argmax может
+    # float64; на кадре, где решение принимается «впритык», ответы могут
     # разойтись совершенно законно, и требовать agree == 1.0 значит ловить
-    # случайные красные прогоны там, где экспорт исправен.
-    #
-    # Поэтому разошедшиеся семплы разбираются: если у Python зазор между двумя
-    # лучшими оценками меньше BORDERLINE_GAP, семпл считается пограничным и
-    # засчитывается; если зазор большой, значит C реально решает иначе — это
-    # поломка. Допуск по признакам при этом остаётся жёстким (1e-4).
-    BORDERLINE_GAP = 1e-3
-    mismatch = np.flatnonzero(c_pred != py_pred)
-    top2 = np.sort(py_scores, axis=1)[:, -2:]
-    gaps = top2[:, 1] - top2[:, 0]
-    borderline = mismatch[gaps[mismatch] < BORDERLINE_GAP]
-    real_mismatch = mismatch[gaps[mismatch] >= BORDERLINE_GAP]
+    # случайные красные прогоны там, где экспорт исправен. Поэтому расхождения
+    # разбираются, а не просто считаются.
+    if c_value is not None:
+        # Ветка C: решает одно число против таблицы порогов. Расхождение
+        # законно ровно тогда, когда сама разница float32/float64 в этом числе
+        # не меньше расстояния до ближайшего порога — то есть кадр лежит в
+        # зоне численной неопределённости, а не классифицируется иначе.
+        py_value = clf.raw(py_feats.astype(np.float64))
+        py_pred = clf.decoder.decode(py_value)
+        thresholds = clf.decoder.thresholds
+        gaps = (np.abs(py_value[:, None] - thresholds[None, :]).min(axis=1)
+                if len(thresholds) else np.full(len(py_value), np.inf))
+        noise = np.abs(py_value - c_value)
+        borderline_mask = gaps <= noise
+        gap_label = "расстояние до ближайшего порога"
+    else:
+        py_scores = clf.scores(py_feats.astype(np.float64))
+        py_pred = py_scores.argmax(axis=1)
+        top2 = np.sort(py_scores, axis=1)[:, -2:]
+        gaps = top2[:, 1] - top2[:, 0]
+        borderline_mask = gaps < 1e-3
+        gap_label = "зазор между двумя лучшими классами"
 
-    print(f"\nСВЕРКА C ПРОТИВ PYTHON ({len(batch)} кадров)")
+    agree = float((c_pred == py_pred).mean())
+    mismatch = np.flatnonzero(c_pred != py_pred)
+    borderline = mismatch[borderline_mask[mismatch]]
+    real_mismatch = mismatch[~borderline_mask[mismatch]]
+
+    print(f"\nСВЕРКА C ПРОТИВ PYTHON, ветка {branch} ({len(batch)} кадров)")
+    if c_value is not None:
+        rel = np.abs(py_value - c_value) / np.maximum(np.abs(py_value), 1.0)
+        print(f"  макс. расхождение выхода   : {float(rel.max()):.2e} "
+              f"(относительное)")
     print(f"  макс. расхождение признака : {max_diff:.2e}")
     print(f"  среднее расхождение        : {float(diff.mean()):.2e}")
     print(f"  совпадение класса          : {agree:.4f} "
           f"({int((c_pred == py_pred).sum())}/{len(batch)})")
     if len(mismatch):
         print(f"  из расхождений пограничных : {len(borderline)} "
-              f"(зазор top-2 < {BORDERLINE_GAP:g})")
+              f"({gap_label} в пределах численного шума)")
         print(f"  настоящих расхождений      : {len(real_mismatch)}")
         for i in real_mismatch[:5]:
             print(f"    кадр {i}: C={config.CLASS_NAMES[c_pred[i]]} "
@@ -311,7 +352,9 @@ def cmd_models(args):
 
     print("\nактивные сейчас:")
     for kind in storage.KINDS:
-        for br in ('A', 'B'):
+        for br in ('A', 'B', 'C'):
+            if kind == 'oracle' and br == 'C':
+                continue                     # ветка C учится у оракула ветки A
             name = storage.active_name(kind, br)
             label = 'оракул ' if kind == 'oracle' else 'формулы'
             shown = name or '— (слот пуст или модель не из библиотеки)'
@@ -433,10 +476,18 @@ def cmd_calibrate(args):
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
+BRANCHES = ['A', 'B', 'C', 'a', 'b', 'c']
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog='python main.py',
-        description='Дистилляция классификатора аэроснимков в EML-формулы.')
+        description='Дистилляция классификатора изображений в EML-формулы.')
+    # Датасет — общий флаг всех команд: он определяет и число классов, и всё,
+    # что от него зависит, поэтому задавать его внутри отдельных подкоманд
+    # означало бы, что часть из них молча работает с другим набором классов.
+    parser.add_argument('--dataset', default=None, metavar='ПАПКА',
+                        help='папка с подпапками-классами; выбор запоминается')
     sub = parser.add_subparsers(dest='command', required=True)
 
     p = sub.add_parser('info', help='сведения о датасете и признаках')
@@ -455,39 +506,53 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_train)
 
     p = sub.add_parser('distill', help='дистилляция оракула в EML-формулы')
-    p.add_argument('--branch', default='A', choices=['A', 'B', 'a', 'b'])
+    p.add_argument('--branch', default='A', choices=BRANCHES)
     p.add_argument('--batch', action='store_true',
                    help='несколько прогонов, лучший по val')
     p.add_argument('--variants', type=int, default=None)
     p.add_argument('--generations', type=int, default=None)
     p.add_argument('--population', type=int, default=None)
     p.add_argument('--depth-penalty', default=None,
-                   choices=list(config.DEPTH_PENALTIES.keys()))
+                   choices=list(config.DEPTH_PENALTIES.keys()),
+                   help='штраф за размер формулы (у ветки C — за число узлов)')
     p.add_argument('--no-acc-phase', action='store_true',
-                   help='только DATA-фаза (для отладки)')
+                   help='только DATA-фаза (ветки A и B, для отладки)')
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--name', default=None,
                    help='имя копии в библиотеке (по умолчанию время + метрика)')
+    group = p.add_argument_group('ветка C (длинные прогоны)')
+    group.add_argument('--islands', type=int, default=None,
+                       help='независимых популяций (0 = по числу процессов)')
+    group.add_argument('--workers', type=int, default=None,
+                       help='процессов (0 = по числу ядер, 1 = без параллели)')
+    group.add_argument('--max-intervals', type=int, default=None,
+                       help='потолок числа участков оси в таблице порогов')
+    group.add_argument('--checkpoint', default=None,
+                       help='файл состояния (по умолчанию runs/checkpoints/...)')
+    group.add_argument('--restart', action='store_true',
+                       help='начать заново, не продолжая сохранённый прогон')
     p.set_defaults(func=cmd_distill)
 
     p = sub.add_parser('report', help='графики в results/')
-    p.add_argument('--branch', default='A', choices=['A', 'B', 'a', 'b'])
+    p.add_argument('--branch', default='A', choices=BRANCHES)
     p.set_defaults(func=cmd_report)
 
     p = sub.add_parser('export', help='экспорт формул в C')
-    p.add_argument('--branch', default='A', choices=['A', 'B', 'a', 'b'])
+    p.add_argument('--branch', default='A', choices=BRANCHES)
     p.add_argument('--out', default=None)
     p.set_defaults(func=cmd_export)
 
     p = sub.add_parser('verify-c', help='скомпилировать C и сверить с Python')
     p.add_argument('-n', type=int, default=200, help='сколько кадров сверять')
+    p.add_argument('--branch', default='A', choices=['A', 'C', 'a', 'c'],
+                   help='C-экспорт признаков есть у веток A и C')
     p.add_argument('--out', default=None)
     p.set_defaults(func=cmd_verify_c)
 
     p = sub.add_parser('models', help='библиотека моделей: список и выбор')
     p.add_argument('--kind', default=None, choices=['oracle', 'eml'],
                    help='показать только оракулов или только формулы')
-    p.add_argument('--branch', default=None, choices=['A', 'B', 'a', 'b'])
+    p.add_argument('--branch', default=None, choices=BRANCHES)
     p.add_argument('--activate', metavar='ИМЯ',
                    help='сделать модель активной')
     p.add_argument('--rename', nargs=2, metavar=('ИМЯ', 'НОВОЕ'),
@@ -513,12 +578,36 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def apply_dataset(args) -> int:
+    """
+    Выбрать датасет: явный --dataset или запомненный в прошлый раз.
+
+    Явный выбор сразу запоминается — иначе следующая команда работала бы с
+    другим набором классов, и половина пайплайна считала бы одно, а половина
+    другое.
+    """
+    if args.dataset:
+        try:
+            info = config.use_dataset(args.dataset)
+        except (ValueError, OSError) as exc:
+            print(f"датасет не подошёл: {exc}")
+            return 1
+        config.save_dataset_choice()
+        print(f"[data] датасет: {info['root']} "
+              f"({info['n_classes']} классов: {', '.join(info['classes'])})")
+    else:
+        config.load_dataset_choice(verbose=True)
+    return 0
+
+
 def main():
     args = build_parser().parse_args()
     # У models ветка необязательна (None = все ветки), поэтому проверяем не
     # только наличие атрибута, но и значение.
     if getattr(args, 'branch', None):
         args.branch = args.branch.upper()
+    if apply_dataset(args):
+        sys.exit(1)
     sys.exit(args.func(args) or 0)
 
 
