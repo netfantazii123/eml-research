@@ -378,6 +378,12 @@ class DataTab:
         panel.pack(side=tk.LEFT, fill=tk.Y)
         panel.pack_propagate(False)
 
+        _section(panel, "ПАПКА С КЛАССАМИ")
+        _btn(panel, "Выбрать папку...", self.choose_folder, bg=PURPLE, fg=BG,
+             fill=tk.X, padx=6, pady=3)
+        self.path_info = _label(panel, "", fill=tk.X, padx=8, pady=(2, 4))
+        _sep(panel)
+
         _section(panel, "ДАТАСЕТ")
         _btn(panel, "Загрузить датасет", self.load, fill=tk.X, padx=6, pady=3)
         _btn(panel, "Другие примеры", self.resample, fill=tk.X, padx=6, pady=3)
@@ -395,6 +401,63 @@ class DataTab:
                font=MONO_B, fill=tk.X, padx=8)
         self.view = ImageView(right, width=880, height=300)
         self.view.pack(padx=8, pady=6)
+        self._show_path()
+
+    def _show_path(self):
+        """Какая папка выбрана сейчас — видно до всякой загрузки."""
+        self.path_info.config(
+            text=f"{os.path.basename(os.path.abspath(config.DATASET_DIR))}\n"
+                 f"{config.N_CLASSES} кл.: " + ', '.join(config.CLASS_NAMES))
+
+    def choose_folder(self):
+        """
+        Выбрать папку, подпапки которой станут классами.
+
+        Состав папки показывается ДО применения: смена датасета меняет число
+        классов, а значит делает несовместимыми уже обученные модели. Узнать
+        об этом лучше из диалога, чем из отказа загрузить оракула.
+        """
+        import data
+
+        path = filedialog.askdirectory(
+            title="Папка с подпапками-классами", mustexist=True,
+            initialdir=os.path.abspath(config.DATASET_DIR)
+                       if os.path.isdir(config.DATASET_DIR) else None)
+        if not path:
+            return
+
+        info = data.describe_root(path)
+        if not info['classes']:
+            messagebox.showerror(
+                "Не подходит",
+                f"В папке {path} нет подпапок с картинками.\n\n"
+                f"Ожидается:\n  <папка>/ИМЯ_КЛАССА/*.bmp|png|jpg\n\n"
+                f"Каждая подпапка — класс, её имя — имя класса.")
+            return
+
+        listing = '\n'.join(f"    {name:<20} {info['counts'][name]:>6}"
+                            for name in info['classes'])
+        same = info['classes'] == list(config.CLASS_NAMES)
+        warning = "" if same else (
+            "\n\nНАБОР КЛАССОВ ДРУГОЙ. Уже обученные оракулы и формулы\n"
+            "к нему не подойдут — их придётся обучить заново.")
+        if not messagebox.askokcancel(
+                "Выбрать этот датасет?",
+                f"{path}\n\nклассов: {len(info['classes'])}, "
+                f"картинок: {info['n_files']}\n"
+                f"форматы: {', '.join(info['exts'])}\n"
+                f"размеры: {', '.join(info['sizes'])}"
+                f" (приводятся к {config.IMG_SIZE}x{config.IMG_SIZE})\n\n"
+                f"{listing}{warning}"):
+            return
+
+        config.use_dataset(path, info['classes'])
+        config.save_dataset_choice()
+        self.images = self.labels = None
+        self._show_path()
+        self.info.config(text="датасет выбран,\nнажмите «Загрузить датасет»")
+        self.plot.clear()
+        self.plot.draw()
 
     def load(self):
         import data
@@ -698,6 +761,8 @@ class DistillTab(WorkerTab):
         super().__init__(root, lock=lock, lock_name="дистилляция")
         self.data_hist = {}
         self.acc_hist = []
+        self.single_hist = []
+        self.island_hist = []
         self._last_draw = 0.0
 
         panel = tk.Frame(parent, bg=BG2, width=215)
@@ -706,17 +771,19 @@ class DistillTab(WorkerTab):
 
         _section(panel, "ВЕТКА")
         self.branch = tk.StringVar(value='A')
-        for value, text in (('A', "A — инженерные признаки"),
-                            ('B', "B — эмбеддинг CNN")):
+        for value, text in (('A', "A — по формуле на класс"),
+                            ('B', "B — эмбеддинг CNN"),
+                            ('C', "C — ОДНА формула")):
             tk.Radiobutton(panel, text=text, variable=self.branch, value=value,
                            bg=BG2, fg=FG, selectcolor=BG3, font=("Consolas", 8),
                            activebackground=BG2, activeforeground=ACCENT,
-                           anchor='w').pack(fill=tk.X, padx=6)
+                           anchor='w', command=self._on_branch
+                           ).pack(fill=tk.X, padx=6)
 
         # Дефолты берутся из config, а не вписаны числами: раньше здесь стояли
         # 300/400 против 600/600 в config, и запуск из окна тихо считал не то
         # же, что `python main.py distill` — а сравнивали потом их результаты.
-        params = _section(panel, "DATA-ФАЗА")
+        params = _section(panel, "ЭВОЛЮЦИЯ")
         self.p_gen = ParamRow(params, "поколений", config.EML_GENERATIONS, int)
         self.p_pop = ParamRow(params, "популяция", config.EML_POPULATION, int)
         self.p_seed = ParamRow(params, "сид", 0, int)
@@ -728,10 +795,23 @@ class DistillTab(WorkerTab):
                      ).pack(fill=tk.X, padx=6, pady=3)
 
         self.acc_phase = tk.BooleanVar(value=True)
-        tk.Checkbutton(panel, text="ACC-фаза", variable=self.acc_phase,
-                       bg=BG2, fg=FG, selectcolor=BG3, font=("Consolas", 8),
-                       activebackground=BG2, anchor='w').pack(fill=tk.X, padx=6,
-                                                              pady=4)
+        self.chk_acc = tk.Checkbutton(
+            panel, text="ACC-фаза", variable=self.acc_phase, bg=BG2, fg=FG,
+            selectcolor=BG3, font=("Consolas", 8), activebackground=BG2,
+            anchor='w')
+        self.chk_acc.pack(fill=tk.X, padx=6, pady=4)
+
+        # Ветка C идёт часами, поэтому её ручки — про то, как расходовать это
+        # время: сколько независимых популяций и сколько процессов под них.
+        self.c_frame = tk.Frame(panel, bg=BG2)
+        self.p_islands = ParamRow(self.c_frame, "островов", 0, int)
+        self.p_workers = ParamRow(self.c_frame, "процессов", 0, int)
+        self.resume = tk.BooleanVar(value=True)
+        tk.Checkbutton(self.c_frame, text="продолжить прогон",
+                       variable=self.resume, bg=BG2, fg=FG, selectcolor=BG3,
+                       font=("Consolas", 8), activebackground=BG2,
+                       anchor='w').pack(fill=tk.X, padx=6, pady=2)
+        _label(self.c_frame, "0 = по числу ядер", fg=FG2, fill=tk.X, padx=8)
         _sep(panel)
         self.btn = _btn(panel, "Дистиллировать", self.run, bg=PURPLE, fg=BG,
                         fill=tk.X, padx=6, pady=3)
@@ -755,6 +835,26 @@ class DistillTab(WorkerTab):
 
         if lock is not None:
             lock.subscribe(self._on_lock)
+        self._on_branch()
+
+    def _on_branch(self):
+        """
+        Показать ручки той ветки, которая выбрана.
+
+        У ветки C нет ACC-фазы (она одна целиком), зато есть острова, процессы
+        и продолжение прогона. Оставить на экране чужие поля значило бы дать
+        покрутить то, что ни на что не влияет.
+        """
+        if self.branch.get() == 'C':
+            self.chk_acc.pack_forget()
+            self.c_frame.pack(fill=tk.X)
+            self.p_gen.set(config.EMLC_GENERATIONS)
+            self.p_pop.set(config.EMLC_POPULATION)
+        else:
+            self.c_frame.pack_forget()
+            self.chk_acc.pack(fill=tk.X, padx=6, pady=4)
+            self.p_gen.set(config.EML_GENERATIONS)
+            self.p_pop.set(config.EML_POPULATION)
 
     def _on_lock(self, owner):
         foreign = owner is not None and owner != self.lock_name
@@ -766,14 +866,19 @@ class DistillTab(WorkerTab):
             self.btn.config(state=tk.NORMAL, text="Дистиллировать")
 
     def run(self):
-        if not self.start(self._work, self.branch.get(),
-                          self.p_gen.get(config.EML_GENERATIONS),
-                          self.p_pop.get(config.EML_POPULATION),
+        branch = self.branch.get()
+        defaults = ((config.EMLC_GENERATIONS, config.EMLC_POPULATION)
+                    if branch == 'C'
+                    else (config.EML_GENERATIONS, config.EML_POPULATION))
+        if not self.start(self._work, branch,
+                          self.p_gen.get(defaults[0]),
+                          self.p_pop.get(defaults[1]),
                           self.penalty.get(), self.acc_phase.get(),
                           self.p_seed.get(0),
                           (self.p_name.get('') or '').strip() or None):
             return
         self.data_hist, self.acc_hist = {}, []
+        self.single_hist, self.island_hist = [], []
         self._last_draw = 0.0
         self.btn.config(state=tk.DISABLED, text="Эволюция...")
         self.btn_stop.config(state=tk.NORMAL)
@@ -801,13 +906,25 @@ class DistillTab(WorkerTab):
                 last[0] = now
                 self.queue.put({'type': 'progress', **payload})
 
-        out = pipeline.run(branch, depth_penalty=penalty,
-                           generations=generations, population=population,
-                           acc_phase=acc_phase, save=True, verbose=False,
-                           seed=seed, name=name, progress_cb=progress,
-                           should_stop=self.should_stop)
+        if branch == 'C':
+            # Ветка C считает в отдельных ПРОЦЕССАХ (см. eml_single). Из потока
+            # интерфейса это законно: дочерние процессы порождаются через
+            # spawn, а точка входа проекта закрыта проверкой __main__.
+            out = pipeline.run_single(
+                'C', size_penalty=penalty, generations=generations,
+                population=population, islands=self.p_islands.get(0) or None,
+                workers=self.p_workers.get(0) or None, seed=seed,
+                resume=self.resume.get(), save=True, verbose=False, name=name,
+                progress_cb=progress, should_stop=self.should_stop)
+        else:
+            out = pipeline.run(branch, depth_penalty=penalty,
+                               generations=generations, population=population,
+                               acc_phase=acc_phase, save=True, verbose=False,
+                               seed=seed, name=name, progress_cb=progress,
+                               should_stop=self.should_stop)
         self.queue.put({'type': 'distilled', 'meta': out['meta'],
                         'result': out['result'], 'saved': out.get('saved'),
+                        'branch': branch,
                         'formulas': [t.to_string() for t in out['trees']]})
 
     def load_saved(self):
@@ -843,9 +960,18 @@ class DistillTab(WorkerTab):
                      f"доля: {metrics.get('eml_bal_acc', 0) / oracle_bal * 100:.1f}%\n"
                      f"fidelity: {metrics.get('fidelity', 0):.4f}{note}")
             self.text.delete('1.0', tk.END)
-            for c, formula in enumerate(event['formulas']):
-                name = config.CLASS_NAMES[c] if c < config.N_CLASSES else f'C{c}'
-                self.text.insert(tk.END, f"f_{name} =\n  {formula}\n\n")
+            if meta.get('class_layout'):
+                # Ветка C: формула одна, а главный результат — куда она сама
+                # расставила классы на своей оси.
+                self.text.insert(tk.END, f"f =\n  {event['formulas'][0]}\n\n")
+                self.text.insert(
+                    tk.END, f"участков оси: {meta.get('n_intervals', '?')}\n"
+                            f"{meta['class_layout']}\n")
+            else:
+                for c, formula in enumerate(event['formulas']):
+                    name = (config.CLASS_NAMES[c] if c < config.N_CLASSES
+                            else f'C{c}')
+                    self.text.insert(tk.END, f"f_{name} =\n  {formula}\n\n")
             if event.get('result'):
                 self._draw_result(event['result'])
         elif event['type'] == 'error':
@@ -857,7 +983,20 @@ class DistillTab(WorkerTab):
 
     def _on_progress(self, event):
         """Живые кривые: DATA-фаза копит по кривой на класс, ACC — одну."""
-        if event['phase'] == 'data':
+        if event['phase'] == 'single':
+            self.single_hist = event['history']
+            self.island_hist = event.get('islands') or []
+            spread = (max(self.island_hist) - min(self.island_hist)
+                      if len(self.island_hist) > 1 else 0.0)
+            self.info.config(
+                text=f"ветка C\n"
+                     f"поколение {event['gen']}/{event['generations']}\n"
+                     f"fitness: {event['best']:.4f}\n"
+                     f"узлов: {event['nodes']}, глубина {event['depth']}\n"
+                     f"участков: {event['intervals']}\n"
+                     f"островов: {len(self.island_hist)}\n"
+                     f"разброс: {spread:.4f}")
+        elif event['phase'] == 'data':
             self.data_hist[event['class_idx']] = event['history']
             variant = (f"вариант {event['variant'] + 1}/{event['variants']}  "
                        if 'variant' in event else "")
@@ -883,12 +1022,25 @@ class DistillTab(WorkerTab):
 
     def _draw_result(self, result):
         """Итоговые кривые из готового прогона (или из «Показать сохранённые»)."""
+        if 'model' in result:                     # ветка C: одна кривая
+            self.single_hist = result.get('history') or []
+            self._draw({}, [])
+            return
         data_hist = {c: res['history']
                      for c, res in enumerate(result.get('data_results') or [])}
         acc = result.get('acc_result')
         self._draw(data_hist, acc['history'] if acc else [])
 
     def _draw(self, data_hist: dict, acc_hist: list):
+        if self.single_hist:
+            self.plot.clear()
+            ax = self.plot.axes(111)
+            ax.plot(self.single_hist, color=GREEN)
+            ax.set_title("ветка C: fitness (сбаланс. accuracy − штрафы)")
+            ax.set_xlabel("раунд обмена между островами")
+            self.plot.fig.tight_layout()
+            self.plot.draw()
+            return
         if not data_hist and not acc_hist:
             return
         self.plot.clear()
@@ -917,6 +1069,19 @@ class DistillTab(WorkerTab):
 # ── Вкладка: Модели ───────────────────────────────────────────────────────────
 
 ACTIVE_CHOICE = "— активная —"
+
+
+def _lib_branch(kind: str, branch: str) -> str:
+    """
+    Под какой веткой искать модель этого вида в библиотеке.
+
+    Своего оракула у ветки C нет: она учится у того же MLP, что и ветка A, и
+    в её пространстве признаков. Поэтому запрос «оракул ветки C» надо
+    переадресовать ветке A, иначе списки моделей окажутся пустыми, а
+    сравнение «формула против сети» — недоступным именно там, где оно нужнее
+    всего.
+    """
+    return 'A' if kind == 'oracle' and branch.upper() == 'C' else branch
 
 
 def _model_choices(kind: str, branch: str) -> list[str]:
@@ -1127,8 +1292,9 @@ class PhotoTab:
 
         _section(panel, "ВЕТКА")
         self.branch = tk.StringVar(value='A')
-        for value in ('A', 'B'):
-            tk.Radiobutton(panel, text=f"ветка {value}", variable=self.branch,
+        for value, text in (('A', "ветка A"), ('B', "ветка B"),
+                            ('C', "ветка C (одна формула)")):
+            tk.Radiobutton(panel, text=text, variable=self.branch,
                            value=value, bg=BG2, fg=FG, selectcolor=BG3,
                            font=("Consolas", 8), activebackground=BG2,
                            anchor='w',
@@ -1199,7 +1365,7 @@ class PhotoTab:
         branch = self.branch.get()
         for combo, var, kind in ((self.combo_oracle, self.pick_oracle, 'oracle'),
                                  (self.combo_eml, self.pick_eml, 'eml')):
-            choices = _model_choices(kind, branch)
+            choices = _model_choices(kind, _lib_branch(kind, branch))
             combo['values'] = choices
             if var.get() not in choices:
                 var.set(ACTIVE_CHOICE)
@@ -1224,13 +1390,14 @@ class PhotoTab:
 
         branch = self.branch.get()
         kind = 'oracle' if engine == 'oracle' else 'eml'
+        lib_branch = _lib_branch(kind, branch)
         choice = (self.pick_oracle if engine == 'oracle' else self.pick_eml).get()
-        chosen = _resolve_choice(choice, kind, branch)
+        chosen = _resolve_choice(choice, kind, lib_branch)
 
         # Ветка B на формулах зависит от ДВУХ файлов: вход формул — эмбеддинг
         # CNN, поэтому переобучение оракула B меняет ответ EML-движка ровно так
         # же, как новая дистилляция.
-        paths = [chosen or storage.active_path(kind, branch)]
+        paths = [chosen or storage.active_path(kind, lib_branch)]
         if engine == 'eml' and branch == 'B':
             paths.append(storage.oracle_path('B'))
 
@@ -1305,7 +1472,8 @@ class PhotoTab:
                 continue
             preds, scores, conf = predictor.predict(self.crop[None])
             results[engine] = (int(preds[0]), scores[0], float(conf[0]),
-                               predictor.label(), predictor.conf_is_probability)
+                               predictor.label(), predictor.conf_is_probability,
+                               predictor)
         if not results:
             messagebox.showinfo("Нет моделей",
                                 f"Для ветки {self.branch.get()} нет обученной "
@@ -1315,14 +1483,19 @@ class PhotoTab:
         lines = []
         if self.true_label is not None:
             lines.append(f"истина:  {config.CLASS_NAMES[self.true_label]}")
-        for engine, (pred, _, conf, label, is_prob) in results.items():
+        for engine, (pred, _, conf, label, is_prob, predictor) in results.items():
             mark = ''
             if self.true_label is not None:
                 mark = '  верно' if pred == self.true_label else '  ОШИБКА'
             # У оракула это вероятность после softmax, у формул — просто
             # оценка: их выходы никто не калибровал как вероятности.
             # Одинаково подписывать два разных числа нельзя.
-            suffix = f"{conf * 100:4.0f}%" if is_prob else f"score {conf:.2f}"
+            if is_prob:
+                suffix = f"{conf * 100:4.0f}%"
+            elif predictor.is_single:
+                suffix = f"запас {conf:.2f}"
+            else:
+                suffix = f"score {conf:.2f}"
             lines.append(f"{'формулы' if engine == 'eml' else 'оракул':<8} "
                          f"{config.CLASS_NAMES[pred]:<7} {suffix}{mark}")
         if len(results) == 2:
@@ -1331,8 +1504,14 @@ class PhotoTab:
             lines.append("движки согласны" if agree else "движки РАСХОДЯТСЯ")
         lines.append("")
         lines.append("% оракула — вероятность,")
-        lines.append("score формул — не вероятность")
-        lines.append("(минимум для 4 классов 0.25)")
+        eml_predictor = results.get('eml', (None,) * 6)[5]
+        if eml_predictor is not None and eml_predictor.is_single:
+            lines.append("запас — доля участка оси до")
+            lines.append("ближайшего порога, 0..1")
+        else:
+            lines.append("score формул — не вероятность")
+            lines.append(f"(минимум для {config.N_CLASSES} классов "
+                         f"{1 / config.N_CLASSES:.2f})")
         self.verdict.config(text="\n".join(lines))
         self.info.config(text=f"кадр {self.crop.shape[1]}x{self.crop.shape[0]}\n"
                               f"ветка {self.branch.get()}")
@@ -1343,11 +1522,21 @@ class PhotoTab:
         ax = self.plot.axes(111)
         width = 0.38
         x = np.arange(config.N_CLASSES)
-        for k, (engine, (_, scores, _, label, _is_prob)) in enumerate(results.items()):
-            # Оценки движков живут в разных шкалах (логиты против калиброванных
-            # выходов формул), поэтому сравнивать их можно только после
-            # softmax — иначе столбики несопоставимы.
-            probs = vision.softmax(scores[None])[0]
+        for k, item in enumerate(results.items()):
+            engine, (_, scores, _, label, _is_prob, predictor) = item
+            if predictor.is_single:
+                # Ветка C: оценка класса — минус расстояние по оси выхода, и
+                # у неё нет верхней шкалы. Softmax от таких чисел насыщается в
+                # единицу почти всегда, поэтому столбик рисуется по-другому:
+                # 1 у предсказанного класса, у остальных — насколько близко
+                # они были, в долях от самого далёкого.
+                worst = float(np.min(scores))
+                probs = (1.0 - scores / worst) if worst < 0 else np.ones_like(scores)
+            else:
+                # Оценки движков живут в разных шкалах (логиты против
+                # калиброванных выходов формул), поэтому сравнивать их можно
+                # только после softmax — иначе столбики несопоставимы.
+                probs = vision.softmax(scores[None])[0]
             ax.bar(x + (k - 0.5) * width, probs, width,
                    label=label, color=ACCENT if engine == 'eml' else PURPLE)
         ax.set_xticks(x)
@@ -1364,24 +1553,13 @@ class PhotoTab:
 
 def _read_image(path: str) -> np.ndarray:
     """
-    Прочитать картинку в RGB. BMP — своим парсером, остальное — через OpenCV.
+    Прочитать картинку в RGB.
 
-    Так .bmp (формат датасета) открывается всегда, а поддержка png/jpg
-    появляется только если OpenCV установлен.
+    BMP и PNG читаются своими парсерами (imaging.py) и не требуют ничего
+    стороннего; JPEG — только через OpenCV или Pillow, если они установлены.
     """
-    if path.lower().endswith('.bmp'):
-        import data
-        return data.read_bmp(path)
-    try:
-        import cv2
-    except ImportError as exc:
-        raise RuntimeError(
-            "для png/jpg нужен OpenCV (pip install opencv-python);\n"
-            "BMP открывается без него.") from exc
-    frame = cv2.imread(path, cv2.IMREAD_COLOR)
-    if frame is None:
-        raise RuntimeError(f"не удалось прочитать {path}")
-    return np.ascontiguousarray(frame[:, :, ::-1])
+    import imaging
+    return imaging.read_image(path)
 
 
 # ── Вкладка: Тест · Видео ─────────────────────────────────────────────────────
@@ -1449,7 +1627,8 @@ class VideoTab(WorkerTab):
         # пользователь выбирал «оракул», видел прежнюю разметку формул и
         # честно считал, что это ответ оракула.
         self.model_radios = []
-        for value, text in (('A', "ветка A"), ('B', "ветка B")):
+        for value, text in (('A', "ветка A"), ('B', "ветка B"),
+                            ('C', "ветка C")):
             self.model_radios.append(tk.Radiobutton(
                 panel, text=text, variable=self.branch, value=value,
                 bg=BG2, fg=FG, selectcolor=BG3, font=("Consolas", 8),
@@ -1515,7 +1694,7 @@ class VideoTab(WorkerTab):
     def refresh_models(self):
         """Список моделей для текущей пары (ветка, движок)."""
         kind = 'oracle' if self.engine.get() == 'oracle' else 'eml'
-        choices = _model_choices(kind, self.branch.get())
+        choices = _model_choices(kind, _lib_branch(kind, self.branch.get()))
         self.combo_model['values'] = choices
         if self.pick_model.get() not in choices:
             self.pick_model.set(ACTIVE_CHOICE)
@@ -1524,7 +1703,8 @@ class VideoTab(WorkerTab):
         """(ветка, движок, путь) — то, чем сейчас должна размечаться картинка."""
         branch, engine = self.branch.get(), self.engine.get()
         kind = 'oracle' if engine == 'oracle' else 'eml'
-        return branch, engine, _resolve_choice(self.pick_model.get(), kind, branch)
+        return branch, engine, _resolve_choice(self.pick_model.get(), kind,
+                                               _lib_branch(kind, branch))
 
     def _on_model_change(self):
         """Смена модели на ходу = перезапуск источника с новой моделью."""
@@ -1854,9 +2034,12 @@ def _style_notebook(root: tk.Tk) -> None:
 # ── Точка входа ───────────────────────────────────────────────────────────────
 
 def main(initial_tab: str | None = None) -> None:
+    # Датасет применяется ДО создания вкладок: от него зависят имена классов,
+    # их число и все подписи, которые вкладки строят в конструкторе.
+    config.load_dataset_choice()
+
     root = tk.Tk()
-    root.title("Aerial Classifier — Данные · Признаки · Обучение · "
-               "Дистилляция · Модели · Тест")
+    root.title(f"EML Classifier — {config.dataset_summary()}")
     root.geometry("1280x820")
     root.configure(bg=BG)
     root.minsize(1040, 680)

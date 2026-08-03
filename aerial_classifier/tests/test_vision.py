@@ -221,3 +221,26 @@ def test_every_class_has_a_colour():
     assert len(seen) == config.N_CLASSES
     for colour in seen:
         assert len(colour) == 3 and all(0 <= v <= 255 for v in colour)
+
+
+def test_class_colors_stay_distinct_for_any_dataset(monkeypatch):
+    """
+    Классы чужой папки получают РАЗНЫЕ цвета, а не общий серый.
+
+    Цвета подобраны вручную только для исходных четырёх имён. Раньше всё
+    остальное падало в один запасной серый, и оверлей на новом датасете
+    превращался в равномерную заливку, по которой ничего не разобрать —
+    причём выглядело это как работающая разметка.
+    """
+    monkeypatch.setattr(config, 'CLASS_NAMES', ['кот', 'пёс', 'лиса', 'ёж', 'уж'])
+    monkeypatch.setattr(config, 'N_CLASSES', 5)
+    colors = [vision.class_color(i) for i in range(5)]
+    assert len(set(colors)) == 5
+    for rgb in colors:
+        assert len(rgb) == 3 and all(0 <= v <= 255 for v in rgb)
+
+
+def test_known_class_colors_are_unchanged():
+    """Исходные четыре класса сохраняют свои цвета: по ним читаются старые отчёты."""
+    for i, name in enumerate(config.CLASS_NAMES):
+        assert vision.class_color(i) == vision.CLASS_COLORS[name]

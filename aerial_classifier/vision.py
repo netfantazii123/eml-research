@@ -41,8 +41,24 @@ DEFAULT_STRIDE = config.IMG_SIZE        # без перекрытия
 
 
 def class_color(class_idx: int) -> tuple[int, int, int]:
-    name = config.CLASS_NAMES[class_idx]
-    return CLASS_COLORS.get(name, (200, 200, 200))
+    """
+    Цвет класса для оверлея и графиков.
+
+    Для классов исходного датасета цвета подобраны вручную. Для чужой папки с
+    произвольными именами они генерируются по индексу: раньше все неизвестные
+    классы получали один и тот же серый, и оверлей на новом датасете превращался
+    в равномерную заливку, по которой ничего не видно.
+    """
+    if class_idx < len(config.CLASS_NAMES):
+        known = CLASS_COLORS.get(config.CLASS_NAMES[class_idx])
+        if known is not None:
+            return known
+    # Золотое сечение по кругу оттенков: соседние индексы получают далёкие
+    # цвета, и разных классов может быть сколько угодно.
+    import colorsys
+    hue = (class_idx * 0.618033988749895) % 1.0
+    r, g, b = colorsys.hsv_to_rgb(hue, 0.45, 0.95)
+    return int(r * 255), int(g * 255), int(b * 255)
 
 
 # ── Единый интерфейс к моделям ────────────────────────────────────────────────
@@ -75,15 +91,27 @@ class Predictor:
         self._clf = None
         self._load()
 
+    @property
+    def oracle_branch(self) -> str:
+        """
+        Чей оракул стоит за этой веткой.
+
+        Ветка C работает в пространстве признаков ветки A и учится у того же
+        MLP — своего оракула у неё нет и быть не должно, иначе сравнение
+        «одна формула против четырёх» мерило бы заодно и разницу оракулов.
+        """
+        return 'B' if self.branch == 'B' else 'A'
+
     def _load(self):
         import storage
 
         if self.engine == 'oracle':
             import oracle as oracle_mod
             self._device = oracle_mod.get_device()
-            self._model = (oracle_mod.FeatureMLP() if self.branch == 'A'
+            branch = self.oracle_branch
+            self._model = (oracle_mod.FeatureMLP() if branch == 'A'
                            else oracle_mod.PixelCNN())
-            self.meta = storage.load_oracle(self._model, branch=self.branch,
+            self.meta = storage.load_oracle(self._model, branch=branch,
                                             path=self.path,
                                             device=self._device)
             self._model.eval()
@@ -113,6 +141,11 @@ class Predictor:
         return f"{name} (ветка {self.branch}{suffix})"
 
     @property
+    def is_single(self) -> bool:
+        """Ветка C: одна формула и таблица порогов вместо набора и argmax."""
+        return self._clf is not None and hasattr(self._clf, 'decoder')
+
+    @property
     def conf_is_probability(self) -> bool:
         """
         Можно ли называть третье возвращаемое значение вероятностью.
@@ -126,8 +159,22 @@ class Predictor:
         return self.engine == 'oracle'
 
     def conf_label(self) -> str:
-        """Как подписать conf в интерфейсе: «уверенность» или «оценка»."""
-        return 'уверенность' if self.conf_is_probability else 'оценка'
+        """Как подписать conf в интерфейсе."""
+        if self.conf_is_probability:
+            return 'уверенность'
+        return 'запас до порога' if self.is_single else 'оценка'
+
+    @property
+    def conf_floor(self) -> float:
+        """
+        Наименьшее значение, которое conf вообще может принять.
+
+        У softmax по N классам максимум не бывает меньше 1/N, поэтому порог
+        уверенности ниже этой величины не фильтрует ничего — интерфейс обязан
+        об этом сказать. У ветки C conf это доля участка оси, отделяющая кадр
+        от ближайшего порога, и она честно доходит до нуля.
+        """
+        return 0.0 if self.is_single else 1.0 / max(config.N_CLASSES, 1)
 
     def predict(self, crops: np.ndarray):
         """
@@ -158,23 +205,55 @@ class Predictor:
             raise ValueError(f"ожидались кадры {config.IMG_SIZE}x"
                              f"{config.IMG_SIZE}x3, получено {crops.shape[1:]}")
 
+        if self.is_single:
+            return self._predict_single(crops)
         scores = self._scores(crops)
         preds = np.argmax(scores, axis=1)
         conf = softmax(scores).max(axis=1)
         return preds, scores, conf
 
+    def _predict_single(self, crops: np.ndarray):
+        """
+        Ветка C: класс из таблицы порогов, «уверенность» — запас до порога.
+
+        Softmax тут не годится совсем. Выход формулы доходит до 2.2e4, а
+        оценки классов ветки C это расстояния по той же оси; softmax от них
+        насыщается в единицу почти всегда, и порог уверенности перестал бы
+        фильтровать что-либо. Осмысленная величина здесь другая: насколько
+        глубоко кадр сидит внутри своего участка. 0 — вплотную к порогу,
+        1 — ровно посередине участка. У неё и шкала честная, и смысл понятный.
+        """
+        import features as features_mod
+
+        x = features_mod.extract_batch(crops).astype(np.float64)
+        values = self._clf.raw(x)
+        preds = self._clf.decoder.decode(values)
+        scores = self._clf.class_scores(x)
+
+        edges = np.concatenate(([-np.inf], self._clf.decoder.thresholds,
+                                [np.inf]))
+        idx = np.searchsorted(self._clf.decoder.thresholds, values, side='right')
+        lo, hi = edges[idx], edges[idx + 1]
+        gap = np.minimum(values - lo, hi - values)          # запас до порога
+        width = hi - lo
+        # Крайние участки бесконечны: там запас ограничен только своей
+        # стороной, и делить его не на что — считаем такой кадр уверенным.
+        conf = np.where(np.isfinite(width), 2.0 * gap / np.maximum(width, 1e-30),
+                        1.0)
+        return preds, scores, np.clip(conf, 0.0, 1.0)
+
     def _scores(self, crops: np.ndarray) -> np.ndarray:
         import oracle as oracle_mod
 
         if self.engine == 'oracle':
-            if self.branch == 'A':
+            if self.oracle_branch == 'A':
                 import features as features_mod
                 x = features_mod.extract_batch(crops)
             else:
                 x = crops
             return oracle_mod.predict_logits(self._model, x, self._device)
 
-        if self.branch == 'A':
+        if self.branch != 'B':
             import features as features_mod
             x = features_mod.extract_batch(crops).astype(np.float64)
         else:
@@ -186,7 +265,14 @@ class Predictor:
         """Тексты формул — для показа во вкладке теста."""
         if self._clf is None:
             return []
+        if self.is_single:
+            return [self._clf.tree.to_string()]
         return [t.to_string() for t in self._clf.trees]
+
+    def axis_layout(self) -> str:
+        """Раскладка классов на оси (ветка C) — пусто для остальных."""
+        return (self._clf.decoder.describe(config.CLASS_NAMES)
+                if self.is_single else '')
 
 
 def softmax(z: np.ndarray) -> np.ndarray:
@@ -466,7 +552,7 @@ def _self_test():
     assert np.array_equal(tiles, crops), "тайлинг вернул не те пиксели"
     print(f"тайлинг: {len(positions)} окон, пиксели совпали с исходными\n")
 
-    for branch in ('A', 'B'):
+    for branch in ('A', 'B', 'C'):
         for engine in ('oracle', 'eml'):
             try:
                 predictor = Predictor(branch=branch, engine=engine)
