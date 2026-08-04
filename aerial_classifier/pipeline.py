@@ -135,14 +135,17 @@ def archive_run(trees: list, branch: str, meta: dict, input_names: list[str], *,
         config.RUNS_DIR, time.strftime('%Y%m%d_%H%M%S') + f'_run_{branch}')
     os.makedirs(run_dir, exist_ok=True)
 
-    meta = dict(meta)
+    # Имя записывается и в переданный словарь тоже. Раньше здесь была только
+    # копия, и вызывающий (а через него интерфейс) имени не видел: панель
+    # прогона показывала «в библиотеке: —» после каждой успешной дистилляции.
     meta['library_name'] = storage.reserve_name('eml', branch, name, meta)
     run_path = storage.save_formulas(
-        trees, branch=branch, meta=meta, input_names=input_names,
+        trees, branch=branch, meta=dict(meta), input_names=input_names,
         decoder=decoder,
         path=os.path.join(run_dir, filename or f'formulas_{branch}.json'))
-    entry = storage.add_to_library('eml', branch, meta['library_name'], meta,
-                                   source_path=run_path, overwrite=True)
+    entry = storage.add_to_library('eml', branch, meta['library_name'],
+                                   dict(meta), source_path=run_path,
+                                   overwrite=True)
     return entry, run_path
 
 

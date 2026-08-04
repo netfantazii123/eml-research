@@ -337,13 +337,17 @@ def cmd_models(args):
         return 0
 
     print(f"\nБИБЛИОТЕКА МОДЕЛЕЙ ({storage.library_dir()})")
-    print("★ лучшая по val в своей группе   • активная сейчас\n")
-    header = (f"   {'вид':<7} {'ветка':<5} {'имя':<34} {'val bal':>8} "
+    print(f"датасет сейчас: {config.dataset_summary()}")
+    print("★ лучшая по val среди подходящих   • активная сейчас   "
+          "≠ другой набор классов\n")
+    header = (f"    {'вид':<7} {'ветка':<5} {'имя':<34} {'val bal':>8} "
               f"{'test bal':>9} {'сложность':>10}")
     print(header)
     print('-' * len(header))
     for entry in entries:
-        marks = ('★' if entry.is_best else ' ') + ('•' if entry.is_active else ' ')
+        marks = (('★' if entry.is_best else ' ')
+                 + ('•' if entry.is_active else ' ')
+                 + (' ' if entry.fits_dataset else '≠'))
         val = f"{entry.val_score:.4f}" if entry.val_score is not None else '—'
         test = f"{entry.test_score:.4f}" if entry.test_score is not None else '—'
         unit = 'пар.' if entry.kind == 'oracle' else 'узл.'
@@ -351,6 +355,13 @@ def cmd_models(args):
         kind = 'оракул' if entry.kind == 'oracle' else 'формулы'
         print(f"{marks} {kind:<7} {entry.branch:<5} {entry.name:<34} "
               f"{val:>8} {test:>9} {size:>10}")
+
+    alien = [e for e in entries if not e.fits_dataset]
+    if alien:
+        print(f"\n≠ {len(alien)} моделей обучены на другом наборе классов и к "
+              f"текущему датасету не подойдут.")
+        print("  Их метрики несравнимы с остальными и в выборе лучшей не "
+              "участвуют.")
 
     print("\nактивные сейчас:")
     for kind in storage.KINDS:

@@ -313,4 +313,5 @@ def accuracy(model: nn.Module, X: np.ndarray, y: np.ndarray, device=None,
 
 
 if __name__ == '__main__':
+    config.load_dataset_choice(verbose=True)
     train('A')

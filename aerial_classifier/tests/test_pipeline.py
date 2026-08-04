@@ -255,3 +255,17 @@ def test_foreign_class_set_is_refused(sandbox, monkeypatch):
     monkeypatch.setattr(config, 'N_CLASSES', 2)
     with pytest.raises(ValueError, match='обучены на классах'):
         storage.load_classifier(branch='C')
+
+
+def test_library_name_reaches_the_caller(sandbox):
+    """
+    Имя в библиотеке попадает и в переданный meta, а не только в файл.
+
+    Панель прогона в интерфейсе читает его именно оттуда. Раньше archive_run
+    работал с копией, и после каждой успешной дистилляции в окне значилось
+    «в библиотеке: —» — при том, что имя в самом артефакте было записано.
+    """
+    meta = meta_with(0.5)
+    entry, _ = pipeline.archive_run(trees(), 'A', meta, names(),
+                                    name='видимое-имя')
+    assert meta['library_name'] == entry.name == 'видимое-имя'

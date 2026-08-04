@@ -244,6 +244,10 @@ def describe(labels: np.ndarray, name: str = 'dataset') -> str:
 
 
 if __name__ == '__main__':
+    # Как и остальные самостоятельные точки входа, применяем выбранный
+    # датасет: иначе `python data.py` показывает состав НЕ той папки, с
+    # которой работает весь остальной проект.
+    config.load_dataset_choice(verbose=True)
     images, labels, paths = load_dataset()
     tr, va, te = stratified_split(labels)
     print(describe(labels, 'всего'))

@@ -306,3 +306,72 @@ def test_entry_label_and_details(sandbox):
     assert 'моя' in label and '0.5800' in label and '30 узл.' in label
     details = entries[0].details()
     assert 'АКТИВНАЯ' in details and 'лучшая по val' in details
+
+
+# ── Совместимость с текущим датасетом ─────────────────────────────────────────
+
+def publish_formulas(name: str, val: float = 0.5):
+    """
+    Сохранить формулы полным путём — через storage.save_formulas.
+
+    Не через write_active: набор классов пишется на верхний уровень артефакта
+    именно там, а без него проверять совместимость с датасетом нечем.
+    """
+    meta = eml_meta(val)
+    reserved = storage.reserve_name('eml', 'A', name, meta)
+    meta['library_name'] = reserved
+    storage.save_formulas([], branch='A', meta=meta, input_names=[])
+    return storage.add_to_library('eml', 'A', reserved, meta, overwrite=True)
+
+
+def test_library_marks_models_from_another_dataset(sandbox, monkeypatch):
+    """
+    Модель с чужим набором классов помечена в списке, а не молчит.
+
+    С выбором папки в библиотеке соседствуют модели разных задач. Без пометки
+    разница обнаружится только при попытке загрузить, и выглядеть это будет
+    как поломка, а не как «модель просто от другого датасета».
+    """
+    monkeypatch.setattr(config, 'CLASS_NAMES', ['A', 'B', 'C', 'D'])
+    publish_formulas('четырёхклассовая')
+    monkeypatch.setattr(config, 'CLASS_NAMES', ['КОТ', 'ПЁС'])
+    publish_formulas('двухклассовая')
+
+    entries = {e.name: e for e in storage.list_models('eml', 'A')}
+    assert entries['двухклассовая'].fits_dataset is True
+    assert entries['четырёхклассовая'].fits_dataset is False
+    assert entries['четырёхклассовая'].classes == ['A', 'B', 'C', 'D']
+    assert '[другой датасет]' in entries['четырёхклассовая'].label()
+    assert 'НЕ ОТ ТЕКУЩЕГО ДАТАСЕТА' in entries['четырёхклассовая'].details()
+
+
+def test_best_ignores_models_from_another_dataset(sandbox, monkeypatch):
+    """
+    Звёздочка не достаётся модели чужого датасета, даже если её метрика выше.
+
+    Метрики несравнимы: на двух классах сбалансированная accuracy стартует с
+    0.5, и «лучшей» такая модель оказывалась бы автоматически, что бы ни
+    лежало рядом.
+    """
+    monkeypatch.setattr(config, 'CLASS_NAMES', ['КОТ', 'ПЁС'])
+    publish_formulas('двухклассовая', val=0.95)
+    monkeypatch.setattr(config, 'CLASS_NAMES', ['A', 'B', 'C', 'D'])
+    publish_formulas('своя-слабая', val=0.60)
+
+    entries = {e.name: e for e in storage.list_models('eml', 'A')}
+    assert entries['своя-слабая'].is_best is True
+    assert entries['двухклассовая'].is_best is False
+
+
+def test_old_artifact_without_class_list_is_not_rejected(sandbox):
+    """
+    Артефакт, сохранённый до появления выбора датасета, считается подходящим.
+
+    Списка классов в нём нет, и решить о нём нечего — объявить такой файл
+    чужим значило бы обесценить всю прежнюю библиотеку одним обновлением.
+    """
+    publish('eml', 'A', 'старая-модель', eml_meta(0.7))
+    entry = storage.find_model('eml', 'A', 'старая-модель')
+    assert entry.classes is None
+    assert entry.fits_dataset is True
+    assert '[другой датасет]' not in entry.label()

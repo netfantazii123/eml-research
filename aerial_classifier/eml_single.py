@@ -379,13 +379,6 @@ class EMLSingle:
         return cls(EMLNode.from_dict(d['tree']),
                    IntervalDecoder.from_dict(d['decoder']))
 
-    def refit_decoder(self, X: np.ndarray, y: np.ndarray, **kwargs) -> "EMLSingle":
-        """Заморозить таблицу порогов по полной обучающей выборке."""
-        kwargs.setdefault('bins', config.EMLC_FINAL_BINS)
-        self.decoder = fit_decoder(self.raw(X), y, self.decoder.n_classes,
-                                   **kwargs)
-        return self
-
 
 # ── Fitness ───────────────────────────────────────────────────────────────────
 

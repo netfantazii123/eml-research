@@ -314,19 +314,42 @@ class ModelEntry:
         return (self.meta.get('params') if self.kind == 'oracle'
                 else self.meta.get('total_nodes'))
 
+    @property
+    def classes(self) -> list[str] | None:
+        """Набор классов, на котором модель обучена (None у старых артефактов)."""
+        value = self.meta.get('class_names')
+        return list(value) if value else None
+
+    @property
+    def fits_dataset(self) -> bool:
+        """
+        Годится ли модель для текущего датасета.
+
+        С выбором папки в библиотеке соседствуют модели разных задач. Отличать
+        их надо в списке: иначе разница обнаружится только при попытке
+        загрузить, и выглядеть это будет как поломка, а не как «модель просто
+        от другого датасета».
+        """
+        return self.classes is None or self.classes == list(config.CLASS_NAMES)
+
     def label(self) -> str:
         """Строка для выпадающего списка: имя, метрика, сложность, пометки."""
         marks = ('★' if self.is_best else ' ') + ('•' if self.is_active else ' ')
         val = f"{self.val_score:.4f}" if self.val_score is not None else "  ?   "
         unit = 'пар.' if self.kind == 'oracle' else 'узл.'
         size = f"{self.size} {unit}" if self.size is not None else ''
-        return f"{marks} {self.name:<28} val {val}  {size}"
+        alien = '' if self.fits_dataset else '  [другой датасет]'
+        return f"{marks} {self.name:<28} val {val}  {size}{alien}"
 
     def details(self) -> str:
         """Многострочная сводка для панели."""
         lines = [f"имя: {self.name}",
                  f"ветка {self.branch}, "
                  f"{'оракул' if self.kind == 'oracle' else 'формулы'}"]
+        if self.classes:
+            lines.append(f"классы: {', '.join(self.classes)}")
+        if not self.fits_dataset:
+            lines.append("НЕ ОТ ТЕКУЩЕГО ДАТАСЕТА")
         if self.is_active:
             lines.append("АКТИВНАЯ")
         if self.is_best:
@@ -402,7 +425,16 @@ def _read_meta(kind: str, path: str) -> dict:
             return torch.load(path, map_location='cpu',
                               weights_only=False).get('meta', {})
         with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f).get('meta', {})
+            payload = json.load(f)
+        meta = payload.get('meta', {})
+        # У формул список классов лежит на верхнем уровне артефакта, а не в
+        # meta. Подтягиваем его сюда, чтобы список моделей мог показать, на
+        # каком наборе классов модель обучена: с выбором датасета в библиотеке
+        # соседствуют модели разных задач, и различать их надо в списке, а не
+        # по отказу при загрузке.
+        if 'class_names' not in meta and payload.get('class_names'):
+            meta = {**meta, 'class_names': payload['class_names']}
+        return meta
     except Exception:                                  # noqa: BLE001
         # Битый или чужой файл не должен ронять весь список: показываем его
         # без характеристик, пользователь сам решит удалить.
@@ -451,11 +483,15 @@ def list_models(kind: str | None = None, branch: str | None = None
 
     # Пометки считаются внутри каждой пары (вид, ветка): лучший оракул ветки A
     # и лучший набор формул ветки B — разные сущности, соревноваться им не в чем.
+    #
+    # Модели от других датасетов из соревнования исключены. Их метрики просто
+    # несравнимы: на двух классах сбалансированная accuracy стартует с 0.5, и
+    # звёздочка досталась бы им автоматически, что бы ни лежало рядом.
     for entry_kind in KINDS:
         for entry_branch in {e.branch for e in entries if e.kind == entry_kind}:
             group = [e for e in entries
                      if e.kind == entry_kind and e.branch == entry_branch
-                     and e.val_score is not None]
+                     and e.val_score is not None and e.fits_dataset]
             if group:
                 max(group, key=lambda e: e.val_score).is_best = True
     return entries

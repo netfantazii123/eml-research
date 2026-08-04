@@ -162,7 +162,7 @@ class Predictor:
         """Как подписать conf в интерфейсе."""
         if self.conf_is_probability:
             return 'уверенность'
-        return 'запас до порога' if self.is_single else 'оценка'
+        return 'запас' if self.is_single else 'оценка'
 
     @property
     def conf_floor(self) -> float:
@@ -268,11 +268,6 @@ class Predictor:
         if self.is_single:
             return [self._clf.tree.to_string()]
         return [t.to_string() for t in self._clf.trees]
-
-    def axis_layout(self) -> str:
-        """Раскладка классов на оси (ветка C) — пусто для остальных."""
-        return (self._clf.decoder.describe(config.CLASS_NAMES)
-                if self.is_single else '')
 
 
 def softmax(z: np.ndarray) -> np.ndarray:
@@ -533,6 +528,12 @@ def _self_test():
 
     import data
 
+    # Самопроверка — самостоятельная точка входа, как main.py и gui.py, и
+    # выбранный датасет применяет сама. Без этого она шла бы по умолчанию, то
+    # есть по ДРУГОМУ набору классов, чем весь остальной проект, и падала бы
+    # на первой же модели.
+    config.load_dataset_choice(verbose=True)
+
     print("── vision.py: самопроверка ──\n")
     images, labels, _ = data.load_dataset(verbose=False)
     _, _, test_idx = data.stratified_split(labels)
@@ -552,13 +553,18 @@ def _self_test():
     assert np.array_equal(tiles, crops), "тайлинг вернул не те пиксели"
     print(f"тайлинг: {len(positions)} окон, пиксели совпали с исходными\n")
 
+    formula_engine = None
     for branch in ('A', 'B', 'C'):
         for engine in ('oracle', 'eml'):
             try:
                 predictor = Predictor(branch=branch, engine=engine)
-            except FileNotFoundError as exc:
+            except (FileNotFoundError, ValueError) as exc:
+                # ValueError = модель обучена на другом наборе классов. После
+                # смены датасета это норма, а не поломка самопроверки.
                 print(f"  {branch}/{engine}: пропуск ({exc})")
                 continue
+            if engine == 'eml' and formula_engine is None:
+                formula_engine = predictor
             t0 = time.perf_counter()
             preds, _, conf = predictor.predict(tiles)
             dt = time.perf_counter() - t0
@@ -567,7 +573,13 @@ def _self_test():
                   f"{dt * 1000:6.1f} мс на {len(tiles)} окон "
                   f"({len(tiles) / dt:5.0f} окон/с)")
 
-    predictor = Predictor(branch='A', engine='eml')
+    # Оверлей проверяется первым же движком формул, который загрузился, а не
+    # веткой A жёстко: после смены датасета применимой может оказаться другая.
+    if formula_engine is None:
+        print("\nни одного набора формул для текущего датасета — "
+              "оверлей и пропускная способность не проверены")
+        return
+    predictor = formula_engine
     preds, _, conf = predictor.predict(tiles)
     overlaid = draw_overlay(frame, positions, preds, conf)
     assert overlaid.shape == frame.shape

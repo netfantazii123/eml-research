@@ -14,12 +14,6 @@ import numpy as np
 import config
 
 
-def _ensure_results_dir(subdir: str = '') -> str:
-    path = os.path.join(config.RESULTS_DIR, subdir) if subdir else config.RESULTS_DIR
-    os.makedirs(path, exist_ok=True)
-    return path
-
-
 # ── Графики ───────────────────────────────────────────────────────────────────
 
 def plot_confusion(cm, title: str, path: str, normalize: bool = True):
@@ -97,41 +91,6 @@ def plot_training(history: dict, title: str, path: str):
     return path
 
 
-def plot_ga_history(result: dict, title: str, path: str):
-    """Кривые fitness обеих фаз дистилляции."""
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-
-    data_results = result.get('data_results') or []
-    acc_result = result.get('acc_result')
-    n_panels = 1 + (1 if acc_result else 0)
-    fig, axes = plt.subplots(1, n_panels, figsize=(6 * n_panels, 4),
-                            squeeze=False)
-
-    ax = axes[0][0]
-    for c, res in enumerate(data_results):
-        name = config.CLASS_NAMES[c] if c < len(config.CLASS_NAMES) else f'C{c}'
-        ax.plot(res['history'], label=name)
-    ax.set_title('DATA-фаза: fitness регрессии к логитам')
-    ax.set_xlabel('поколение')
-    ax.legend()
-    ax.grid(alpha=0.3)
-
-    if acc_result:
-        ax = axes[0][1]
-        ax.plot(acc_result['history'])
-        ax.set_title('ACC-фаза: сбалансированная accuracy набора')
-        ax.set_xlabel('поколение')
-        ax.grid(alpha=0.3)
-
-    fig.suptitle(title)
-    fig.tight_layout()
-    fig.savefig(path, dpi=150)
-    plt.close(fig)
-    return path
-
-
 # ── Замер скорости ────────────────────────────────────────────────────────────
 
 def benchmark(n_images: int = 500, repeats: int = 3, verbose: bool = True) -> dict:
@@ -172,13 +131,18 @@ def benchmark(n_images: int = 500, repeats: int = 3, verbose: bool = True) -> di
     out['features_us'] = timeit(lambda: features_mod.extract_batch(images))
     feats = features_mod.extract_batch(images)
 
+    # Модель, обученная на другом наборе классов, теперь отвергается загрузкой
+    # (ValueError), и это штатная ситуация: после смены датасета часть моделей
+    # просто неприменима. Замер должен пропустить такую строку, а не упасть.
+    missing = (FileNotFoundError, ValueError)
+
     try:
         mlp = oracle_mod.FeatureMLP()
         storage.load_oracle(mlp, branch='A', device=device)
         mlp.eval()
         out['mlp_us'] = timeit(
             lambda: oracle_mod.predict_logits(mlp, feats, device))
-    except FileNotFoundError:
+    except missing:
         out['mlp_us'] = None
 
     try:
@@ -187,17 +151,19 @@ def benchmark(n_images: int = 500, repeats: int = 3, verbose: bool = True) -> di
         cnn.eval()
         out['cnn_us'] = timeit(
             lambda: oracle_mod.predict_logits(cnn, images, device))
-    except FileNotFoundError:
+    except missing:
         out['cnn_us'] = None
 
-    try:
-        clf, payload = storage.load_classifier(branch='A')
-        dist.configure_inputs(len(payload['input_names']), payload['input_names'])
-        X = feats.astype(np.float64)
-        out['eml_us'] = timeit(lambda: clf.predict(X))
-        out['eml_nodes'] = clf.total_nodes()
-    except FileNotFoundError:
-        out['eml_us'] = None
+    X = feats.astype(np.float64)
+    for branch, key in (('A', 'eml'), ('C', 'eml_c')):
+        try:
+            clf, payload = storage.load_classifier(branch=branch)
+            dist.configure_inputs(len(payload['input_names']),
+                                  payload['input_names'])
+            out[f'{key}_us'] = timeit(lambda c=clf: c.predict(X))
+            out[f'{key}_nodes'] = clf.total_nodes()
+        except missing:
+            out[f'{key}_us'] = None
 
     if verbose:
         print(f"\nЗАМЕР СКОРОСТИ (CPU, numpy/torch, {n_images} картинок, "
@@ -208,8 +174,11 @@ def benchmark(n_images: int = 500, repeats: int = 3, verbose: bool = True) -> di
         if out['cnn_us'] is not None:
             print(f"  CNN-оракул (ветка B) : {out['cnn_us']:8.1f} мкс/кадр")
         if out['eml_us'] is not None:
-            print(f"  EML-формулы          : {out['eml_us']:8.1f} мкс/кадр "
-                  f"({out['eml_nodes']} узлов)")
+            print(f"  EML, ветка A         : {out['eml_us']:8.1f} мкс/кадр "
+                  f"(формул {config.N_CLASSES}, узлов AST {out['eml_nodes']})")
+        if out.get('eml_c_us') is not None:
+            print(f"  EML, ветка C         : {out['eml_c_us']:8.1f} мкс/кадр "
+                  f"(формула одна, узлов AST {out['eml_c_nodes']})")
         if out['mlp_us'] and out['eml_us']:
             print(f"\n  ветка A: формулы вместо MLP -> "
                   f"x{out['mlp_us'] / out['eml_us']:.1f} по времени модели")

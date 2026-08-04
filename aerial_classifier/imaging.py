@@ -331,8 +331,3 @@ def resize(img: np.ndarray, size: int) -> np.ndarray:
 def fit_to_size(img: np.ndarray, size: int) -> np.ndarray:
     """Картинка любого размера -> (size, size, 3) uint8: кроп по центру + масштаб."""
     return resize(center_crop_square(to_rgb(img)), size)
-
-
-def load_as_input(path: str, size: int) -> np.ndarray:
-    """Прочитать файл и привести к входу модели одним вызовом."""
-    return fit_to_size(read_image(path), size)

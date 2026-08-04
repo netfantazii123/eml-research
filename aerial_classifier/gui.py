@@ -404,10 +404,18 @@ class DataTab:
         self._show_path()
 
     def _show_path(self):
-        """Какая папка выбрана сейчас — видно до всякой загрузки."""
+        """
+        Какая папка выбрана сейчас — видно до всякой загрузки.
+
+        Заголовок окна обновляется здесь же. Он ставится при старте, и без
+        этого после смены датасета продолжал бы показывать ПРЕЖНИЙ набор
+        классов — то есть врал бы ровно о том, от чего зависит смысл всех
+        остальных чисел на экране.
+        """
         self.path_info.config(
             text=f"{os.path.basename(os.path.abspath(config.DATASET_DIR))}\n"
                  f"{config.N_CLASSES} кл.: " + ', '.join(config.CLASS_NAMES))
+        self.root.title(f"EML Classifier — {config.dataset_summary()}")
 
     def choose_folder(self):
         """
@@ -441,6 +449,15 @@ class DataTab:
         warning = "" if same else (
             "\n\nНАБОР КЛАССОВ ДРУГОЙ. Уже обученные оракулы и формулы\n"
             "к нему не подойдут — их придётся обучить заново.")
+
+        # JPEG своим декодером не читается. Сказать об этом здесь дешевле, чем
+        # уронить загрузку датасета через пять минут после выбора.
+        import imaging
+        if ({'.jpg', '.jpeg'} & set(info['exts'])
+                and imaging.backend_name() == 'нет'):
+            warning += ("\n\nВ папке есть JPEG, а декодера для него нет.\n"
+                        "Поставьте opencv-python или Pillow — иначе загрузка\n"
+                        "датасета остановится на первом же .jpg.")
         if not messagebox.askokcancel(
                 "Выбрать этот датасет?",
                 f"{path}\n\nклассов: {len(info['classes'])}, "
@@ -1489,13 +1506,10 @@ class PhotoTab:
                 mark = '  верно' if pred == self.true_label else '  ОШИБКА'
             # У оракула это вероятность после softmax, у формул — просто
             # оценка: их выходы никто не калибровал как вероятности.
-            # Одинаково подписывать два разных числа нельзя.
-            if is_prob:
-                suffix = f"{conf * 100:4.0f}%"
-            elif predictor.is_single:
-                suffix = f"запас {conf:.2f}"
-            else:
-                suffix = f"score {conf:.2f}"
+            # Одинаково подписывать два разных числа нельзя, и как именно
+            # подписывать — знает сам движок, а не эта вкладка.
+            suffix = (f"{conf * 100:4.0f}%" if is_prob
+                      else f"{predictor.conf_label()} {conf:.2f}")
             lines.append(f"{'формулы' if engine == 'eml' else 'оракул':<8} "
                          f"{config.CLASS_NAMES[pred]:<7} {suffix}{mark}")
         if len(results) == 2:
@@ -1508,10 +1522,10 @@ class PhotoTab:
         if eml_predictor is not None and eml_predictor.is_single:
             lines.append("запас — доля участка оси до")
             lines.append("ближайшего порога, 0..1")
-        else:
-            lines.append("score формул — не вероятность")
+        elif eml_predictor is not None:
+            lines.append("оценка формул — не вероятность")
             lines.append(f"(минимум для {config.N_CLASSES} классов "
-                         f"{1 / config.N_CLASSES:.2f})")
+                         f"{eml_predictor.conf_floor:.2f})")
         self.verdict.config(text="\n".join(lines))
         self.info.config(text=f"кадр {self.crop.shape[1]}x{self.crop.shape[0]}\n"
                               f"ветка {self.branch.get()}")
