@@ -1,11 +1,11 @@
 """
-Flappy Bird AI — Нейро-символьное управление через EML-дистилляцию.
+Flappy Bird AI — neuro-symbolic control through EML distillation.
 
-Точка входа:
-    python main.py gui       — графический интерфейс (PySide6)
-    python main.py train     — полный бенчмарк (GA + 3 EML варианта)
-    python main.py demo      — pygame демо
-    python main.py test      — smoke-test модулей
+Entry point:
+    python main.py gui       — graphical interface (PySide6)
+    python main.py train     — full benchmark (GA + 3 EML variants)
+    python main.py demo      — pygame demo
+    python main.py test      — smoke test of the modules
 """
 
 import sys
@@ -14,25 +14,25 @@ import numpy as np
 
 
 def cmd_train():
-    """Полный бенчмарк."""
+    """Full benchmark."""
     from benchmark import run_benchmark
     run_benchmark(verbose=True)
 
 
 def cmd_demo():
-    """Pygame демо."""
+    """Pygame demo."""
     from demo import run_demo
     run_demo()
 
 
 def cmd_gui():
-    """Графический интерфейс."""
+    """Graphical interface."""
     from gui import main as gui_main
     gui_main()
 
 
 def cmd_test():
-    """Smoke-test всех модулей."""
+    """Smoke test of all modules."""
     from env import FlappyEnv
     from ga_net import GANet, train_ga
     from eml_distiller import (
@@ -116,7 +116,7 @@ def cmd_test():
 
     _check(abs(eml_op(0.0, 1.0) - 1.0) < 1e-6, "eml(0,1) should be ~1")
 
-    # Roundtrip сериализация
+    # Serialization round trip
     d = tree.to_dict()
     restored = EMLNode.from_dict(d)
     _check(restored.to_string() == tree.to_string(),
@@ -155,7 +155,7 @@ def cmd_test():
     _check(action in (0, 1), f"action not in (0,1): {action}")
     print("  [OK] EML Evolution passed.")
 
-    # ── Итог ────────────────────────────────────────────────────────────
+    # ── Summary ─────────────────────────────────────────────────────────
     print("\n" + "=" * 50)
     print("  [OK] All tests passed!")
     print("=" * 50)
@@ -164,10 +164,10 @@ def cmd_test():
 def main():
     if len(sys.argv) < 2:
         print("Usage: python main.py [gui|train|demo|test]")
-        print("  gui    — графический интерфейс (PySide6)")
-        print("  train  — полный бенчмарк (GA + EML дистилляция)")
-        print("  demo   — pygame демо")
-        print("  test   — smoke-test модулей")
+        print("  gui    — graphical interface (PySide6)")
+        print("  train  — full benchmark (GA + EML distillation)")
+        print("  demo   — pygame demo")
+        print("  test   — smoke test of the modules")
         return
 
     cmd = sys.argv[1].lower()

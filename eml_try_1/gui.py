@@ -1,8 +1,8 @@
 """
-EML Calculator — GUI-приложение для демонстрации EML-трансформации.
+EML Calculator — a GUI application demonstrating the EML transformation.
 
-Пользователь вводит уравнение f(x) и значение x,
-получает: EML-форму, результат вычисления через C VM и NumPy, время.
+The user enters an equation f(x) and a value of x, and receives the EML
+form, the result computed through the C VM and NumPy, and the timings.
 """
 
 import sys
@@ -26,7 +26,7 @@ from eml_vm import EmlVM
 
 
 # ============================================================
-# Стили
+# Styles
 # ============================================================
 
 STYLESHEET = """
@@ -129,7 +129,7 @@ QFrame#separator {
 
 
 # ============================================================
-# Главное окно
+# Main window
 # ============================================================
 
 class EmlCalculator(QWidget):
@@ -139,7 +139,7 @@ class EmlCalculator(QWidget):
         self.setMinimumSize(700, 600)
         self.resize(800, 700)
         
-        # Инициализация VM
+        # VM initialization
         try:
             self.vm = EmlVM()
             self.vm_ok = True
@@ -155,14 +155,14 @@ class EmlCalculator(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(0)
         
-        # Табы
+        # Tabs
         tabs = QTabWidget()
-        tabs.addTab(self._build_calc_tab(), "Вычисление")
-        tabs.addTab(self._build_help_tab(), "Справка")
+        tabs.addTab(self._build_calc_tab(), "Evaluation")
+        tabs.addTab(self._build_help_tab(), "Help")
         layout.addWidget(tabs)
     
     # ----------------------------------------------------------
-    # Вкладка «Вычисление»
+    # The "Evaluation" tab
     # ----------------------------------------------------------
     
     def _build_calc_tab(self):
@@ -170,8 +170,8 @@ class EmlCalculator(QWidget):
         layout = QVBoxLayout(tab)
         layout.setSpacing(12)
         
-        # --- Ввод ---
-        input_group = QGroupBox("Ввод")
+        # --- Input ---
+        input_group = QGroupBox("Input")
         ig_layout = QGridLayout(input_group)
         ig_layout.setSpacing(8)
         
@@ -187,19 +187,19 @@ class EmlCalculator(QWidget):
         self.input_x.returnPressed.connect(self._calculate)
         ig_layout.addWidget(self.input_x, 1, 1)
         
-        self.btn_calc = QPushButton("Вычислить")
+        self.btn_calc = QPushButton("Evaluate")
         self.btn_calc.clicked.connect(self._calculate)
         ig_layout.addWidget(self.btn_calc, 0, 2, 2, 1)
         
         layout.addWidget(input_group)
         
-        # --- Результаты ---
-        results_group = QGroupBox("Результаты")
+        # --- Results ---
+        results_group = QGroupBox("Results")
         rg_layout = QVBoxLayout(results_group)
         rg_layout.setSpacing(8)
         
-        # EML форма
-        eml_label = QLabel("EML-представление:")
+        # EML form
+        eml_label = QLabel("EML representation:")
         eml_label.setStyleSheet("font-weight: bold; color: #5294e2;")
         rg_layout.addWidget(eml_label)
         
@@ -208,8 +208,8 @@ class EmlCalculator(QWidget):
         self.eml_display.setMaximumHeight(80)
         rg_layout.addWidget(self.eml_display)
         
-        # Таблица сравнения
-        comparison_label = QLabel("Сравнение:")
+        # Comparison table
+        comparison_label = QLabel("Comparison:")
         comparison_label.setStyleSheet("font-weight: bold; color: #5294e2;")
         rg_layout.addWidget(comparison_label)
         
@@ -218,8 +218,8 @@ class EmlCalculator(QWidget):
         self.comparison_display.setMaximumHeight(120)
         rg_layout.addWidget(self.comparison_display)
         
-        # Байткод
-        bytecode_label = QLabel("Байткод VM:")
+        # Bytecode
+        bytecode_label = QLabel("VM bytecode:")
         bytecode_label.setStyleSheet("font-weight: bold; color: #5294e2;")
         rg_layout.addWidget(bytecode_label)
         
@@ -232,7 +232,7 @@ class EmlCalculator(QWidget):
         return tab
     
     # ----------------------------------------------------------
-    # Вкладка «Справка»
+    # The "Help" tab
     # ----------------------------------------------------------
     
     def _build_help_tab(self):
@@ -245,69 +245,69 @@ class EmlCalculator(QWidget):
             "font-family: 'Segoe UI', sans-serif; font-size: 13px;"
         )
         help_text.setHtml("""
-        <h2 style="color: #5294e2;">Формат ввода</h2>
+        <h2 style="color: #5294e2;">Input format</h2>
         
-        <p>Введите математическое выражение от переменной <b>x</b>.</p>
+        <p>Enter a mathematical expression in the variable <b>x</b>.</p>
         
-        <h3 style="color: #8ab4f8;">Функции</h3>
+        <h3 style="color: #8ab4f8;">Functions</h3>
         <table cellpadding="4">
             <tr><td><code>sin(x)</code>, <code>cos(x)</code>, <code>tan(x)</code></td>
-                <td>— тригонометрия</td></tr>
+                <td>— trigonometry</td></tr>
             <tr><td><code>asin(x)</code>, <code>acos(x)</code>, <code>atan(x)</code></td>
-                <td>— обратная тригонометрия</td></tr>
+                <td>— inverse trigonometry</td></tr>
             <tr><td><code>sinh(x)</code>, <code>cosh(x)</code>, <code>tanh(x)</code></td>
-                <td>— гиперболическая</td></tr>
+                <td>— hyperbolic</td></tr>
             <tr><td><code>exp(x)</code></td>
-                <td>— экспонента e<sup>x</sup></td></tr>
+                <td>— the exponent e<sup>x</sup></td></tr>
             <tr><td><code>log(x)</code></td>
-                <td>— натуральный логарифм ln(x)</td></tr>
+                <td>— the natural logarithm ln(x)</td></tr>
             <tr><td><code>sqrt(x)</code></td>
-                <td>— квадратный корень</td></tr>
+                <td>— square root</td></tr>
             <tr><td><code>abs(x)</code></td>
-                <td>— модуль</td></tr>
+                <td>— absolute value</td></tr>
         </table>
         
-        <h3 style="color: #8ab4f8;">Операторы</h3>
+        <h3 style="color: #8ab4f8;">Operators</h3>
         <table cellpadding="4">
             <tr><td><code>+</code> <code>-</code> <code>*</code> <code>/</code></td>
-                <td>— арифметика</td></tr>
+                <td>— arithmetic</td></tr>
             <tr><td><code>**</code></td>
-                <td>— возведение в степень</td></tr>
+                <td>— exponentiation</td></tr>
         </table>
         
-        <h3 style="color: #8ab4f8;">Константы</h3>
+        <h3 style="color: #8ab4f8;">Constants</h3>
         <table cellpadding="4">
             <tr><td><code>pi</code></td><td>— π ≈ 3.14159</td></tr>
             <tr><td><code>E</code></td><td>— e ≈ 2.71828</td></tr>
         </table>
         
-        <h3 style="color: #8ab4f8;">Примеры</h3>
+        <h3 style="color: #8ab4f8;">Examples</h3>
         <table cellpadding="4">
             <tr><td><code>sin(x)**2 + cos(x)**2</code></td>
-                <td>— тригонометрическое тождество (= 1)</td></tr>
+                <td>— a trigonometric identity (= 1)</td></tr>
             <tr><td><code>exp(-x) * cos(2*pi*x)</code></td>
-                <td>— затухающий осциллятор</td></tr>
+                <td>— a damped oscillator</td></tr>
             <tr><td><code>log(x + 1) - sqrt(x)</code></td>
-                <td>— комбинация функций</td></tr>
+                <td>— a combination of functions</td></tr>
             <tr><td><code>sin(x)**3 + sinh(x)*sin(2*x)</code></td>
-                <td>— сложное выражение</td></tr>
+                <td>— a complex expression</td></tr>
         </table>
         
-        <h2 style="color: #5294e2; margin-top: 20px;">Что такое EML?</h2>
-        <p><b>EML</b> (Exponent Minus Logarithm) — единый оператор:</p>
+        <h2 style="color: #5294e2; margin-top: 20px;">What is EML?</h2>
+        <p><b>EML</b> (Exponent Minus Logarithm) is a single operator:</p>
         <p style="text-align: center; font-size: 16px;">
             <code>eml(x, y) = e<sup>x</sup> − ln(y)</code>
         </p>
-        <p>Через рекурсивные вложения eml можно выразить все стандартные
-        математические функции. Приложение переводит ваше выражение в
-        EML-форму, компилирует в байткод и вычисляет на C стек-машине.</p>
+        <p>Through recursive nesting of eml all standard mathematical
+        functions can be expressed. The application converts your expression
+        into EML form, compiles it to bytecode and evaluates it on the C stack machine.</p>
         """)
         
         layout.addWidget(help_text)
         return tab
     
     # ----------------------------------------------------------
-    # Логика вычисления
+    # Evaluation logic
     # ----------------------------------------------------------
     
     def _calculate(self):
@@ -315,52 +315,52 @@ class EmlCalculator(QWidget):
         x_str = self.input_x.text().strip()
         
         if not expr_str:
-            self._show_error("Введите выражение f(x)")
+            self._show_error("Enter an expression f(x)")
             return
         if not x_str:
-            self._show_error("Введите значение x")
+            self._show_error("Enter a value of x")
             return
         
         try:
             x_val = float(x_str)
         except ValueError:
-            self._show_error(f"Некорректное значение x: '{x_str}'")
+            self._show_error(f"Invalid value of x: '{x_str}'")
             return
         
         x = sp.Symbol('x')
         
-        # --- Парсинг ---
+        # --- Parsing ---
         try:
             expr = sp.sympify(expr_str, locals={'x': x})
         except Exception as e:
-            self._show_error(f"Ошибка парсинга выражения:\n{e}")
+            self._show_error(f"Expression parsing error:\n{e}")
             return
         
-        # --- Конвертация в EML ---
+        # --- Conversion to EML ---
         try:
             t0 = time.perf_counter()
             eml_expr = to_eml_form(expr)
             t_convert = time.perf_counter() - t0
         except Exception as e:
-            self._show_error(f"Ошибка конвертации в EML:\n{e}")
+            self._show_error(f"EML conversion error:\n{e}")
             return
         
         self.eml_display.setPlainText(
-            f"{eml_expr}\n\n(конвертация: {t_convert*1000:.3f} мс)"
+            f"{eml_expr}\n\n(conversion: {t_convert*1000:.3f} ms)"
         )
         
-        # --- Компиляция в байткод ---
+        # --- Compilation to bytecode ---
         try:
             bytecode = compile_eml(eml_expr, x)
         except Exception as e:
-            self._show_error(f"Ошибка компиляции байткода:\n{e}")
+            self._show_error(f"Bytecode compilation error:\n{e}")
             return
         
         self.bytecode_display.setPlainText(
-            f"Инструкций: {len(bytecode)}\n\n{disassemble(bytecode)}"
+            f"Instructions: {len(bytecode)}\n\n{disassemble(bytecode)}"
         )
         
-        # --- Вычисление через EML (C VM) ---
+        # --- Evaluation through EML (C VM) ---
         eml_result = None
         eml_time = None
         if self.vm_ok:
@@ -369,16 +369,16 @@ class EmlCalculator(QWidget):
                     bytecode, x_val, iterations=100
                 )
             except Exception as e:
-                eml_result = f"Ошибка: {e}"
+                eml_result = f"Error: {e}"
                 eml_time = None
         else:
-            eml_result = "C VM недоступна"
+            eml_result = "C VM unavailable"
         
-        # --- Вычисление через NumPy ---
+        # --- Evaluation through NumPy ---
         try:
             np_func = sp.lambdify(x, expr, modules=['numpy'])
             
-            # Прогрев
+            # Warm-up
             _ = np_func(x_val)
             
             t0 = time.perf_counter()
@@ -386,14 +386,14 @@ class EmlCalculator(QWidget):
                 np_result = np_func(x_val)
             np_time = (time.perf_counter() - t0) / 100
         except Exception as e:
-            np_result = f"Ошибка: {e}"
+            np_result = f"Error: {e}"
             np_time = None
         
-        # --- Форматирование результатов ---
+        # --- Formatting the results ---
         self._display_comparison(eml_result, eml_time, np_result, np_time)
     
     def _display_comparison(self, eml_result, eml_time, np_result, np_time):
-        """Форматирует и показывает таблицу сравнения."""
+        """Formats and displays the comparison table."""
         lines = []
         
         def fmt_val(val):
@@ -409,12 +409,12 @@ class EmlCalculator(QWidget):
             if t is None:
                 return "—"
             if t < 1e-6:
-                return f"{t*1e9:.1f} нс"
+                return f"{t*1e9:.1f} ns"
             if t < 1e-3:
-                return f"{t*1e6:.2f} мкс"
-            return f"{t*1000:.3f} мс"
+                return f"{t*1e6:.2f} us"
+            return f"{t*1000:.3f} ms"
         
-        header = f"{'Метод':<20} {'Результат':<28} {'Время':>12}"
+        header = f"{'Method':<20} {'Result':<28} {'Time':>12}"
         lines.append(header)
         lines.append("─" * len(header))
         
@@ -430,30 +430,30 @@ class EmlCalculator(QWidget):
             speedup = np_time / eml_time
             lines.append("")
             if speedup > 1:
-                lines.append(f"EML быстрее NumPy в {speedup:.1f}x")
+                lines.append(f"EML is {speedup:.1f}x faster than NumPy")
             else:
-                lines.append(f"NumPy быстрее EML в {1/speedup:.1f}x")
+                lines.append(f"NumPy is {1/speedup:.1f}x faster than EML")
         
-        # Разница значений
+        # Value difference
         if (isinstance(eml_result, (complex, float, int))
                 and isinstance(np_result, (complex, float, int, np.floating))):
             diff = abs(complex(eml_result) - complex(np_result))
             if diff < 1e-12:
-                lines.append(f"Разница: {diff:.2e} (совпадение)")
+                lines.append(f"Difference: {diff:.2e} (match)")
             else:
-                lines.append(f"Разница: {diff:.2e}")
+                lines.append(f"Difference: {diff:.2e}")
         
         self.comparison_display.setPlainText("\n".join(lines))
     
     def _show_error(self, msg):
-        """Показывает ошибку в результатах."""
+        """Displays an error in the results."""
         self.eml_display.setPlainText("")
         self.bytecode_display.setPlainText("")
-        self.comparison_display.setPlainText(f"[ОШИБКА]\n{msg}")
+        self.comparison_display.setPlainText(f"[ERROR]\n{msg}")
 
 
 # ============================================================
-# Точка входа
+# Entry point
 # ============================================================
 
 def main():

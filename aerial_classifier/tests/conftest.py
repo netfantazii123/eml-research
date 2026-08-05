@@ -1,15 +1,15 @@
 """
-Общая настройка тестов.
+Common test setup.
 
-Модули проекта лежат в корне пакета и импортируются по короткому имени
-(`import features`), как их импортирует и сам проект. Поэтому корень
-добавляется в sys.path — отдельного пакета с __init__.py здесь нет
-сознательно, чтобы `python main.py ...` работал из папки проекта без
-установки.
+The project modules live at the package root and are imported by short name
+(`import features`), the same way the project itself imports them. The root is
+therefore added to sys.path — there is deliberately no separate package with
+__init__.py here, so that `python main.py ...` works from the project folder
+without installation.
 
-Весь набор тестов не требует ни датасета, ни обученных чекпоинтов, ни torch:
-всё, что нужно, генерируется прямо в тестах. Так они запускаются на любой
-машине, а не только там, где лежат 83 МБ BMP.
+The whole test suite requires neither the dataset, nor trained checkpoints, nor
+torch: everything needed is generated in the tests themselves. This way they run
+on any machine, not only where the 83 MB of BMP files live.
 """
 
 import os

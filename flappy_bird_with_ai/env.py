@@ -1,6 +1,6 @@
 """
-FlappyEnv — headless-среда Flappy Bird с gym-like интерфейсом.
-~330K FPS на CPU.
+FlappyEnv — a headless Flappy Bird environment with a gym-like interface.
+~330K FPS on CPU.
 """
 
 import numpy as np
@@ -12,23 +12,23 @@ from config import (
 
 class FlappyEnv:
     """
-    Headless-среда Flappy Bird с gym-like интерфейсом.
+    A headless Flappy Bird environment with a gym-like interface.
 
-    Интерфейс:
+    Interface:
         reset()    -> state (np.ndarray shape (4,))
         step(action) -> (state, reward, done)
         get_state() -> state
 
-    State (4 числа, нормализованные):
+    State (4 normalized numbers):
         [bird_y/H, bird_vel/10, dx_to_pipe/W, gap_y/H]
 
     Action:
-        1 = прыжок (flap), 0 = ничего не делать (падать).
+        1 = flap, 0 = do nothing (fall).
 
     Rewards:
-        +0.1  за каждый кадр выживания
-        +1.0  за прохождение трубы
-        -1.0  за столкновение (смерть)
+        +0.1  per surviving frame
+        +1.0  for passing a pipe
+        -1.0  for a collision (death)
     """
 
     def __init__(self):
@@ -40,10 +40,10 @@ class FlappyEnv:
         self.done: bool = False
         self.reset()
 
-    # ── Публичный интерфейс ──────────────────────────────────────────────
+    # ── Public interface ─────────────────────────────────────────────────
 
     def reset(self) -> np.ndarray:
-        """Сброс среды в начальное состояние. Возвращает state."""
+        """Reset the environment to its initial state. Returns the state."""
         self.bird_y = SCREEN_H / 2
         self.bird_vel = 0.0
         self.pipes = []
@@ -55,10 +55,10 @@ class FlappyEnv:
 
     def step(self, action: int) -> tuple[np.ndarray, float, bool]:
         """
-        Выполнить один кадр симуляции.
+        Run one simulation frame.
 
         Args:
-            action: 1 = flap, 0 = ничего.
+            action: 1 = flap, 0 = nothing.
 
         Returns:
             (state, reward, done)
@@ -94,7 +94,7 @@ class FlappyEnv:
         return self.get_state(), reward, self.done
 
     def get_state(self) -> np.ndarray:
-        """Нормализованный вектор состояния [4 числа]."""
+        """Normalized state vector [4 numbers]."""
         next_pipe = self._get_next_pipe()
         if next_pipe is None:
             dx = 1.0
@@ -110,10 +110,10 @@ class FlappyEnv:
             gap_y
         ], dtype=np.float32)
 
-    # ── Приватные методы ─────────────────────────────────────────────────
+    # ── Private methods ──────────────────────────────────────────────────
 
     def _spawn_pipe(self):
-        """Создать новую трубу с рандомным gap_y."""
+        """Create a new pipe with a random gap_y."""
         margin = 80
         gap_y = np.random.randint(
             margin + PIPE_GAP // 2,
@@ -126,14 +126,14 @@ class FlappyEnv:
         })
 
     def _get_next_pipe(self) -> dict | None:
-        """Ближайшая труба перед птичкой."""
+        """The nearest pipe ahead of the bird."""
         for pipe in self.pipes:
             if pipe['x'] + PIPE_WIDTH > BIRD_X:
                 return pipe
         return None
 
     def _check_collision(self) -> bool:
-        """Столкновение с полом/потолком и трубами."""
+        """Collision with the floor/ceiling and the pipes."""
         if self.bird_y - BIRD_RADIUS <= 0 or self.bird_y + BIRD_RADIUS >= SCREEN_H:
             return True
 

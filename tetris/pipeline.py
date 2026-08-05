@@ -1,20 +1,20 @@
 """
-pipeline.py — переиспользуемая оркестрация EML-дистилляции.
+pipeline.py — reusable orchestration of EML distillation.
 
-Один code-path для CLI (main.py distill) и GUI (вкладка Distillation):
-    оракул -> датасет (afterstate-признаки, логиты) -> EML-формула -> оценка
-    -> сохранение.
+One code path for the CLI (main.py distill) and the GUI (Distillation tab):
+    oracle -> dataset (afterstate features, logits) -> EML formula -> evaluation
+    -> saving.
 
-Режимы:
-    full_distill()  — одна формула.
-    batch_distill() — пачка формул с контролируемым разбросом GA-параметров;
-                      датасет собирается один раз, лучшая формула становится
-                      канонической (models/best_eml.json).
+Modes:
+    full_distill()  — a single formula.
+    batch_distill() — a batch of formulas with a controlled spread of GA
+                      parameters; the dataset is collected once, and the best
+                      formula becomes the canonical one (models/best_eml.json).
 
-Каждый запуск создаёт runs/<дата>_distill/ со снапшотом конфига, формулами,
-summary и графиками (см. runs.py).
+Every run creates runs/<date>_distill/ with a config snapshot, the formulas, a
+summary and plots (see runs.py).
 
-`on_event(dict)` — колбэк прогресса для GUI, `should_stop()` — отмена.
+`on_event(dict)` is a progress callback for the GUI, `should_stop()` cancels.
 """
 
 import os
@@ -37,7 +37,7 @@ from eml_distiller import distill
 
 def oracle_score(oracle, n_games: int, max_placements: int,
                  device, seed: int = 1000) -> tuple[float, float]:
-    """Сыграть оракулом (deterministic argmax). Возвращает (avg_lines, avg_placements)."""
+    """Play with the oracle (deterministic argmax). Returns (avg_lines, avg_placements)."""
     oracle.eval()
     env = TetrisEnv(seed=seed)
     total_lines = 0
@@ -57,7 +57,7 @@ def oracle_score(oracle, n_games: int, max_placements: int,
     return total_lines / n_games, total_steps / n_games
 
 
-# ── Общие ступени (оракул, датасет) ───────────────────────────────────────────
+# ── Shared stages (oracle, dataset) ───────────────────────────────────────────
 
 def _load_oracle(oracle, device, emit):
     if oracle is None:
@@ -70,7 +70,7 @@ def _load_oracle(oracle, device, emit):
 
 def _get_dataset(oracle, device, *, n_episodes, reuse_data, data_path,
                  emit, should_stop, verbose):
-    """Собрать или переиспользовать датасет. None → отменено пользователем."""
+    """Collect or reuse the dataset. None -> cancelled by the user."""
     emit({'type': 'phase', 'phase': 'dataset'})
     if reuse_data and os.path.exists(data_path):
         features, logits, groups = load_dataset(data_path)
@@ -103,7 +103,7 @@ def _get_dataset(oracle, device, *, n_episodes, reuse_data, data_path,
 
 
 def _save_reports(result, run_dir, emit, meta):
-    """История + графики дистилляции → results/ и run-папку."""
+    """Distillation history + plots -> results/ and the run directory."""
     try:
         import reports
         hist_path = reports.save_distill_history(result, meta=meta)
@@ -115,11 +115,11 @@ def _save_reports(result, run_dir, emit, meta):
         emit({'type': 'log', 'msg': f"Reports -> {hist_path}, {png_path}"})
         if run_dir:
             runs_mod.copy_into(run_dir, hist_path, png_path)
-    except Exception as exc:  # noqa: BLE001 — отчёты не должны валить пайплайн
+    except Exception as exc:  # noqa: BLE001 — reports must not break the pipeline
         emit({'type': 'log', 'msg': f"report save failed: {exc!r}"})
 
 
-# ── Одиночная дистилляция ─────────────────────────────────────────────────────
+# ── Single distillation ───────────────────────────────────────────────────────
 
 def full_distill(
     *,
@@ -139,9 +139,9 @@ def full_distill(
     verbose: bool = False,
 ) -> dict:
     """
-    Полный пайплайн одиночной дистилляции. Параметры None → из config.
+    The full single-distillation pipeline. None parameters -> from config.
 
-    Событие 'done' содержит итоговые метрики; функция также их возвращает.
+    The 'done' event carries the final metrics; the function also returns them.
     """
     def _emit(ev):
         if on_event is not None:
@@ -169,7 +169,7 @@ def full_distill(
         _emit({'type': 'cancelled'})
         return {'cancelled': True}
 
-    # ── Эволюция формулы ─────────────────────────────────────────────────
+    # ── Formula evolution ────────────────────────────────────────────────
     result = distill(
         features, logits, weights,
         groups=groups,
@@ -180,7 +180,7 @@ def full_distill(
         should_stop=should_stop, on_event=on_event,
     )
 
-    # ── Оценка vs оракул + сохранение ────────────────────────────────────
+    # ── Evaluation vs the oracle + saving ────────────────────────────────
     _emit({'type': 'phase', 'phase': 'eval'})
     orc_lines, _ = oracle_score(
         oracle, eval_games, config.EML_INGAME_MAX_PLACEMENTS, device)
@@ -221,7 +221,7 @@ def full_distill(
     return summary
 
 
-# ── Батч-дистилляция с контролируемым разбросом ───────────────────────────────
+# ── Batch distillation with a controlled spread ───────────────────────────────
 
 _DP_CYCLE = ['medium', 'weak', 'strong']
 
@@ -229,9 +229,10 @@ _DP_CYCLE = ['medium', 'weak', 'strong']
 def _make_variant_params(i: int, spread: float, rng,
                          base_generations: int, base_population: int) -> dict:
     """
-    Параметры варианта i: контролируемый разброс вокруг базовых значений.
+    Parameters of variant i: a controlled spread around the base values.
 
-    Вариант 0 — всегда чистая база (medium, без джиттера): якорь сравнения.
+    Variant 0 is always the clean base (medium, no jitter): the comparison
+    anchor.
     """
     if i == 0 or spread <= 0:
         return {
@@ -276,10 +277,11 @@ def batch_distill(
     verbose: bool = False,
 ) -> dict:
     """
-    Дистилляция пачки формул: один датасет, N эволюций с разбросом параметров.
+    Distillation of a batch of formulas: one dataset, N evolutions with a
+    parameter spread.
 
-    Лучший вариант (по in-game lines) сохраняется в models/best_eml.json.
-    Все варианты + summary → runs/<дата>_distill_batch/.
+    The best variant (by in-game lines) is saved to models/best_eml.json.
+    All variants + summary -> runs/<date>_distill_batch/.
     """
     def _emit(ev):
         if on_event is not None:
@@ -328,10 +330,10 @@ def batch_distill(
             if verbose:
                 print(f"\n=== VARIANT {i + 1}/{n_variants}: {params} ===")
 
-            # Разброс параметров, которые GA читает из config.
+            # Spread of the parameters the GA reads from config.
             config.EML_MAX_DEPTH = params['max_depth']
             config.EML_VAR_BONUS = params['var_bonus']
-            random.seed(params['seed'])   # сид эволюции (random-модуль GA)
+            random.seed(params['seed'])   # evolution seed (the GA random module)
 
             result = distill(
                 features, logits, weights,
@@ -368,7 +370,7 @@ def batch_distill(
     if not variants:
         return {'cancelled': True}
 
-    # ── Лучший вариант → канонический best_eml.json ──────────────────────
+    # ── The best variant -> the canonical best_eml.json ──────────────────
     _emit({'type': 'phase', 'phase': 'eval'})
     orc_lines, _ = oracle_score(
         oracle, eval_games, config.EML_INGAME_MAX_PLACEMENTS, device)
@@ -418,4 +420,4 @@ def batch_distill(
 
 
 class _Cancelled(Exception):
-    """Внутренний сигнал отмены во время сбора датасета."""
+    """Internal cancellation signal during dataset collection."""

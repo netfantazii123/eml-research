@@ -1,7 +1,7 @@
 """
-Benchmark — запуск GA + EML-дистилляции, сбор метрик, графики.
+Benchmark — runs GA + EML distillation, collects metrics, draws plots.
 
-Все артефакты получают имена с датой/временем/скором:
+Every artifact is named with the date/time/score:
     models/ga_2026-05-24_14-30-15_score-42.pt
     models/eml-medium_2026-05-24_14-31-02_score-37.json
     results/benchmark_2026-05-24_14-30-15.{json,png}
@@ -24,11 +24,11 @@ from storage import (
 )
 
 
-# ── Тестирование агента ──────────────────────────────────────────────────────
+# ── Agent testing ────────────────────────────────────────────────────────────
 
 def test_agent_score(agent, env: FlappyEnv, n_games: int = 10,
                      max_frames: int = 5000) -> list[int]:
-    """Прогнать агента n_games раз и вернуть список очков."""
+    """Run the agent n_games times and return the list of scores."""
     scores = []
     for _ in range(n_games):
         env.reset()
@@ -41,10 +41,10 @@ def test_agent_score(agent, env: FlappyEnv, n_games: int = 10,
     return scores
 
 
-# ── Save / Load (обёртки для обратной совместимости) ─────────────────────────
+# ── Save / Load (wrappers for backward compatibility) ────────────────────────
 
 def load_ga_model() -> GANet | None:
-    """Загрузить последнюю GA модель из models/. None если нет."""
+    """Load the latest GA model from models/. None if there is none."""
     path = latest_ga_path()
     if path is None:
         print("  No GA model found in models/.")
@@ -58,11 +58,11 @@ def load_ga_model() -> GANet | None:
 
 def run_benchmark(verbose: bool = True, log_callback=None) -> dict:
     """
-    Полный бенчмарк: GA → дистилляция (3 варианта penalty) → сравнение.
+    Full benchmark: GA -> distillation (3 penalty variants) -> comparison.
 
     Args:
-        verbose: писать ли в stdout.
-        log_callback: опц. callable(line) для live-логирования (GUI).
+        verbose: whether to write to stdout.
+        log_callback: optional callable(line) for live logging (GUI).
     """
     ts = make_timestamp()
     log = RunLogger(timestamp=ts, prefix='train',
@@ -105,7 +105,7 @@ def run_benchmark(verbose: bool = True, log_callback=None) -> dict:
         log.write(f"\n  GA Test: avg={ga_avg:.1f}, max={ga_max}")
         log.write(f"  Saved GA -> {ga_path}")
 
-        # ── 2-4. EML дистилляция ─────────────────────────────────────────
+        # ── 2-4. EML distillation ────────────────────────────────────────
         oracle = ga['best_agent']
         for i, penalty_name in enumerate(['weak', 'medium', 'strong']):
             label = f"EML-{penalty_name}"
@@ -152,7 +152,7 @@ def run_benchmark(verbose: bool = True, log_callback=None) -> dict:
             log.write(f"  Formula: {eml_result['best_formula']}")
             log.write(f"  Saved   -> {eml_path}")
 
-        # ── Таблица ──────────────────────────────────────────────────────
+        # ── Table ────────────────────────────────────────────────────────
         log.write("\n" + "=" * 60)
         log.write("  BENCHMARK RESULTS")
         log.write("=" * 60)
@@ -164,7 +164,7 @@ def run_benchmark(verbose: bool = True, log_callback=None) -> dict:
                       f"{r['test_avg']:>6.1f} {r['test_max']:>6d}")
         log.write("=" * 60)
 
-        # ── Графики + JSON метрик ────────────────────────────────────────
+        # ── Plots + metrics JSON ─────────────────────────────────────────
         json_path, png_path = benchmark_path(timestamp=ts)
         plot_benchmark(results, out_path=png_path)
         log.write(f"  Plot saved:    {png_path}")
@@ -177,12 +177,12 @@ def run_benchmark(verbose: bool = True, log_callback=None) -> dict:
     return results
 
 
-# ── Графики ──────────────────────────────────────────────────────────────────
+# ── Plots ────────────────────────────────────────────────────────────────────
 
 def plot_benchmark(results: dict, out_path: str | None = None):
-    """Построить и сохранить графики."""
+    """Build and save the plots."""
     import matplotlib
-    matplotlib.use('Agg')  # без GUI-бэкенда — безопасно из любого потока
+    matplotlib.use('Agg')  # no GUI backend — safe from any thread
     import matplotlib.pyplot as plt
 
     os.makedirs(RESULTS_DIR, exist_ok=True)

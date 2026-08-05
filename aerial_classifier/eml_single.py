@@ -1,47 +1,50 @@
 """
-eml_single.py — ветка C: ОДНА EML-формула на все классы.
+eml_single.py — branch C: ONE EML formula for all classes.
 
-Ветки A и B держат по формуле на класс и берут argmax. Главный технический
-вывод подпроекта состоял в том, что метод спотыкается не о выразительность
-формул, а о СОПОСТАВИМОСТЬ ИХ ШКАЛ: формулы эволюционируют независимо, масштаб
-у каждой свой, и без калибровки (mu_c, sd_c) argmax выигрывает не самая
-уместная формула, а та, что выдаёт числа покрупнее — в первом прогоне ветки A
-класс MOTO не предсказывался ни разу.
+Branches A and B keep one formula per class and take the argmax. The main
+technical finding of the sub-project was that the method stumbles not over the
+expressiveness of the formulas but over the COMPARABILITY OF THEIR SCALES: the
+formulas evolve independently, each has its own scale, and without calibration
+(mu_c, sd_c) the argmax is won not by the most appropriate formula but by the
+one emitting larger numbers — in the first branch A run class MOTO was never
+predicted once.
 
-Ветка C убирает этот дефект по построению. Формула одна:
+Branch C removes this defect by construction. There is one formula:
 
-    f(признаки) -> v          класс = labels[searchsorted(thresholds, v)]
+    f(features) -> v          class = labels[searchsorted(thresholds, v)]
 
-Сравнивать нечего, калибровочных констант нет, на устройстве лежит одно дерево
-и таблица из нескольких порогов.
+There is nothing to compare, no calibration constants, and the device holds one
+tree and a table of a few thresholds.
 
-ТАБЛИЦА НЕ ЗАДАНА ЗАРАНЕЕ — И ЭТО ГЛАВНОЕ. Напрашивающийся вариант «пусть
-класс 0 это 0.0, класс 1 это 0.33, класс 2 это 0.6, класс 3 это 1.0» плох
-дважды. Во-первых, он навязывает классам порядок и расстояния, которых у них
-нет: BEACH, MOTO, PEOPLE и ROADS не упорядочены, и регрессия к такому коду
-штрафует «дальние» ошибки сильнее «ближних» без всяких оснований. Во-вторых,
-малый MSE к коду и правильный класс — разные вещи (ровно тот аргумент, из-за
-которого в ветке A появилась ACC-фаза).
+THE TABLE IS NOT FIXED IN ADVANCE — AND THAT IS THE KEY POINT. The obvious
+variant "let class 0 be 0.0, class 1 be 0.33, class 2 be 0.6, class 3 be 1.0" is
+bad twice over. First, it imposes on the classes an order and distances they do
+not have: BEACH, MOTO, PEOPLE and ROADS are unordered, and regression to such a
+code penalizes "distant" errors more than "near" ones without any grounds.
+Second, a small MSE against the code and a correct class are different things
+(exactly the argument that produced the ACC phase in branch A).
 
-Поэтому таблица ПОДБИРАЕТСЯ ПОД ФОРМУЛУ на каждой оценке fitness — точным
-динамическим программированием, максимизирующим сбалансированную accuracy.
-Формула сама решает, в каком порядке и на каком расстоянии расположить классы;
-куда она их в итоге расставила — результат прогона, а не наше допущение
-(см. IntervalDecoder.describe).
+The table is therefore FITTED TO THE FORMULA at every fitness evaluation, by
+exact dynamic programming maximizing balanced accuracy. The formula itself
+decides in what order and at what distance to place the classes; where it
+eventually put them is an output of the run, not an assumption of ours (see
+IntervalDecoder.describe).
 
-Участков разрешено больше, чем классов, и МЕТКИ УЧАСТКОВ МОГУТ ПОВТОРЯТЬСЯ.
-Это тот же эффект, ради которого напрашивалась периодическая функция
-активации: класс занимает несколько зон на оси, и линейный порядок классов
-перестаёт быть ограничением. Но без самой периодичности: выход EML-дерева
-лежит примерно в [-10, +2.2e4] (exp(clamp(x, ±10)) плюс логарифм), синус на
-таком аргументе это тысячи периодов, ландшафт fitness становится разрывным —
-микроправка дерева перебрасывает половину примеров в другой класс, и GA по
-такому ландшафту не идёт, а блуждает. Таблица порогов даёт ту же
-выразительность, точный подбор и K сравнений на микроконтроллере.
+More intervals than classes are allowed, and INTERVAL LABELS MAY REPEAT. This is
+the same effect a periodic activation function would target: a class occupies
+several zones on the axis, and the linear ordering of classes stops being a
+constraint. But without the periodicity itself: the EML tree output lies roughly
+in [-10, +2.2e4] (exp(clamp(x, ±10)) plus a logarithm), a sine of such an
+argument spans thousands of periods, the fitness landscape becomes discontinuous
+— a small edit to the tree throws half the examples into a different class, and
+a GA does not climb such a landscape but wanders over it. The threshold table
+gives the same expressiveness, an exact fit, and K comparisons on the
+microcontroller.
 
-ЧЕМУ УЧИМСЯ. Целью fitness служат ОТВЕТЫ ОРАКУЛА, а не истинные метки: это
-по-прежнему дистилляция, как этапы 1 и 2, и формула воспроизводит именно
-решающую функцию сети. Истинные метки используются только для отчётных метрик.
+WHAT IS BEING LEARNED. The fitness target is the ORACLE'S ANSWERS, not the
+ground truth labels: this is still distillation, as in stages 1 and 2, and the
+formula reproduces the network's decision function specifically. Ground truth
+labels are used only for the reported metrics.
 """
 
 import json
@@ -57,14 +60,14 @@ from eml_distiller import (EMLNode, balanced_accuracy, crossover, mutate_tree,
                            random_tree)
 
 
-# ── Декодер: таблица порогов на оси выхода формулы ────────────────────────────
+# ── Decoder: threshold table over the formula output axis ─────────────────────
 
 class IntervalDecoder:
     """
-    Разбиение оси выхода формулы на участки с метками классов.
+    Partition of the formula output axis into intervals with class labels.
 
-    thresholds — возрастающий массив длины K-1, labels — K меток. Метки могут
-    повторяться: класс имеет право занимать несколько несмежных участков.
+    thresholds — an increasing array of length K-1, labels — K labels. Labels
+    may repeat: a class is allowed to occupy several non-adjacent intervals.
     """
 
     __slots__ = ('thresholds', 'labels', 'n_classes', 'score')
@@ -76,8 +79,9 @@ class IntervalDecoder:
         self.n_classes = int(n_classes)
         self.score = float(score)
         if len(self.labels) != len(self.thresholds) + 1:
-            raise ValueError(f"меток {len(self.labels)}, порогов "
-                             f"{len(self.thresholds)}: должно быть на 1 больше")
+            raise ValueError(f"{len(self.labels)} labels, "
+                             f"{len(self.thresholds)} thresholds: there must be "
+                             f"one more label")
 
     @property
     def n_intervals(self) -> int:
@@ -85,20 +89,20 @@ class IntervalDecoder:
 
     def decode(self, values: np.ndarray) -> np.ndarray:
         """
-        Вектор выходов формулы -> вектор классов.
+        Vector of formula outputs -> vector of classes.
 
-        Бесконечности проходят как обычные очень большие числа — у них есть
-        законное место на оси. А вот NaN места на оси не имеет (формула
-        сломалась на этом примере), и он отправляется в самый левый участок:
-        предсказание обязано остаться определённым, иначе метрика посчитается
-        по битому массиву.
+        Infinities pass through as ordinary very large numbers — they have a
+        legitimate place on the axis. NaN has no place on the axis (the formula
+        broke on that example) and is sent to the leftmost interval: the
+        prediction must stay defined, otherwise the metric would be computed
+        over a corrupted array.
         """
         values = np.asarray(values, dtype=np.float64)
         safe = np.where(np.isnan(values), -np.inf, values)
         return self.labels[np.searchsorted(self.thresholds, safe, side='right')]
 
     def decode_one(self, value: float) -> int:
-        """Инференс для одного числа — эталон для проверки C-экспорта."""
+        """Inference for a single number — the reference for the C export check."""
         if math.isnan(value):
             return int(self.labels[0])
         idx = 0
@@ -107,18 +111,19 @@ class IntervalDecoder:
         return int(self.labels[idx])
 
     def class_intervals(self, class_idx: int) -> list[tuple[float, float]]:
-        """Участки оси, отданные классу, как список пар (левый, правый)."""
+        """Axis intervals given to a class, as a list of (left, right) pairs."""
         edges = np.concatenate(([-np.inf], self.thresholds, [np.inf]))
         return [(float(edges[i]), float(edges[i + 1]))
                 for i in range(self.n_intervals) if self.labels[i] == class_idx]
 
     def describe(self, class_names: list[str] | None = None) -> str:
         """
-        Куда формула расставила классы на своей оси.
+        Where the formula placed the classes on its axis.
 
-        Это не отладочная печать, а результат: порядок и расстояния между
-        классами формула выбирала сама, и их стоит сверять с матрицей ошибок
-        оракула — соседние на оси классы должны путаться чаще прочих.
+        This is a result rather than debug output: the formula chose the order
+        and the distances between classes itself, and they are worth checking
+        against the oracle confusion matrix — classes adjacent on the axis
+        should be confused more often than others.
         """
         names = class_names or [f'C{i}' for i in range(self.n_classes)]
         edges = np.concatenate(([-np.inf], self.thresholds, [np.inf]))
@@ -145,17 +150,17 @@ class IntervalDecoder:
 
 def sample_weights(y: np.ndarray, n_classes: int) -> np.ndarray:
     """
-    Веса примеров, при которых сумма весов угаданных = сбалансированная accuracy.
+    Example weights under which the sum of weights of correct answers equals
+    balanced accuracy.
 
-    Сбалансированная accuracy — это среднее по классам recall. Если дать
-    примеру класса c вес 1/(число классов в выборке * размер класса c), то
-    суммирование весов правильно предсказанных примеров даёт ровно её. Дальше
-    вся оптимизация декодера сводится к «набрать как можно больше веса», и
-    динамическому программированию не нужно знать про классы ничего сверх
-    этого.
+    Balanced accuracy is recall averaged over classes. Giving an example of
+    class c the weight 1/(number of classes present * size of class c) makes the
+    sum of weights of correctly predicted examples equal exactly that. The whole
+    decoder optimization then reduces to "collect as much weight as possible",
+    and the dynamic programming needs to know nothing else about classes.
 
-    Классы, которых в выборке нет, из усреднения выпадают — так же, как в
-    eml_distiller.balanced_accuracy.
+    Classes absent from the sample drop out of the averaging — the same way as
+    in eml_distiller.balanced_accuracy.
     """
     counts = np.bincount(y, minlength=n_classes).astype(np.float64)
     present = max(int((counts > 0).sum()), 1)
@@ -169,23 +174,23 @@ def fit_decoder(values: np.ndarray, y: np.ndarray, n_classes: int, *,
                 bins: int | None = None,
                 interval_penalty: float | None = None) -> IntervalDecoder:
     """
-    Подобрать таблицу порогов под уже посчитанные выходы формулы.
+    Fit the threshold table to already computed formula outputs.
 
-    Задача решается ТОЧНО, а не приближённо: разбиение оси на K участков с
-    метками — это классическое ДП по отсортированным значениям. Приближённый
-    подбор порогов (жадный, по средним классов) в таком месте опасен: fitness
-    всей эволюции равен качеству этого подбора, и его случайные провалы GA
-    воспринимал бы как «дерево стало хуже».
+    The problem is solved EXACTLY rather than approximately: partitioning the
+    axis into K labeled intervals is classic DP over the sorted values. An
+    approximate threshold fit (greedy, by class means) would be dangerous here:
+    the fitness of the whole evolution equals the quality of this fit, and its
+    random failures would be read by the GA as "the tree got worse".
 
-    Ось режется не по значениям, а по КВАНТИЛЯМ (bins штук): выход EML-дерева
-    распределён крайне неравномерно (exp() в каждом узле), и равномерная сетка
-    отдала бы почти все пороги пустому хвосту. Границы бинов сдвигаются за
-    конец серии одинаковых значений — порог посередине такой серии всё равно
-    нельзя реализовать.
+    The axis is cut by QUANTILES (bins of them) rather than by value: the EML
+    tree output is distributed extremely unevenly (exp() at every node), and a
+    uniform grid would give almost all thresholds to the empty tail. Bin
+    boundaries are moved past the end of a run of equal values — a threshold in
+    the middle of such a run cannot be realized anyway.
 
-    Число участков выбирается вместе с самим разбиением: за каждый участок
-    сверх числа классов взимается interval_penalty. Иначе K всегда упиралось бы
-    в потолок — лишний участок никогда не ухудшает обучающую метрику.
+    The number of intervals is chosen together with the partition itself: each
+    interval beyond the class count costs interval_penalty. Otherwise K would
+    always hit the ceiling — an extra interval never worsens the training metric.
     """
     max_intervals = max_intervals or config.EMLC_MAX_INTERVALS
     bins = bins or config.EMLC_DECODER_BINS
@@ -197,14 +202,14 @@ def fit_decoder(values: np.ndarray, y: np.ndarray, n_classes: int, *,
     if weights is None:
         weights = sample_weights(y, n_classes)
 
-    # NaN не имеет места на оси — отправляется в самый левый участок, как и в
-    # decode(); бесконечности сортируются сами и остаются на своих краях.
+    # NaN has no place on the axis — it goes to the leftmost interval, as in
+    # decode(); infinities sort themselves and stay at their edges.
     clean = np.where(np.isnan(values), -np.inf, values)
     order = np.argsort(clean, kind='stable')
     sv, sy, sw = clean[order], y[order], np.asarray(weights)[order]
     n = len(sv)
 
-    # ── Бины по квантилям, границы — только между разными значениями ──────────
+    # ── Quantile bins, boundaries only between distinct values ───────────────
     n_bins = max(1, min(bins, n))
     ranks = np.linspace(0, n, n_bins + 1).round().astype(np.int64)[1:-1]
     if len(ranks):
@@ -212,19 +217,19 @@ def fit_decoder(values: np.ndarray, y: np.ndarray, n_classes: int, *,
     bounds = np.unique(np.concatenate(([0], ranks, [n])))
     n_bins = len(bounds) - 1
 
-    # Вес каждого класса в каждом бине и его накопленная сумма по бинам.
+    # Weight of each class in each bin and its cumulative sum over bins.
     bin_of = np.repeat(np.arange(n_bins), np.diff(bounds))
     per_bin = np.bincount(bin_of * n_classes + sy, weights=sw,
                           minlength=n_bins * n_classes).reshape(n_bins, n_classes)
     prefix = np.vstack([np.zeros((1, n_classes)), np.cumsum(per_bin, axis=0)])
 
-    # gain[a, b] — сколько веса наберёт участок из бинов [a, b), если отдать
-    # его лучшему для себя классу. Разом для всех пар: (nb+1, nb+1, C) -> max.
+    # gain[a, b] — how much weight an interval of bins [a, b) collects if given
+    # to its best class. Computed for all pairs at once: (nb+1, nb+1, C) -> max.
     gain = (prefix[None, :, :] - prefix[:, None, :]).max(axis=2)
     idx = np.arange(n_bins + 1)
     valid = idx[None, :] > idx[:, None]
 
-    # ── ДП: лучшее покрытие первых b бинов ровно k участками ─────────────────
+    # ── DP: best coverage of the first b bins by exactly k intervals ─────────
     n_steps = max(1, min(max_intervals, n_bins))
     prev = np.full(n_bins + 1, -np.inf)
     prev[0] = 0.0
@@ -240,7 +245,7 @@ def fit_decoder(values: np.ndarray, y: np.ndarray, n_classes: int, *,
     extra = np.maximum(np.arange(1, n_steps + 1) - n_classes, 0)
     k_best = int(np.argmax(totals - interval_penalty * extra)) + 1
 
-    # ── Восстановление участков ──────────────────────────────────────────────
+    # ── Reconstructing the intervals ─────────────────────────────────────────
     segments, b = [], n_bins
     for k in range(k_best, 0, -1):
         a = int(pointers[k - 1][b])
@@ -249,8 +254,8 @@ def fit_decoder(values: np.ndarray, y: np.ndarray, n_classes: int, *,
         b = a
     segments.reverse()
 
-    # Соседние участки с одинаковой меткой сливаются: лишний порог ничего не
-    # решает, но стоит и штрафа, и сравнения на микроконтроллере.
+    # Adjacent intervals with the same label are merged: an extra threshold
+    # decides nothing but costs both a penalty and a comparison on the MCU.
     merged = [segments[0]]
     for a, b, label in segments[1:]:
         if label == merged[-1][2]:
@@ -270,8 +275,8 @@ def fit_decoder(values: np.ndarray, y: np.ndarray, n_classes: int, *,
     decoder = IntervalDecoder(thresholds, labels, n_classes,
                               score=float(totals[k_best - 1]))
     if changed:
-        # Слияние участков меняет ответы, поэтому обучающая метрика считается
-        # заново: отдать наверх счёт до слияния значило бы завысить fitness.
+        # Merging intervals changes the answers, so the training metric is
+        # recomputed: returning the pre-merge score would overstate the fitness.
         decoder.score = float(sw[decoder.decode(sv) == sy].sum())
     return decoder
 
@@ -279,18 +284,19 @@ def fit_decoder(values: np.ndarray, y: np.ndarray, n_classes: int, *,
 def _make_float32_safe(thresholds: list[float], labels: list[int],
                        weights: list[float]):
     """
-    Убрать пороги, неразличимые во float32, слив соответствующие участки.
+    Remove thresholds indistinguishable in float32, merging the affected
+    intervals.
 
-    Выход EML-дерева доходит до 2.2e4 (exp(clamp(x, ±10))), а шаг float32 там
-    уже ~0.002 — два соседних порога в этой области легко схлопываются в одно
-    число. На микроконтроллере такой участок просто исчез бы, и класс перестал
-    бы предсказываться; расхождение Python и C при этом выглядело бы как
-    поломка экспорта, хотя экспорт исправен.
+    The EML tree output reaches 2.2e4 (exp(clamp(x, ±10))), where the float32
+    step is already ~0.002 — two neighboring thresholds in that region easily
+    collapse into one number. On a microcontroller such an interval would simply
+    disappear and its class would stop being predicted; the Python/C divergence
+    would then look like a broken export even though the export is correct.
 
-    Дешевле не допускать неразличимых порогов вовсе: тогда таблица одинаково
-    работает во float64 и во float32 по построению. При слиянии выживает метка
-    более «тяжёлого» участка — терять больший кусок выборки ради меньшего
-    смысла нет.
+    It is cheaper not to allow indistinguishable thresholds at all: the table
+    then behaves identically in float64 and float32 by construction. On a merge
+    the label of the "heavier" interval survives — there is no sense in losing a
+    larger part of the sample for a smaller one.
     """
     if not thresholds:
         return thresholds, labels, False
@@ -301,8 +307,9 @@ def _make_float32_safe(thresholds: list[float], labels: list[int],
     changed = False
     for threshold, label, weight in zip(thresholds, labels[1:], weights[1:]):
         collides = bool(out_t) and np.float32(threshold) <= np.float32(out_t[-1])
-        # Слияние могло оставить рядом два участка одного класса — порог между
-        # ними ничего не решает, но стоит сравнения на устройстве.
+        # A merge may have left two intervals of the same class side by side —
+        # the threshold between them decides nothing but costs a comparison on
+        # the device.
         if collides or label == out_l[-1]:
             if weight > out_w[-1]:
                 out_l[-1] = label
@@ -315,22 +322,22 @@ def _make_float32_safe(thresholds: list[float], labels: list[int],
     return out_t, out_l, changed
 
 
-# ── Модель ветки C ────────────────────────────────────────────────────────────
+# ── Branch C model ────────────────────────────────────────────────────────────
 
 class EMLSingle:
     """
-    Итоговый продукт ветки C: одно EML-дерево плюс таблица порогов.
+    The end product of branch C: one EML tree plus a threshold table.
 
-    Интерфейс намеренно совпадает с EMLClassifier ветки A (predict,
-    predict_one, total_nodes, max_depth, used_inputs), чтобы pipeline, отчёты
-    и вкладки теста работали с обеими ветками без развилок.
+    The interface deliberately matches EMLClassifier of branch A (predict,
+    predict_one, total_nodes, max_depth, used_inputs), so that the pipeline, the
+    reports and the test tabs work with both branches without branching.
     """
 
     def __init__(self, tree: EMLNode, decoder: IntervalDecoder):
         self.tree = tree
         self.decoder = decoder
 
-    # ── Вычисление ────────────────────────────────────────────────────────
+    # ── Evaluation ────────────────────────────────────────────────────────
     def raw(self, X: np.ndarray) -> np.ndarray:
         return self.tree.evaluate_batch(np.asarray(X, dtype=np.float64))
 
@@ -342,14 +349,13 @@ class EMLSingle:
 
     def class_scores(self, X: np.ndarray) -> np.ndarray:
         """
-        Оценка каждого класса (N, n_classes) — для вкладок теста.
+        Score of every class (N, n_classes) — for the test tabs.
 
-        У одной формулы нет отдельного числа на класс, поэтому оценка = минус
-        расстояние от выхода до ближайшего участка этого класса: 0 у
-        предсказанного класса, отрицательное у остальных, и чем дальше по оси,
-        тем меньше. Это НЕ вероятность и не логит; аккуратнее всего читать её
-        как «насколько далеко пришлось бы сдвинуть выход, чтобы получить
-        этот класс».
+        A single formula has no separate number per class, so the score is minus
+        the distance from the output to the nearest interval of that class: 0
+        for the predicted class, negative for the rest, and smaller the further
+        along the axis. This is NOT a probability or a logit; the safest reading
+        is "how far the output would have to move to yield this class".
         """
         values = self.raw(X)
         values = np.where(np.isfinite(values), values, 0.0)
@@ -360,7 +366,7 @@ class EMLSingle:
                 out[:, c] = np.maximum(out[:, c], -dist)
         return out
 
-    # ── Метрики сложности ─────────────────────────────────────────────────
+    # ── Complexity metrics ────────────────────────────────────────────────
     def total_nodes(self) -> int:
         return self.tree.size()
 
@@ -370,7 +376,7 @@ class EMLSingle:
     def used_inputs(self) -> list[int]:
         return self.tree.used_vars()
 
-    # ── Сериализация ──────────────────────────────────────────────────────
+    # ── Serialization ─────────────────────────────────────────────────────
     def to_dict(self) -> dict:
         return {'tree': self.tree.to_dict(), 'decoder': self.decoder.to_dict()}
 
@@ -383,7 +389,8 @@ class EMLSingle:
 # ── Fitness ───────────────────────────────────────────────────────────────────
 
 class FitnessParams:
-    """Всё, что нужно оценке одной формулы, одним объектом (удобно слать в процессы)."""
+    """Everything one formula evaluation needs, in one object (easy to ship to
+    worker processes)."""
 
     __slots__ = ('n_classes', 'max_intervals', 'bins', 'interval_penalty',
                  'size_penalty', 'max_depth')
@@ -414,16 +421,17 @@ class FitnessParams:
 def evaluate_tree(tree: EMLNode, X: np.ndarray, y: np.ndarray,
                   weights: np.ndarray, params: FitnessParams) -> dict:
     """
-    Оценить одно дерево: подобрать под него декодер и посчитать fitness.
+    Evaluate one tree: fit a decoder to it and compute the fitness.
 
-    fitness = сбалансированная accuracy − штраф за узлы − штраф за участки.
-    Оба штрафа вычитаются, а не делят: тогда шкала fitness совпадает со шкалой
-    метрики и «-0.05 за сотню узлов» читается прямо из константы.
+    fitness = balanced accuracy − node penalty − interval penalty.
+    Both penalties are subtracted rather than dividing: the fitness scale then
+    matches the metric scale, and "-0.05 per hundred nodes" reads directly off
+    the constant.
     """
     if tree.n_unique_vars() == 0:
-        # Дерево-константа даёт ровно 1/n_classes (декодер вынужден отдать всю
-        # ось одному классу) — формально это не ноль, и без явного штрафа такие
-        # деревья заполняют популяцию как дешёвые.
+        # A constant tree yields exactly 1/n_classes (the decoder is forced to
+        # give the whole axis to one class) — formally not zero, and without an
+        # explicit penalty such trees fill the population as cheap options.
         return {'fitness': -1.0, 'score': 0.0, 'intervals': 1, 'nodes': tree.size()}
     try:
         values = tree.evaluate_batch(X)
@@ -450,7 +458,7 @@ def _tournament(scores: list[float], k: int = 5) -> int:
 
 def _breed(population: list[EMLNode], scores: list[float], size: int,
            elitism: int, intensity: float, max_depth: int) -> list[EMLNode]:
-    """Новое поколение: элита без изменений, остальные — мутация/кроссовер/новичок."""
+    """New generation: elite unchanged, the rest by mutation/crossover/newcomer."""
     new_pop = [population[i].clone() for i in range(min(elitism, len(population)))]
     while len(new_pop) < size:
         r = random.random()
@@ -474,14 +482,15 @@ def run_island(trees: list[EMLNode], X: np.ndarray, y: np.ndarray,
                params: FitnessParams, *, generations: int, elitism: int,
                subsample: int, rng_seed: int, progress: float = 0.0) -> dict:
     """
-    Прогнать одну популяцию `generations` поколений.
+    Run one population for `generations` generations.
 
-    progress — доля уже пройденного пути всего прогона (0..1); от неё зависит
-    интенсивность мутаций: сначала дикие, к концу тонкие.
+    progress — the fraction of the whole run already completed (0..1); the
+    mutation intensity depends on it: wild at first, fine toward the end.
 
-    Подвыборка меняется каждое поколение (быстрее и меньше подгонки под
-    конкретные примеры), но ВНУТРИ поколения она общая: иначе особи
-    сравнивались бы на разных данных и отбор превратился бы в лотерею.
+    The subsample changes every generation (faster and less fitting to
+    particular examples), but WITHIN a generation it is shared: otherwise
+    individuals would be compared on different data and selection would turn
+    into a lottery.
     """
     rng = np.random.default_rng(rng_seed)
     random.seed(rng_seed)
@@ -489,9 +498,9 @@ def run_island(trees: list[EMLNode], X: np.ndarray, y: np.ndarray,
     best_fitness, best_tree, best_info = -math.inf, None, None
     history = []
 
-    # Интенсивность мутаций падает по ходу ВСЕГО прогона, а не внутри раунда:
-    # раунд это десятки поколений из тысяч, и своей шкалы «от дикой к тонкой»
-    # у него нет. К последней трети прогона мутации становятся точечными.
+    # Mutation intensity decays over the WHOLE run rather than within a round: a
+    # round is tens of generations out of thousands and has no "wild to fine"
+    # scale of its own. By the last third of the run mutations become pointwise.
     intensity = max(0.12, 1.0 - 1.2 * min(1.0, progress))
 
     for gen in range(generations):
@@ -525,18 +534,19 @@ def run_island(trees: list[EMLNode], X: np.ndarray, y: np.ndarray,
             'history': history}
 
 
-# ── Параллель по процессам ────────────────────────────────────────────────────
+# ── Process-level parallelism ─────────────────────────────────────────────────
 #
-# Параллелится ОСТРОВ ЦЕЛИКОМ на несколько поколений, а не отдельные оценки
-# fitness. Оценка одного дерева занимает доли миллисекунды, и раскладывать её
-# по процессам значило бы платить за межпроцессную передачу больше, чем за сам
-# счёт. Остров же уезжает в процесс один раз на десятки поколений.
+# A WHOLE ISLAND is parallelized for several generations, not individual fitness
+# evaluations. Evaluating one tree takes fractions of a millisecond, and
+# distributing that across processes would cost more in inter-process transfer
+# than in computation. An island, by contrast, goes into a process once for tens
+# of generations.
 
 _WORKER: dict = {}
 
 
 def _worker_init(X, y, n_inputs, input_names):
-    """Данные кладутся в процесс один раз при его создании, а не на каждый вызов."""
+    """Data is placed into the process once at creation, not on every call."""
     import eml_distiller
     eml_distiller.configure_inputs(n_inputs, input_names)
     _WORKER['X'] = X
@@ -544,7 +554,7 @@ def _worker_init(X, y, n_inputs, input_names):
 
 
 def _worker_round(payload: dict) -> dict:
-    """Один раунд одного острова внутри рабочего процесса."""
+    """One round of one island inside a worker process."""
     params = FitnessParams.from_dict(payload['params'])
     trees = [EMLNode.from_dict(d) for d in payload['trees']]
     out = run_island(trees, _WORKER['X'], _WORKER['y'], params,
@@ -561,15 +571,15 @@ def _worker_round(payload: dict) -> dict:
             'history': out['history']}
 
 
-# ── Чекпоинт ──────────────────────────────────────────────────────────────────
+# ── Checkpoint ────────────────────────────────────────────────────────────────
 
 def save_checkpoint(path: str, state: dict):
     """
-    Записать состояние прогона атомарно (через .tmp + замена).
+    Write the run state atomically (via .tmp + replace).
 
-    Многочасовой прогон переживает перезагрузку только так: запись прямо в
-    целевой файл означала бы, что выключение питания посреди неё оставляет
-    обрезанный JSON, то есть губит ровно то, что он должен был спасти.
+    This is the only way a multi-hour run survives a reboot: writing directly
+    into the target file would mean that a power loss mid-write leaves truncated
+    JSON, destroying exactly what it was supposed to save.
     """
     os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
     tmp = path + '.tmp'
@@ -588,7 +598,7 @@ def load_checkpoint(path: str) -> dict | None:
         return None
 
 
-# ── Полная эволюция ───────────────────────────────────────────────────────────
+# ── Full evolution ────────────────────────────────────────────────────────────
 
 def evolve_single(X: np.ndarray, y: np.ndarray, *, n_classes: int | None = None,
                   generations: int | None = None,
@@ -610,23 +620,23 @@ def evolve_single(X: np.ndarray, y: np.ndarray, *, n_classes: int | None = None,
                   rng_seed: int = 0, verbose: bool = True,
                   progress_cb=None, should_stop=None) -> dict:
     """
-    Островная эволюция одной формулы.
+    Island evolution of a single formula.
 
-    Острова — несколько независимых популяций, изредка обменивающихся лучшими
-    особями. Смысл не в скорости (её даёт параллель по процессам), а в
-    РАЗНООБРАЗИИ: разброс GA по сидам в ветке A составил 0.525-0.623, то есть
-    одна длинная цепочка эволюции говорит о методе примерно ничего. Несколько
-    цепочек с редкой миграцией дают и запас разнообразия, и возможность
-    сравнить, к одному ли решению они сходятся.
+    Islands are several independent populations that occasionally exchange their
+    best individuals. The point is not speed (that comes from process-level
+    parallelism) but DIVERSITY: the GA spread across seeds in branch A was
+    0.525-0.623, i.e. one long evolution chain says next to nothing about the
+    method. Several chains with rare migration provide both a reserve of
+    diversity and the ability to compare whether they converge to one solution.
 
-    ГЛОБАЛЬНЫЙ ЛУЧШИЙ ВЫБИРАЕТСЯ НЕ ПО FITNESS ОСТРОВОВ. Внутри острова
-    fitness считается на своей случайной подвыборке, и числа с разных островов
-    несопоставимы — выбирать по ним значило бы выбирать по шуму подвыборки.
-    Поэтому кандидаты от всех островов переоцениваются в главном процессе на
-    ПОЛНОЙ обучающей выборке, одинаковой для всех.
+    THE GLOBAL BEST IS NOT CHOSEN BY ISLAND FITNESS. Within an island fitness is
+    computed on its own random subsample, and numbers from different islands are
+    not comparable — choosing by them would mean choosing by subsample noise.
+    Candidates from all islands are therefore re-evaluated in the main process on
+    the FULL training sample, identical for all of them.
 
-    Прогон переживает остановку: состояние всех островов пишется в
-    checkpoint_path, и resume=True продолжает с последнего сохранения.
+    A run survives being stopped: the state of all islands is written to
+    checkpoint_path, and resume=True continues from the last save.
 
     Returns: {'model' (EMLSingle), 'best_fitness', 'train_score', 'history',
               'generation', 'stopped', 'islands', 'seconds'}.
@@ -654,19 +664,19 @@ def evolve_single(X: np.ndarray, y: np.ndarray, *, n_classes: int | None = None,
     full_weights = sample_weights(y, n_classes)
     t0 = time.time()
 
-    # Продолжать можно только СВОЙ прогон. Чекпоинт с другим числом входов,
-    # классов или особей — это чужой эксперимент; подхватить его молча значило
-    # бы получить результат, не соответствующий ни одним заявленным настройкам.
+    # Only one's OWN run may be resumed. A checkpoint with a different number of
+    # inputs, classes or individuals belongs to another experiment; picking it up
+    # silently would produce a result matching none of the declared settings.
     signature = {'n_inputs': int(X.shape[1]), 'n_classes': n_classes,
                  'population': population, 'n_train': int(len(X)),
                  'max_depth': params.max_depth, 'seed': rng_seed}
 
-    # ── Старт или продолжение ────────────────────────────────────────────────
+    # ── Start or resume ──────────────────────────────────────────────────────
     state = load_checkpoint(checkpoint_path) if (resume and checkpoint_path) else None
     if state and state.get('signature') != signature:
         if verbose:
-            print(f"  [C] чекпоинт {checkpoint_path} от другого прогона "
-                  f"({state.get('signature')}) — начинаю заново")
+            print(f"  [C] checkpoint {checkpoint_path} belongs to another run "
+                  f"({state.get('signature')}) — starting over")
         state = None
     if state:
         pops = [[EMLNode.from_dict(d) for d in island] for island in state['islands']]
@@ -676,8 +686,8 @@ def evolve_single(X: np.ndarray, y: np.ndarray, *, n_classes: int | None = None,
         best_tree = EMLNode.from_dict(state['best_tree'])
         stall = int(state.get('stall', 0))
         if verbose:
-            print(f"  [C] продолжаю с поколения {start_gen} "
-                  f"({len(pops)} островов, лучший {best_fitness:.4f})")
+            print(f"  [C] resuming from generation {start_gen} "
+                  f"({len(pops)} islands, best {best_fitness:.4f})")
     else:
         random.seed(rng_seed)
         pops = [[random_tree(max_depth=3, force_eml=True)
@@ -695,9 +705,9 @@ def evolve_single(X: np.ndarray, y: np.ndarray, *, n_classes: int | None = None,
                         initargs=(X, y, X.shape[1], names))
 
     if verbose:
-        how = (f"параллельно на {min(workers, islands)} процессах" if pool
-               else "в один процесс")
-        print(f"  [C] {islands} островов x {population} особей, {how}")
+        how = (f"in parallel on {min(workers, islands)} processes" if pool
+               else "in a single process")
+        print(f"  [C] {islands} islands x {population} individuals, {how}")
 
     stopped = False
     gen = start_gen
@@ -733,8 +743,8 @@ def evolve_single(X: np.ndarray, y: np.ndarray, *, n_classes: int | None = None,
 
             gen += rounds
 
-            # Переоценка кандидатов на ПОЛНОЙ выборке — единственная общая
-            # линейка. Стоит нескольких вычислений дерева на весь раунд.
+            # Re-evaluating the candidates on the FULL sample is the only common
+            # yardstick. It costs a few tree evaluations per round.
             scored = [(evaluate_tree(t, X, y, full_weights, params), t)
                       for t in candidates]
             best_info, top_tree = max(scored, key=lambda p: p[0]['fitness'])
@@ -750,10 +760,10 @@ def evolve_single(X: np.ndarray, y: np.ndarray, *, n_classes: int | None = None,
             if verbose:
                 spread = max(r[0]['fitness'] for r in scored) - min(
                     r[0]['fitness'] for r in scored)
-                print(f"    [C] gen {gen:>5}/{generations} | лучший "
-                      f"{best_fitness:.4f} | раунд {best_info['fitness']:.4f} | "
-                      f"разброс островов {spread:.4f} | узлов "
-                      f"{best_info['nodes']} | участков {best_info['intervals']}")
+                print(f"    [C] gen {gen:>5}/{generations} | best "
+                      f"{best_fitness:.4f} | round {best_info['fitness']:.4f} | "
+                      f"island spread {spread:.4f} | nodes "
+                      f"{best_info['nodes']} | intervals {best_info['intervals']}")
 
             if progress_cb is not None:
                 progress_cb({'phase': 'single', 'gen': gen,
@@ -778,13 +788,13 @@ def evolve_single(X: np.ndarray, y: np.ndarray, *, n_classes: int | None = None,
             if should_stop is not None and should_stop():
                 stopped = True
                 if verbose:
-                    print(f"    [C] остановлено пользователем на поколении {gen}")
+                    print(f"    [C] stopped by the user at generation {gen}")
                 break
 
             if patience > 0 and stall >= patience:
                 if verbose:
-                    print(f"    [C] ранняя остановка: {stall} поколений "
-                          f"без улучшения")
+                    print(f"    [C] early stop: {stall} generations "
+                          f"without improvement")
                 break
 
             if islands > 1 and migrants > 0:
@@ -794,10 +804,10 @@ def evolve_single(X: np.ndarray, y: np.ndarray, *, n_classes: int | None = None,
             pool.close()
             pool.join()
 
-    # Итоговый декодер замораживается по ПОЛНОЙ обучающей выборке — так же,
-    # как калибровка ветки A. Подбирать его по val значило бы подглядывать.
-    # Сетка порогов здесь мельче, чем в fitness: считается это один раз, а
-    # грубая сетка стоила бы процента точности на пустом месте.
+    # The final decoder is frozen on the FULL training sample, the same way as
+    # the branch A calibration. Fitting it on val would mean looking ahead.
+    # The threshold grid here is finer than during fitness: this is computed
+    # once, and a coarse grid would cost a percent of accuracy for nothing.
     decoder = fit_decoder(best_tree.evaluate_batch(X), y, n_classes,
                           weights=full_weights,
                           max_intervals=params.max_intervals,
@@ -815,11 +825,12 @@ def evolve_single(X: np.ndarray, y: np.ndarray, *, n_classes: int | None = None,
 
 def _migrate(pops: list[list[EMLNode]], migrants: int):
     """
-    Лучшие особи каждого острова заменяют худших на соседнем (по кольцу).
+    The best individuals of each island replace the worst on the next one
+    (in a ring).
 
-    Копии отправляются, а не переносятся: остров не должен терять свою элиту,
-    иначе миграция превращается в перемешивание и разнообразие, ради которого
-    острова и заведены, исчезает за несколько обменов.
+    Copies are sent rather than transferred: an island must not lose its elite,
+    otherwise migration turns into shuffling and the diversity the islands exist
+    for disappears within a few exchanges.
     """
     donors = [[t.clone() for t in pop[:migrants]] for pop in pops]
     for i, pop in enumerate(pops):

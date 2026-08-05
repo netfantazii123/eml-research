@@ -1,18 +1,18 @@
 """
-gui.py — GUI с двумя вкладками: обучение оракула (PPO) и EML-дистилляция.
+gui.py — GUI with two tabs: oracle training (PPO) and EML distillation.
 
-Запуск: python gui.py  или  python main.py gui
+Run with: python gui.py  or  python main.py gui
 
-Вкладка "Training":
-  Left   — редактор гиперпараметров PPO (Apply применяет на лету во время обучения)
-  Center — графики avg/max линий и потерь (pg/vf/entropy) + лог
-  Right  — числовой статус в реальном времени
+"Training" tab:
+  Left   — PPO hyperparameter editor (Apply takes effect live during training)
+  Center — avg/max line and loss (pg/vf/entropy) plots + log
+  Right  — numeric status in real time
   Bottom — Start / Stop / Save Model
 
-Вкладка "Distillation":
-  Left   — параметры дистилляции (датасет, DATA/GAME-фазы)
-  Center — графики DATA-fitness (6 действий) и JOINT-score + лог
-  Right  — статус (фаза, формулы, EML vs Oracle)
+"Distillation" tab:
+  Left   — distillation parameters (dataset, DATA/GAME phases)
+  Center — DATA fitness (6 actions) and JOINT score plots + log
+  Right  — status (phase, formulas, EML vs Oracle)
   Bottom — Start / Stop / Save Formulas
 """
 
@@ -71,7 +71,7 @@ def _btn(parent: tk.Widget, text: str, cmd, *,
 
 
 class ParamRow:
-    """Строка «Label + Entry» для одного гиперпараметра."""
+    """A "Label + Entry" row for a single hyperparameter."""
 
     def __init__(self, parent: tk.Widget, label: str, default, fmt=float):
         self._fmt = fmt
@@ -98,8 +98,8 @@ class ParamRow:
 # ── Main window ───────────────────────────────────────────────────────────────
 
 class TrainingGUI:
-    _CHART_MAX = 300      # точек истории на графике
-    _POLL_MS   = 250      # интервал опроса очереди, мс
+    _CHART_MAX = 300      # history points on the chart
+    _POLL_MS   = 250      # queue polling interval, ms
 
     def __init__(self, root: tk.Tk, container: tk.Widget):
         self.root = root
@@ -111,7 +111,7 @@ class TrainingGUI:
         self._model: TetrisCNN | None         = None
         self._overrides: dict      = {}   # shared with training thread (GIL-safe reads)
 
-        # Chart history (обрезается для отрисовки) + полная история (для отчётов)
+        # Chart history (trimmed for drawing) + full history (for the reports)
         self._upd:  list[int]   = []
         self._avg:  list[float] = []
         self._mx:   list[int]   = []
@@ -182,7 +182,7 @@ class TrainingGUI:
 
         _sep(p)
 
-        # Reward shaping weights (live — пишутся прямо в config, читаются env'ом)
+        # Reward shaping weights (live — written into config, read by the env)
         tk.Label(p, text="reward shaping (live)",
                  bg=BG2, fg=FG2, font=("Consolas", 7)).pack()
         add("w_holes", "w holes",  config.REWARD_W_HOLES)
@@ -200,8 +200,8 @@ class TrainingGUI:
 
         _sep(p)
 
-        # Autopilot — обучение без присмотра: авто-сейв best, LR-decay на плато,
-        # подброс энтропии при коллапсе. Логи действий идут в лог-бокс.
+        # Autopilot — unattended training: auto-save of best, LR decay on a
+        # plateau, an entropy boost on collapse. Action logs go to the log box.
         self._auto_var = tk.BooleanVar(value=False)
         tk.Checkbutton(
             p, text="autopilot (unattended)", variable=self._auto_var,
@@ -297,7 +297,7 @@ class TrainingGUI:
         hp = self._read_hp(full=True)
         if hp is None:
             return
-        if not self._apply_shaping():   # зафиксировать веса shaping в config
+        if not self._apply_shaping():   # commit the shaping weights into config
             return
 
         autopilot = self._auto_var.get()
@@ -357,9 +357,9 @@ class TrainingGUI:
         messagebox.showinfo("Saved", f"Model saved:\n{path}")
 
     def _save_charts(self) -> None:
-        """История обучения → results/ (PNG learning curve + JSON истории)."""
+        """Training history -> results/ (PNG learning curve + JSON history)."""
         if not self._history_full:
-            messagebox.showinfo("Save Charts", "История пуста — нечего сохранять.")
+            messagebox.showinfo("Save Charts", "History is empty — nothing to save.")
             return
         png = reports.plot_ppo_history(self._history_full)
         js = reports.save_ppo_history(self._history_full)
@@ -379,7 +379,7 @@ class TrainingGUI:
         )
 
     def _apply_shaping(self) -> bool:
-        """Записать веса reward-shaping прямо в config (env читает их вживую)."""
+        """Write the reward shaping weights into config (the env reads them live)."""
         names = {"w_holes": "REWARD_W_HOLES", "w_bump": "REWARD_W_BUMP",
                  "w_agg": "REWARD_W_AGG"}
         applied = {}
@@ -422,7 +422,7 @@ class TrainingGUI:
         self.root.after(self._POLL_MS, self._poll)
 
     def _absorb(self, rec: dict) -> None:
-        """Принять один update-record из очереди."""
+        """Accept one update record from the queue."""
         self._history_full.append(rec)
         self._upd.append(rec["update"])
         self._avg.append(rec["avg_lines"])
@@ -463,8 +463,9 @@ class TrainingGUI:
             f"best={result['best_avg_lines']:.2f} lines  "
             f"time={result['elapsed'] / 60:.1f} min"
         )
-        # Полный слепок в run-папку: модель + история + графики + summary.
-        # Канонический best_ppo.pt НЕ трогаем — он по кнопке Save Model.
+        # A full snapshot into the run directory: model + history + plots +
+        # summary. The canonical best_ppo.pt is NOT touched — that is the Save
+        # Model button.
         run_dir = getattr(self, '_run_dir', None)
         if run_dir:
             try:
@@ -541,14 +542,14 @@ class TrainingGUI:
 
 # ── Distillation tab ──────────────────────────────────────────────────────────
 
-# v2: одна формула (placement-value), а не 6 формул по действиям.
+# v2: one formula (placement value) rather than 6 per-action formulas.
 ACTION_NAMES = ["PLACE"]
 ACTION_COLORS = [GREEN]
 N_FORMULAS = 1
 
 
 class DistillTab:
-    """Вкладка EML-дистилляции: оракул → формула (DATA + GAME фазы)."""
+    """EML distillation tab: oracle -> formula (DATA + GAME phases)."""
 
     _POLL_MS = 250
 
@@ -560,7 +561,7 @@ class DistillTab:
         self._stop_evt = threading.Event()
         self._thread: threading.Thread | None = None
 
-        # История графиков.
+        # Chart history.
         self._data_fit: dict[int, tuple[list, list]] = {
             a: ([], []) for a in range(N_FORMULAS)}
         self._joint_x: list[int] = []
@@ -616,7 +617,7 @@ class DistillTab:
         add("episodes", "episodes", config.EML_DATASET_EPISODES)
 
         _sep(p)
-        tk.Label(p, text="batch (variants>1 = пачка формул)", bg=BG2, fg=FG2,
+        tk.Label(p, text="batch (variants>1 = a batch of formulas)", bg=BG2, fg=FG2,
                  font=("Consolas", 7)).pack()
         add("variants", "variants", config.EML_BATCH_VARIANTS)
         self._hp["spread"] = ParamRow(p, "spread ±", config.EML_BATCH_SPREAD,
@@ -748,7 +749,7 @@ class DistillTab:
 
         def _run():
             from pipeline import full_distill, batch_distill
-            # GAME-фаза управляется через config (читается при None-параметрах).
+            # The GAME phase is driven through config (read when params are None).
             config.EML_JOINT_GENERATIONS = hp["joint_gen"]
             config.EML_JOINT_POPULATION = hp["joint_pop"]
             config.EML_INGAME_GAMES = hp["joint_games"]
@@ -769,7 +770,7 @@ class DistillTab:
                                   **common)
                 else:
                     full_distill(depth_penalty_name=dp_name, **common)
-            except Exception as exc:  # noqa: BLE001 — показать ошибку в GUI
+            except Exception as exc:  # noqa: BLE001 — show the error in the GUI
                 self._q.put({'type': 'error', 'msg': repr(exc)})
 
         self._thread = threading.Thread(target=_run, daemon=True)
@@ -801,7 +802,7 @@ class DistillTab:
         self.root.after(self._POLL_MS, self._poll)
 
     def _absorb(self, ev: dict) -> bool:
-        """Обработать одно событие. Возвращает True, если график нужно перерисовать."""
+        """Handle one event. Returns True if the chart needs to be redrawn."""
         t = ev.get('type')
         sv = self._sv
 
@@ -825,7 +826,7 @@ class DistillTab:
                 f"dp={p['depth_penalty']} gen={p['generations']} "
                 f"pop={p['population']} depth<={p['max_depth']} "
                 f"seed={p['seed']}")
-            # Каждый вариант — свои кривые.
+            # Every variant has its own curves.
             self._data_fit = {a: ([], []) for a in range(N_FORMULAS)}
             self._joint_x.clear()
             self._joint_y.clear()
@@ -945,19 +946,19 @@ class DistillTab:
 
 # ── Play tab ──────────────────────────────────────────────────────────────────
 
-_CELL = 24          # пикселей на клетку доски
+_CELL = 24          # pixels per board cell
 _PIECE_COLORS = ["#89dceb", "#f9e2af", "#cba6f7", "#a6e3a1",
                  "#f38ba8", "#89b4fa", "#fab387"]   # I O T S Z J L
 
 
 class PlayTab:
-    """Вкладка Play: смотреть, как играет обученный оракул или EML-формула."""
+    """Play tab: watch the trained oracle or the EML formula play."""
 
     def __init__(self, root: tk.Tk, container: tk.Widget):
         self.root = root
         self.container = container
 
-        # Play — без капа постановок (max_placements=0): игра до game over.
+        # Play — no placement cap (max_placements=0): play until game over.
         self._env = TetrisEnv(seed=0, max_placements=0)
         self._obs = self._env.reset()
         self._policy = None            # callable(obs) -> action | -1
@@ -967,9 +968,9 @@ class PlayTab:
         self._game_no = 0
         self._pieces = 0
         self._tick_scheduled = False
-        self._duel: dict | None = None   # состояние duel-режима (2 доски)
-        self._lat_last = 0.0             # µs последнего решения
-        self._lat_sum = 0.0              # накопление для среднего за игру
+        self._duel: dict | None = None   # duel mode state (2 boards)
+        self._lat_last = 0.0             # µs of the last decision
+        self._lat_sum = 0.0              # accumulator for the per-game average
         self._lat_n = 0
 
         self._build_ui()
@@ -989,7 +990,7 @@ class PlayTab:
         cols = tk.Frame(self.container, bg=BG)
         cols.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
 
-        # ── Left: выбор модели и управление ──────────────────────────────
+        # ── Left: model selection and controls ───────────────────────────
         left = tk.Frame(cols, bg=BG2, width=250)
         left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 6))
         left.pack_propagate(False)
@@ -1049,7 +1050,7 @@ class PlayTab:
         tk.Label(left, text=f"device: {get_device()}", bg=BG2, fg=FG2,
                  font=("Consolas", 7)).pack(pady=4)
 
-        # ── Center: доска ─────────────────────────────────────────────────
+        # ── Center: the board ─────────────────────────────────────────────
         center = tk.Frame(cols, bg=BG)
         center.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self._canvas = tk.Canvas(
@@ -1058,7 +1059,7 @@ class PlayTab:
             bg=BG3, highlightthickness=1, highlightbackground=BG2)
         self._canvas.pack(pady=6)
 
-        # ── Right: статус ─────────────────────────────────────────────────
+        # ── Right: status ─────────────────────────────────────────────────
         right = tk.Frame(cols, bg=BG2, width=200)
         right.pack(side=tk.RIGHT, fill=tk.Y, padx=(6, 0))
         right.pack_propagate(False)
@@ -1108,7 +1109,7 @@ class PlayTab:
                     self._load_oracle(path)
                 else:
                     self._load_eml(path)
-        except Exception as exc:  # noqa: BLE001 — показать пользователю
+        except Exception as exc:  # noqa: BLE001 — show it to the user
             messagebox.showerror("Load failed", repr(exc))
             return
         self._duel = None
@@ -1117,9 +1118,9 @@ class PlayTab:
         self._lbl_status.config(text=f"loaded: {self._policy_name}", fg=GREEN)
         self._reset_game()
 
-    # ── Duel: оракул vs формула на двух досках с одним сидом ─────────────
+    # ── Duel: oracle vs formula on two boards with the same seed ─────────
 
-    _DUEL_GAP = 3 * _CELL     # зазор между досками
+    _DUEL_GAP = 3 * _CELL     # gap between the boards
 
     def _load_duel(self) -> None:
         try:
@@ -1149,7 +1150,7 @@ class PlayTab:
         d['obs'] = [e.reset() for e in d['envs']]
         d['pieces'] = [0, 0]
         d['done'] = [False, False]
-        d['lat'] = [[0.0, 0], [0.0, 0]]     # [сумма µs, ходов] на сторону
+        d['lat'] = [[0.0, 0], [0.0, 0]]     # [sum of µs, moves] per side
         self._sv['game'].set(str(self._game_no))
         self._redraw_board()
 
@@ -1219,7 +1220,7 @@ class PlayTab:
 
     def _toggle_play(self) -> None:
         if self._policy is None and self._duel is None:
-            messagebox.showinfo("Play", "Сначала загрузите модель (Load model).")
+            messagebox.showinfo("Play", "Load a model first (Load model).")
             return
         self._playing = not self._playing
         self._btn_play.config(text="⏸ Pause" if self._playing else "▶ Play")
@@ -1231,7 +1232,7 @@ class PlayTab:
 
     def _step_once(self) -> None:
         if self._policy is None and self._duel is None:
-            messagebox.showinfo("Play", "Сначала загрузите модель (Load model).")
+            messagebox.showinfo("Play", "Load a model first (Load model).")
             return
         self._playing = False
         self._btn_play.config(text="▶ Play")
@@ -1258,10 +1259,10 @@ class PlayTab:
         self._sv['pieces'].set("0")
         self._redraw_board()
 
-    # ── Latency решения (время/ресурсы на ход) ───────────────────────────
+    # ── Decision latency (time/resources per move) ───────────────────────
 
     def _decide(self, policy, obs) -> int:
-        """Вызов политики с замером времени решения (µs)."""
+        """Call the policy while measuring the decision time (µs)."""
         t0 = time.perf_counter()
         a = policy(obs)
         dt_us = (time.perf_counter() - t0) * 1e6
@@ -1314,7 +1315,7 @@ class PlayTab:
             self._anim = {'a': a, 'rot': rot, 'x': x,
                           'y': pieces.SPAWN_Y, 'ty': ty}
             return
-        # падение на 1 клетку за тик
+        # fall by 1 cell per tick
         self._anim['y'] += 1
         if self._anim['y'] >= self._anim['ty']:
             self._commit_placement(self._anim['a'])
@@ -1374,14 +1375,14 @@ class PlayTab:
         cv = self._canvas
         W, H = config.BOARD_W, config.BOARD_H_TOTAL
 
-        # Линия отделяет буфер спавна (верхние 4 строки) от видимой зоны.
+        # A line separates the spawn buffer (top 4 rows) from the visible area.
         buf_y = config.BOARD_BUFFER * _CELL
         cv.create_rectangle(off, 0, off + W * _CELL, buf_y,
                             fill=BG2, outline="")
         cv.create_line(off, buf_y, off + W * _CELL, buf_y,
                        fill=RED, dash=(4, 2))
 
-        # Сетка.
+        # Grid.
         for cx in range(W + 1):
             cv.create_line(off + cx * _CELL, 0, off + cx * _CELL, H * _CELL,
                            fill=BG2, width=1)
@@ -1395,7 +1396,7 @@ class PlayTab:
                            f"{env.score} lines", fill=color,
                            font=("Consolas", 10, "bold"))
 
-        # Зафиксированные ячейки.
+        # Locked cells.
         board = env.board
         for r in range(H):
             for c in range(W):
@@ -1403,7 +1404,7 @@ class PlayTab:
                     self._cell(off, c, r, ACCENT, outline=BG)
 
         if anim is not None:
-            # Ghost на целевой позиции + падающая фигура.
+            # Ghost at the target position + the falling piece.
             color = _PIECE_COLORS[env.cur_type]
             for (pr, pc) in pieces.piece_cells(env.cur_type, anim['rot']):
                 self._cell(off, anim['x'] + pc, anim['ty'] + pr, "",
@@ -1412,7 +1413,7 @@ class PlayTab:
                 self._cell(off, anim['x'] + pc, anim['y'] + pr, color,
                            outline=BG)
         elif not env.done:
-            # Фигура на спавне (ждёт решения).
+            # The piece at spawn (awaiting a decision).
             color = _PIECE_COLORS[env.cur_type]
             for (pr, pc) in pieces.piece_cells(env.cur_type, env.cur_rot):
                 self._cell(off, env.cur_x + pc, env.cur_y + pr, color,
@@ -1438,7 +1439,7 @@ class PlayTab:
 # ── Formulas tab ──────────────────────────────────────────────────────────────
 
 def _check_formula_compat(trees: list) -> None:
-    """Формулы старых версий (var_idx за пределами признаков v2) — отклонить."""
+    """Reject formulas of older versions (var_idx beyond the v2 features)."""
     def _max_var(node) -> int:
         if node.kind == 'var':
             return node.var_idx
@@ -1448,8 +1449,8 @@ def _check_formula_compat(trees: list) -> None:
     mv = max(_max_var(t) for t in trees)
     if mv >= config.N_FEATURES:
         raise ValueError(
-            f"формула несовместима: var_idx {mv} >= {config.N_FEATURES} "
-            f"(старый формат v1 с 28 признаками)")
+            f"incompatible formula: var_idx {mv} >= {config.N_FEATURES} "
+            f"(the old v1 format with 28 features)")
 
 
 def _pretty_ast(node, indent: int = 0) -> str:
@@ -1477,7 +1478,7 @@ def _var_usage(node, counts: dict | None = None) -> dict:
 
 
 class FormulasTab:
-    """Вкладка Formulas: просмотр EML-формул и сравнение их игрой на одних сидах."""
+    """Formulas tab: inspect EML formulas and compare them by play on equal seeds."""
 
     _POLL_MS = 250
 
@@ -1504,7 +1505,7 @@ class FormulasTab:
         cols = tk.Frame(self.container, bg=BG)
         cols.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
 
-        # ── Left: список файлов + параметры сравнения ─────────────────────
+        # ── Left: file list + comparison parameters ───────────────────────
         left = tk.Frame(cols, bg=BG2, width=260)
         left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 6))
         left.pack_propagate(False)
@@ -1526,10 +1527,10 @@ class FormulasTab:
         self._btn_cmp = _btn(left, "Compare selected", self._compare,
                              bg=YELLOW, fg=BG)
         self._btn_cmp.pack(fill=tk.X, padx=6, pady=6)
-        tk.Label(left, text="одинаковые сиды у всех формул —\nчестное сравнение",
+        tk.Label(left, text="identical seeds for every formula —\na fair comparison",
                  bg=BG2, fg=FG2, font=("Consolas", 7), justify="left").pack(padx=6)
 
-        # ── Center: детали формулы ────────────────────────────────────────
+        # ── Center: formula details ───────────────────────────────────────
         center = tk.Frame(cols, bg=BG)
         center.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         tk.Label(center, text="formula details", bg=BG, fg=FG2,
@@ -1541,7 +1542,7 @@ class FormulasTab:
         dsb.pack(side=tk.RIGHT, fill=tk.Y)
         self._details.pack(fill=tk.BOTH, expand=True)
 
-        # ── Bottom: результаты сравнения ──────────────────────────────────
+        # ── Bottom: comparison results ────────────────────────────────────
         bot = tk.Frame(self.container, bg=BG)
         bot.pack(fill=tk.X, padx=10, pady=(2, 8))
         tk.Label(bot, text="comparison results", bg=BG, fg=FG2,
@@ -1577,9 +1578,9 @@ class FormulasTab:
             txt.append("")
             try:
                 _check_formula_compat(trees)
-                compat = "v2 (19 afterstate-признаков) — играбельна"
+                compat = "v2 (19 afterstate features) — playable"
             except ValueError as exc:
-                compat = f"НЕСОВМЕСТИМА: {exc}"
+                compat = f"INCOMPATIBLE: {exc}"
             txt.append(f"  compat: {compat}")
             txt.append(f"  formulas: {len(trees)}")
             for i, t in enumerate(trees):
@@ -1590,7 +1591,7 @@ class FormulasTab:
                 txt.append("   vars: " + ", ".join(
                     f"{n}×{c}" for n, c in usage))
                 txt.append(_pretty_ast(t, indent=1))
-        except Exception as exc:  # noqa: BLE001 — показать в деталях
+        except Exception as exc:  # noqa: BLE001 — show it in the details
             txt.append(f"  [error] {exc!r}")
         self._details.delete("1.0", tk.END)
         self._details.insert("1.0", "\n".join(txt))
@@ -1602,7 +1603,7 @@ class FormulasTab:
             return
         sel = self._listbox.curselection()
         if not sel:
-            messagebox.showinfo("Compare", "Выберите одну или несколько формул.")
+            messagebox.showinfo("Compare", "Select one or more formulas.")
             return
         n_games = self._pr_games.get() or 5
         max_pl = self._pr_maxpl.get() or 500

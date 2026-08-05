@@ -1,10 +1,10 @@
 """
-Тесты движка инференса: тайлинг, оверлей, сохранение кадра.
+Tests of the inference engine: tiling, overlay, frame saving.
 
-Тайлинг — то место, где ошибка на один пиксель не видна глазом, но роняет
-точность разметки: окно, съехавшее на пиксель, это уже не та вырезка, на
-которой обучалась модель. Поэтому проверяется точное совпадение пикселей
-после круга «мозаика -> тайлинг -> окна».
+Tiling is where a one-pixel error is invisible to the eye but destroys the
+annotation accuracy: a window shifted by a pixel is no longer the crop the model
+was trained on. Exact pixel agreement after the "mosaic -> tiling -> windows"
+round trip is therefore checked.
 """
 
 import struct
@@ -17,7 +17,7 @@ import config
 import vision
 
 
-# ── Тайлинг ───────────────────────────────────────────────────────────────────
+# ── Tiling ────────────────────────────────────────────────────────────────────
 
 def test_tile_positions_exact_fit():
     positions = vision.tile_positions(128, 192, tile=64, stride=64)
@@ -26,7 +26,8 @@ def test_tile_positions_exact_fit():
 
 
 def test_tile_positions_drops_remainder():
-    """Неполные окна отбрасываются: дополнять их выдуманными пикселями нельзя."""
+    """Incomplete windows are discarded: padding them with invented pixels is not
+    allowed."""
     assert vision.tile_positions(100, 100, tile=64, stride=64) == [(0, 0)]
 
 
@@ -34,11 +35,11 @@ def test_tile_positions_drops_remainder():
                                           (63, 1000), (1000, 63)])
 def test_tile_positions_small_frame_gives_nothing(height, width):
     """
-    Кадр меньше окна — ни одной позиции.
+    A frame smaller than the window — not a single position.
 
-    Раньше здесь возвращалась одна позиция (0, 0), после чего extract_tiles
-    падал на несовпадении форм: вырезать 64x64 из кадра 40x30 нельзя. Видео с
-    маленьким кадром роняло рабочий поток.
+    Previously one position (0, 0) was returned here, after which extract_tiles
+    failed on a shape mismatch: a 64x64 window cannot be cut out of a 40x30
+    frame. Video with a small frame killed the worker thread.
     """
     assert vision.tile_positions(height, width, tile=64) == []
 
@@ -49,7 +50,7 @@ def test_tile_positions_stride_overlap():
 
 
 def test_small_frame_survives_full_path():
-    """Сквозная проверка: маленький кадр не должен ронять конвейер разметки."""
+    """End-to-end check: a small frame must not break the annotation pipeline."""
     frame = np.zeros((40, 30, 3), dtype=np.uint8)
     positions = vision.tile_positions(frame.shape[0], frame.shape[1])
     assert positions == []
@@ -57,10 +58,10 @@ def test_small_frame_survives_full_path():
     assert tiles.shape == (0, config.IMG_SIZE, config.IMG_SIZE, 3)
 
 
-# ── Мозаика и вырезка ─────────────────────────────────────────────────────────
+# ── Mosaic and cropping ───────────────────────────────────────────────────────
 
 def test_mosaic_tiling_roundtrip():
-    """Из мозаики тайлинг обязан вернуть ровно те же вырезки, без сдвигов."""
+    """From a mosaic, tiling must return exactly the same crops, without shifts."""
     rng = np.random.default_rng(0)
     rows, cols = 3, 4
     crops = rng.integers(0, 256, (rows * cols, config.IMG_SIZE,
@@ -80,7 +81,7 @@ def test_center_crop_takes_center():
 
 
 def test_center_crop_upscales_small_frame():
-    """Кадр меньше окна растягивается, а не падает."""
+    """A frame smaller than the window is upscaled rather than failing."""
     frame = np.full((10, 20, 3), 7, dtype=np.uint8)
     crop = vision.center_crop(frame, 64)
     assert crop.shape == (64, 64, 3)
@@ -95,10 +96,11 @@ def test_resize_nearest_keeps_values():
     assert set(np.unique(big).tolist()) <= set(np.unique(frame).tolist())
 
 
-# ── Оверлей ───────────────────────────────────────────────────────────────────
+# ── Overlay ───────────────────────────────────────────────────────────────────
 
 def test_overlay_does_not_touch_source():
-    """Оверлей возвращает новый массив: иначе повторный рендер «выжигает» кадр."""
+    """The overlay returns a new array: otherwise a repeated render washes the
+    frame out."""
     frame = np.full((128, 128, 3), 100, dtype=np.uint8)
     original = frame.copy()
     positions = vision.tile_positions(128, 128)
@@ -110,7 +112,7 @@ def test_overlay_does_not_touch_source():
 
 
 def test_overlay_respects_confidence_threshold():
-    """Окна ниже порога уверенности не закрашиваются."""
+    """Windows below the confidence threshold are not filled."""
     frame = np.full((64, 128, 3), 100, dtype=np.uint8)
     positions = vision.tile_positions(64, 128)
     preds = np.zeros(len(positions), dtype=int)
@@ -130,7 +132,7 @@ def test_softmax_rows_sum_to_one():
 
 
 def test_softmax_survives_huge_logits():
-    """Вычитание максимума спасает от переполнения exp()."""
+    """Subtracting the maximum saves from exp() overflow."""
     probs = vision.softmax(np.array([[1e6, 0.0, -1e6, 5.0]]))
     assert np.all(np.isfinite(probs))
     assert probs.argmax() == 0
@@ -138,17 +140,17 @@ def test_softmax_survives_huge_logits():
 
 def test_softmax_floor_for_four_classes():
     """
-    Максимум softmax по 4 классам не бывает меньше 0.25 — значит и порог
-    уверенности ниже 0.25 ничего не фильтрует. Это оговорено в интерфейсе.
+    The softmax maximum over 4 classes is never below 0.25 — so a confidence
+    threshold below 0.25 filters nothing. This is stated in the interface.
     """
     probs = vision.softmax(np.zeros((1, config.N_CLASSES)))
     assert probs.max() == pytest.approx(0.25)
 
 
-# ── Сохранение кадра ──────────────────────────────────────────────────────────
+# ── Frame saving ──────────────────────────────────────────────────────────────
 
 def decode_png(blob: bytes) -> np.ndarray:
-    """Минимальный декодер PNG для проверки записи (8 бит, truecolor)."""
+    """Minimal PNG decoder for checking the write (8 bit, truecolor)."""
     assert blob[:8] == b'\x89PNG\r\n\x1a\x0a'
     pos, chunks, size = 8, {}, None
     idat = b''
@@ -158,7 +160,7 @@ def decode_png(blob: bytes) -> np.ndarray:
         payload = blob[pos + 8:pos + 8 + length]
         if tag == b'IHDR':
             width, height, depth, color = struct.unpack('>IIBB', payload[:10])
-            assert (depth, color) == (8, 2), "ожидался 8-битный truecolor RGB"
+            assert (depth, color) == (8, 2), "expected 8-bit truecolor RGB"
             size = (height, width)
         elif tag == b'IDAT':
             idat += payload
@@ -172,28 +174,28 @@ def decode_png(blob: bytes) -> np.ndarray:
     rows = []
     for y in range(height):
         row = raw[y * stride:(y + 1) * stride]
-        assert row[0] == 0, "ожидался фильтр 0 (без фильтрации)"
+        assert row[0] == 0, "expected filter 0 (no filtering)"
         rows.append(np.frombuffer(row[1:], dtype=np.uint8))
     return np.stack(rows).reshape(height, width, 3)
 
 
 def test_write_image_keeps_exact_pixels(tmp_path):
     """
-    Кадр сохраняется пиксель в пиксель.
+    The frame is saved pixel for pixel.
 
-    Раньше он прогонялся через matplotlib с dpi=100 и сохранялся с dpi=150,
-    то есть на диск ложилась пересэмплированная картинка в полтора раза
-    крупнее — не те пиксели, по которым пользователь оценивал разметку.
+    Previously it went through matplotlib with dpi=100 and was saved with
+    dpi=150, i.e. a resampled image one and a half times larger landed on disk —
+    not the pixels the user judged the annotation by.
     """
     rng = np.random.default_rng(0)
     frame = rng.integers(0, 256, (37, 53, 3), dtype=np.uint8)
     path = str(tmp_path / 'frame.png')
     vision.write_image(path, frame)
 
-    # Кто именно писал файл — cv2 или собственный кодировщик — неизвестно и
-    # неважно; важно, что пиксели те же. Читаем тем, что есть: cv2 понимает
-    # оба варианта, собственный декодер — только свой (он не умеет фильтры
-    # PNG, которыми пользуется cv2).
+    # Which of the two wrote the file — cv2 or the own encoder — is unknown and
+    # unimportant; what matters is that the pixels are the same. We read with
+    # whatever is available: cv2 understands both variants, the own decoder only
+    # its own (it does not handle the PNG filters cv2 uses).
     try:
         import cv2
         assert np.array_equal(cv2.imread(path)[:, :, ::-1], frame)
@@ -202,7 +204,7 @@ def test_write_image_keeps_exact_pixels(tmp_path):
 
 
 def test_png_encoder_roundtrip():
-    """Собственный кодировщик PNG проверяется независимо от наличия OpenCV."""
+    """The own PNG encoder is checked independently of OpenCV's presence."""
     rng = np.random.default_rng(1)
     frame = rng.integers(0, 256, (12, 9, 3), dtype=np.uint8)
     assert np.array_equal(decode_png(vision._png_bytes(frame)), frame)
@@ -214,7 +216,7 @@ def test_write_image_rejects_wrong_shape(tmp_path):
                            np.zeros((8, 8), dtype=np.uint8))
 
 
-# ── Цвета классов ─────────────────────────────────────────────────────────────
+# ── Class colors ──────────────────────────────────────────────────────────────
 
 def test_every_class_has_a_colour():
     seen = {vision.class_color(i) for i in range(config.N_CLASSES)}
@@ -225,14 +227,15 @@ def test_every_class_has_a_colour():
 
 def test_class_colors_stay_distinct_for_any_dataset(monkeypatch):
     """
-    Классы чужой папки получают РАЗНЫЕ цвета, а не общий серый.
+    Classes of a foreign folder get DIFFERENT colors, not a shared gray.
 
-    Цвета подобраны вручную только для исходных четырёх имён. Раньше всё
-    остальное падало в один запасной серый, и оверлей на новом датасете
-    превращался в равномерную заливку, по которой ничего не разобрать —
-    причём выглядело это как работающая разметка.
+    The colors are hand-picked only for the original four names. Previously
+    everything else fell back to one gray, and the overlay on a new dataset
+    turned into a uniform fill showing nothing — while looking like working
+    annotation.
     """
-    monkeypatch.setattr(config, 'CLASS_NAMES', ['кот', 'пёс', 'лиса', 'ёж', 'уж'])
+    monkeypatch.setattr(config, 'CLASS_NAMES',
+                        ['cat', 'dog', 'fox', 'hedgehog', 'snake'])
     monkeypatch.setattr(config, 'N_CLASSES', 5)
     colors = [vision.class_color(i) for i in range(5)]
     assert len(set(colors)) == 5
@@ -241,6 +244,6 @@ def test_class_colors_stay_distinct_for_any_dataset(monkeypatch):
 
 
 def test_known_class_colors_are_unchanged():
-    """Исходные четыре класса сохраняют свои цвета: по ним читаются старые отчёты."""
+    """The original four classes keep their colors: old reports are read by them."""
     for i, name in enumerate(config.CLASS_NAMES):
         assert vision.class_color(i) == vision.CLASS_COLORS[name]

@@ -1,25 +1,27 @@
 """
-oracle.py — нейросети-оракулы, чьё решение потом дистиллируется в EML-формулы.
+oracle.py — the oracle networks whose decisions are later distilled into EML
+formulas.
 
-Две модели под две ветки эксперимента:
+Two models for the two experiment branches:
 
-    FeatureMLP (ветка A) — вход: 32 инженерных признака из features.py.
-        Это основная ветка. EML-формулы получают РОВНО ТОТ ЖЕ вектор, поэтому
-        после дистилляции нейросеть выбрасывается целиком: на микроконтроллере
-        остаются экстрактор признаков и 4 формулы.
+    FeatureMLP (branch A) — input: 32 engineered features from features.py.
+        This is the main branch. The EML formulas receive EXACTLY THE SAME
+        vector, so after distillation the neural network is discarded entirely:
+        the microcontroller keeps the feature extractor and 4 formulas.
 
-    PixelCNN (ветка B)   — вход: сырые пиксели 64x64x3.
-        Ablation-ветка: верхняя граница качества. Свёртки сжимают картинку в
-        узкий эмбеддинг (CNN_EMBED_DIM = 32, столько же, сколько признаков),
-        и EML аппроксимирует голову поверх эмбеддинга. Честно оговорено, что
-        на MCU здесь остаются свёртки — ветка нужна, чтобы измерить, сколько
-        точности стоит отказ от них.
+    PixelCNN (branch B)   — input: raw 64x64x3 pixels.
+        Ablation branch: an upper bound on quality. The convolutions compress
+        the image into a narrow embedding (CNN_EMBED_DIM = 32, as many as there
+        are features), and EML approximates the head over that embedding. The
+        convolutions remain on the MCU here — the branch exists to measure how
+        much accuracy dropping them costs.
 
-Важно для обеих веток: эмбеддинг PixelCNN проходит через tanh и лежит в
-[-1, 1] — как и признаки ветки A. Это не косметика: EML-оператор содержит
-exp(), и подавать в него неограниченные активации нельзя (см. update.md,
-правило про clamp перед exp). Заодно ветки становятся сопоставимы по масштабу
-входа, иначе сравнение упирается в разную нормировку, а не в качество.
+Important for both branches: the PixelCNN embedding passes through tanh and lies
+in [-1, 1], like the branch A features. This is not cosmetic: the EML operator
+contains exp(), and unbounded activations must not be fed into it (see
+update.md, the rule about clamping before exp). It also makes the branches
+comparable in input scale, so the comparison does not come down to differing
+normalization rather than quality.
 """
 
 import numpy as np
@@ -30,14 +32,14 @@ import config
 
 
 def get_device() -> torch.device:
-    """CUDA, если доступна, иначе CPU."""
+    """CUDA if available, otherwise CPU."""
     return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-# ── Ветка A: MLP на инженерных признаках ──────────────────────────────────────
+# ── Branch A: MLP over engineered features ────────────────────────────────────
 
 class FeatureMLP(nn.Module):
-    """Классификатор поверх 32 признаков. Вход (B, 32) -> логиты (B, 4)."""
+    """Classifier over 32 features. Input (B, 32) -> logits (B, 4)."""
 
     def __init__(self, n_features: int | None = None,
                  hidden: list[int] | None = None,
@@ -62,14 +64,14 @@ class FeatureMLP(nn.Module):
         return self.net(x)
 
 
-# ── Ветка B: CNN на пикселях с узким bottleneck ───────────────────────────────
+# ── Branch B: CNN over pixels with a narrow bottleneck ────────────────────────
 
 class PixelCNN(nn.Module):
     """
-    Свёрточный классификатор. Вход (B, 3, 64, 64) float в [0, 1] -> (B, 4).
+    Convolutional classifier. Input (B, 3, 64, 64) float in [0, 1] -> (B, 4).
 
-    Три блока conv-bn-relu-conv-bn-relu-pool: 64 -> 32 -> 16 -> 8, затем
-    global average pooling, узкий эмбеддинг и линейная голова.
+    Three conv-bn-relu-conv-bn-relu-pool blocks: 64 -> 32 -> 16 -> 8, then
+    global average pooling, a narrow embedding, and a linear head.
     """
 
     def __init__(self, channels: list[int] | None = None,
@@ -99,10 +101,11 @@ class PixelCNN(nn.Module):
 
     def embed(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Bottleneck-эмбеддинг (B, embed_dim) в [-1, 1] — вход EML-формул ветки B.
+        Bottleneck embedding (B, embed_dim) in [-1, 1] — the input of the branch
+        B EML formulas.
 
-        tanh здесь обязателен: без ограничения активации формула с exp()
-        улетает в inf на первом же выбросе.
+        tanh is mandatory here: without bounded activations a formula containing
+        exp() blows up to inf on the first outlier.
         """
         h = self.features(x)
         h = self.pool(h).flatten(1)
@@ -112,16 +115,16 @@ class PixelCNN(nn.Module):
         return self.head(self.embed(x))
 
 
-# ── Инференс-хелперы ──────────────────────────────────────────────────────────
+# ── Inference helpers ─────────────────────────────────────────────────────────
 
 @torch.no_grad()
 def predict_logits(model: nn.Module, X: np.ndarray, device=None,
                    batch_size: int = 512) -> np.ndarray:
     """
-    Логиты модели для массива numpy. Возвращает (N, N_CLASSES) float32.
+    Model logits for a numpy array. Returns (N, N_CLASSES) float32.
 
-    X — либо (N, 32) признаки (FeatureMLP), либо (N, 64, 64, 3) uint8 картинки
-    (PixelCNN); нужное преобразование выбирается по размерности.
+    X is either (N, 32) features (FeatureMLP) or (N, 64, 64, 3) uint8 images
+    (PixelCNN); the required conversion is chosen by dimensionality.
     """
     device = device or get_device()
     model = model.to(device).eval()
@@ -134,8 +137,8 @@ def predict_logits(model: nn.Module, X: np.ndarray, device=None,
 
 
 def to_input_tensor(batch: np.ndarray, device) -> torch.Tensor:
-    """numpy-пачка -> тензор нужного модели вида."""
-    if batch.ndim == 4:                                    # картинки (N,H,W,3)
+    """numpy batch -> a tensor in the form the model expects."""
+    if batch.ndim == 4:                                    # images (N,H,W,3)
         t = torch.from_numpy(np.ascontiguousarray(batch)).to(device)
         return t.permute(0, 3, 1, 2).float() / 255.0
     return torch.from_numpy(np.ascontiguousarray(batch)).float().to(device)
@@ -144,7 +147,7 @@ def to_input_tensor(batch: np.ndarray, device) -> torch.Tensor:
 @torch.no_grad()
 def predict_embeddings(model: PixelCNN, images: np.ndarray, device=None,
                        batch_size: int = 512) -> np.ndarray:
-    """Эмбеддинги PixelCNN для картинок — вход EML-дистилляции ветки B."""
+    """PixelCNN embeddings for images — the input of branch B EML distillation."""
     device = device or get_device()
     model = model.to(device).eval()
     out = []
@@ -155,5 +158,5 @@ def predict_embeddings(model: PixelCNN, images: np.ndarray, device=None,
 
 
 def count_params(model: nn.Module) -> int:
-    """Число обучаемых параметров — для таблицы сравнения в отчёте."""
+    """Number of trainable parameters — for the comparison table in the report."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)

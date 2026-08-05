@@ -1,27 +1,28 @@
 """
-export.py — экспорт дистиллированного классификатора в чистый C.
+export.py — export of the distilled classifier to plain C.
 
-Это третья фаза пайплайна: артефакт, который уезжает на микроконтроллер.
-Никаких зависимостей — только <math.h>.
+This is the third phase of the pipeline: the artifact that goes onto the
+microcontroller. No dependencies — only <math.h>.
 
-Генерируются два файла:
+Two files are generated:
 
-    aerial_eml_<ветка>.h — 4 EML-формулы, константы калибровки и argmax
-                           (aerial_eml_A.h для основной ветки).
-    aerial_features.h    — экстрактор 32 признаков из буфера 64x64 RGB.
+    aerial_eml_<branch>.h — 4 EML formulas, calibration constants and the argmax
+                            (aerial_eml_A.h for the main branch).
+    aerial_features.h     — extractor of 32 features from a 64x64 RGB buffer.
 
-Второй файл принципиален. В Тетрисе экспортировать экстрактор было не нужно:
-признаки выдавала сама игра. Здесь признаки — и есть весь препроцессинг, и
-если оставить их в Python, то заявление «нейросеть больше не нужна» ничем не
-подкреплено. Поэтому экспортируется вся цепочка: пиксели -> признаки ->
-формулы -> класс.
+The second file is essential. In Tetris there was no need to export the
+extractor: the game supplied the features. Here the features are the entire
+preprocessing step, and leaving them in Python would leave the claim "the neural
+network is no longer needed" unsupported. The whole chain is therefore exported:
+pixels -> features -> formulas -> class.
 
-Числовые константы (пороги, масштабы нормализации) вписываются в C из
-config.py при генерации, а не дублируются руками — иначе они разъедутся с
-Python-версией при первой же правке, и расхождение будет молчаливым.
+Numeric constants (thresholds, normalization scales) are written into the C from
+config.py at generation time rather than duplicated by hand — otherwise they
+would diverge from the Python version at the first edit, and the divergence
+would be silent.
 
-Сгенерированный код проверяется командой `python main.py verify-c`: она
-компилирует C, прогоняет через него тестовую выборку и сравнивает с Python.
+The generated code is checked by `python main.py verify-c`: it compiles the C,
+runs the test sample through it, and compares against Python.
 """
 
 import os
@@ -32,10 +33,10 @@ import config
 import features as features_mod
 
 
-# ── Формулы -> C ──────────────────────────────────────────────────────────────
+# ── Formulas -> C ─────────────────────────────────────────────────────────────
 
 def _c_expr(node) -> str:
-    """AST EML-дерева -> выражение на C."""
+    """EML tree AST -> a C expression."""
     if node.kind == 'const':
         return f"{node.value:.6f}f"
     if node.kind == 'var':
@@ -45,28 +46,28 @@ def _c_expr(node) -> str:
 
 def generate_formulas_header(clf, input_names: list[str], meta: dict,
                              branch: str = 'A') -> str:
-    """Собрать текст aerial_eml.h для набора формул с калибровкой."""
+    """Build the text of aerial_eml.h for a formula set with calibration."""
     m = meta.get('metrics', {}).get('test', {})
     lines = [
         "/*",
-        f" * aerial_eml_{branch.upper()}.h — дистиллированный классификатор "
-        f"аэроснимков.",
-        " * АВТОГЕНЕРАЦИЯ (export.py). Руками не править.",
+        f" * aerial_eml_{branch.upper()}.h — distilled aerial image classifier.",
+        " * AUTO-GENERATED (export.py). Do not edit by hand.",
         " *",
-        f" * Ветка: {branch}   Классы: {', '.join(config.CLASS_NAMES)}",
-        f" * Узлов AST: {clf.total_nodes()}, макс. глубина: {clf.max_depth()}",
-        f" * Точность на test: {m.get('eml_acc', float('nan')):.4f} "
-        f"(сбалансированная {m.get('eml_bal_acc', float('nan')):.4f})",
-        f" * Точность оракула: {m.get('oracle_acc', float('nan')):.4f} "
-        f"(сбалансированная {m.get('oracle_bal_acc', float('nan')):.4f})",
-        f" * Совпадение с оракулом (fidelity): {m.get('fidelity', float('nan')):.4f}",
+        f" * Branch: {branch}   Classes: {', '.join(config.CLASS_NAMES)}",
+        f" * AST nodes: {clf.total_nodes()}, max depth: {clf.max_depth()}",
+        f" * Accuracy on test: {m.get('eml_acc', float('nan')):.4f} "
+        f"(balanced {m.get('eml_bal_acc', float('nan')):.4f})",
+        f" * Oracle accuracy: {m.get('oracle_acc', float('nan')):.4f} "
+        f"(balanced {m.get('oracle_bal_acc', float('nan')):.4f})",
+        f" * Agreement with the oracle (fidelity): "
+        f"{m.get('fidelity', float('nan')):.4f}",
         " *",
-        " * Вход: x[] — вектор признаков в [-1, 1].",
-        " *   Ветка A: заполняется функцией aerial_extract_features()",
-        " *            из aerial_features.h.",
-        " *   Ветка B: bottleneck-эмбеддинг CNN (на MCU остаются свёртки!).",
+        " * Input: x[] — feature vector in [-1, 1].",
+        " *   Branch A: filled by aerial_extract_features()",
+        " *             from aerial_features.h.",
+        " *   Branch B: CNN bottleneck embedding (the convolutions stay on the MCU!).",
         " *",
-        " * Индексы входов:",
+        " * Input indices:",
     ]
     for i, name in enumerate(input_names):
         lines.append(f" *   x[{i:2d}] = {name}")
@@ -80,8 +81,9 @@ def generate_formulas_header(clf, input_names: list[str], meta: dict,
         f"#define AERIAL_N_CLASSES {len(clf.trees)}",
         f"#define AERIAL_N_INPUTS  {len(input_names)}",
         "",
-        "/* Базовый оператор проекта: eml(x, y) = exp(clamp(x)) - ln(|y| + eps).",
-        " * clamp обязателен — без него exp() улетает в inf на первом выбросе. */",
+        "/* The project's base operator: eml(x, y) = exp(clamp(x)) - ln(|y| + eps).",
+        " * The clamp is mandatory — without it exp() overflows to inf on the",
+        " * first outlier. */",
         "static inline float eml_op(float x, float y)",
         "{",
         "    if (x < -10.0f) x = -10.0f;",
@@ -94,7 +96,7 @@ def generate_formulas_header(clf, input_names: list[str], meta: dict,
     for c, tree in enumerate(clf.trees):
         name = config.CLASS_NAMES[c]
         lines += [
-            f"/* {name}: {tree.size()} узлов, глубина {tree.depth()} */",
+            f"/* {name}: {tree.size()} nodes, depth {tree.depth()} */",
             f"static inline float aerial_f_{name.lower()}(const float *x)",
             "{",
             f"    return {_c_expr(tree)};",
@@ -105,10 +107,11 @@ def generate_formulas_header(clf, input_names: list[str], meta: dict,
     offsets = ', '.join(f"{v:.6f}f" for v in clf.offsets)
     scales = ', '.join(f"{v:.6f}f" for v in clf.scales)
     lines += [
-        "/* Калибровка: выравнивает масштабы формул перед argmax.",
-        " * Формулы эволюционировали независимо, поэтому их выходы лежат в",
-        " * разных диапазонах. Без этих констант argmax выбирает не самый",
-        " * подходящий класс, а тот, чья формула выдаёт числа покрупнее. */",
+        "/* Calibration: aligns the formula scales before the argmax.",
+        " * The formulas evolved independently, so their outputs lie in",
+        " * different ranges. Without these constants the argmax picks not the",
+        " * most appropriate class but the one whose formula emits larger",
+        " * numbers. */",
         f"static const float aerial_offset[AERIAL_N_CLASSES] = {{ {offsets} }};",
         f"static const float aerial_scale[AERIAL_N_CLASSES]  = {{ {scales} }};",
         "",
@@ -116,7 +119,7 @@ def generate_formulas_header(clf, input_names: list[str], meta: dict,
         "    " + ', '.join(f'"{c}"' for c in config.CLASS_NAMES),
         "};",
         "",
-        "/* Оценки всех классов после калибровки. */",
+        "/* Scores of all classes after calibration. */",
         "static inline void aerial_scores(const float *x, float *out)",
         "{",
     ]
@@ -127,7 +130,7 @@ def generate_formulas_header(clf, input_names: list[str], meta: dict,
     lines += [
         "}",
         "",
-        "/* Итог: индекс класса. */",
+        "/* Result: class index. */",
         "static inline int aerial_classify(const float *x)",
         "{",
         "    float s[AERIAL_N_CLASSES];",
@@ -146,12 +149,12 @@ def generate_formulas_header(clf, input_names: list[str], meta: dict,
 
 def _c_float(value: float) -> str:
     """
-    Константа как float32 с гарантированным обратным чтением.
+    A constant as float32 with guaranteed round-tripping.
 
-    9 значащих цифр — минимум, при котором десятичная запись однозначно
-    восстанавливает float32. Для порогов это не педантизм: порог и есть
-    граница решения, а выход формулы доходит до 2.2e4, где `%.6f` уже
-    округляет до соседнего представимого числа.
+    9 significant digits is the minimum at which the decimal form uniquely
+    recovers a float32. For thresholds this is not pedantry: a threshold is the
+    decision boundary, and the formula output reaches 2.2e4, where `%.6f`
+    already rounds to a neighboring representable number.
     """
     return f"{float(np.float32(value)):.9g}f"
 
@@ -159,39 +162,39 @@ def _c_float(value: float) -> str:
 def generate_single_header(model, input_names: list[str], meta: dict,
                            branch: str = 'C') -> str:
     """
-    Собрать текст aerial_eml_C.h: одна формула и таблица порогов.
+    Build the text of aerial_eml_C.h: one formula and a threshold table.
 
-    Отличие от веток A и B принципиально: там N формул, N пар калибровочных
-    констант и argmax, здесь одна формула и K-1 сравнений. Никаких делений на
-    масштаб — сравнивать нечего.
+    The difference from branches A and B is fundamental: there are N formulas, N
+    pairs of calibration constants and an argmax there, here one formula and K-1
+    comparisons. No divisions by a scale — there is nothing to compare.
     """
     m = meta.get('metrics', {}).get('test', {})
     decoder = model.decoder
     n_intervals = decoder.n_intervals
     lines = [
         "/*",
-        f" * aerial_eml_{branch.upper()}.h — дистиллированный классификатор, "
-        f"ОДНА формула.",
-        " * АВТОГЕНЕРАЦИЯ (export.py). Руками не править.",
+        f" * aerial_eml_{branch.upper()}.h — distilled classifier, ONE formula.",
+        " * AUTO-GENERATED (export.py). Do not edit by hand.",
         " *",
-        f" * Ветка: {branch}   Классы: {', '.join(config.CLASS_NAMES)}",
-        f" * Узлов AST: {model.total_nodes()}, макс. глубина: {model.max_depth()}",
-        f" * Участков оси: {n_intervals} (порогов {n_intervals - 1})",
-        f" * Точность на test: {m.get('eml_acc', float('nan')):.4f} "
-        f"(сбалансированная {m.get('eml_bal_acc', float('nan')):.4f})",
-        f" * Точность оракула: {m.get('oracle_acc', float('nan')):.4f} "
-        f"(сбалансированная {m.get('oracle_bal_acc', float('nan')):.4f})",
-        f" * Совпадение с оракулом (fidelity): {m.get('fidelity', float('nan')):.4f}",
+        f" * Branch: {branch}   Classes: {', '.join(config.CLASS_NAMES)}",
+        f" * AST nodes: {model.total_nodes()}, max depth: {model.max_depth()}",
+        f" * Axis intervals: {n_intervals} ({n_intervals - 1} thresholds)",
+        f" * Accuracy on test: {m.get('eml_acc', float('nan')):.4f} "
+        f"(balanced {m.get('eml_bal_acc', float('nan')):.4f})",
+        f" * Oracle accuracy: {m.get('oracle_acc', float('nan')):.4f} "
+        f"(balanced {m.get('oracle_bal_acc', float('nan')):.4f})",
+        f" * Agreement with the oracle (fidelity): "
+        f"{m.get('fidelity', float('nan')):.4f}",
         " *",
-        " * Вход: x[] — вектор признаков в [-1, 1], заполняется функцией",
-        " *        aerial_extract_features() из aerial_features.h.",
+        " * Input: x[] — feature vector in [-1, 1], filled by",
+        " *        aerial_extract_features() from aerial_features.h.",
         " *",
-        " * Как формула сама расставила классы на своей оси:",
+        " * How the formula placed the classes on its own axis:",
     ]
     for line in decoder.describe(config.CLASS_NAMES).splitlines():
         lines.append(f" * {line}")
     lines.append(" *")
-    lines.append(" * Индексы входов:")
+    lines.append(" * Input indices:")
     for i, name in enumerate(input_names):
         lines.append(f" *   x[{i:2d}] = {name}")
 
@@ -209,8 +212,9 @@ def generate_single_header(model, input_names: list[str], meta: dict,
         f"#define AERIAL_N_INTERVALS  {n_intervals}",
         f"#define AERIAL_N_THRESHOLDS {n_intervals - 1}",
         "",
-        "/* Базовый оператор проекта: eml(x, y) = exp(clamp(x)) - ln(|y| + eps).",
-        " * clamp обязателен — без него exp() улетает в inf на первом выбросе. */",
+        "/* The project's base operator: eml(x, y) = exp(clamp(x)) - ln(|y| + eps).",
+        " * The clamp is mandatory — without it exp() overflows to inf on the",
+        " * first outlier. */",
         "static inline float eml_op(float x, float y)",
         "{",
         "    if (x < -10.0f) x = -10.0f;",
@@ -218,22 +222,23 @@ def generate_single_header(model, input_names: list[str], meta: dict,
         "    return expf(x) - logf(fabsf(y) + 1e-10f);",
         "}",
         "",
-        f"/* Единственная формула: {model.total_nodes()} узлов, "
-        f"глубина {model.max_depth()}. */",
+        f"/* The single formula: {model.total_nodes()} nodes, "
+        f"depth {model.max_depth()}. */",
         "static inline float aerial_formula(const float *x)",
         "{",
         f"    return {_c_expr(model.tree)};",
         "}",
         "",
-        "/* Таблица порогов. Она подобрана эволюцией под эту конкретную формулу:",
-        " * порядок классов на оси и расстояния между ними выбирала она сама, а",
-        " * не мы. Метки участков могут повторяться — класс имеет право занимать",
-        " * несколько зон, и линейный порядок классов ничего не ограничивает. */",
+        "/* Threshold table. It was fitted by evolution to this particular",
+        " * formula: the order of the classes on the axis and the distances",
+        " * between them were chosen by the formula, not by us. Interval labels",
+        " * may repeat — a class is allowed to occupy several zones, and the",
+        " * linear ordering of classes constrains nothing. */",
     ]
-    # Массив нулевой длины в C некорректен; при единственном участке порогов
-    # нет вовсе, и таблица остаётся заглушкой, к которой никто не обращается.
+    # A zero-length array is not valid C; with a single interval there are no
+    # thresholds at all, and the table stays a placeholder nobody reads.
     values = (', '.join(_c_float(t) for t in thresholds) if thresholds
-              else '0.0f /* порогов нет: вся ось — один класс */')
+              else '0.0f /* no thresholds: the whole axis is one class */')
     lines += [
         f"static const float aerial_thresholds[] = {{ {values} }};",
         "static const int aerial_interval_class[AERIAL_N_INTERVALS] = { "
@@ -243,23 +248,24 @@ def generate_single_header(model, input_names: list[str], meta: dict,
         "    " + ', '.join(f'"{c}"' for c in config.CLASS_NAMES),
         "};",
         "",
-        "/* Итог: индекс класса. K-1 сравнений, ни одного деления. */",
+        "/* Result: class index. K-1 comparisons and no divisions. */",
         "static inline int aerial_classify(const float *x)",
         "{",
         "    float v = aerial_formula(x);",
         "    int i;",
-        "    /* NaN не имеет места на оси — отдаём его самому левому участку,",
-        "     * ровно как decode() в Python. */",
+        "    /* NaN has no place on the axis — give it the leftmost interval,",
+        "     * exactly like decode() in Python. */",
         "    if (!(v == v)) return aerial_interval_class[0];",
         "    for (i = 0; i < AERIAL_N_THRESHOLDS; ++i)",
         "        if (v <= aerial_thresholds[i]) return aerial_interval_class[i];",
         "    return aerial_interval_class[AERIAL_N_INTERVALS - 1];",
         "}",
         "",
-        "/* Расстояние до ближайшего порога — мера того, насколько ответ",
-        " * пограничный. Python считает во float64, здесь float32; на кадре,",
-        " * где выход формулы лёг вплотную к порогу, ответы могут законно",
-        " * разойтись, и verify-c отличает такой случай от поломки. */",
+        "/* Distance to the nearest threshold — a measure of how borderline the",
+        " * answer is. Python computes in float64, here it is float32; on a",
+        " * frame where the formula output landed right next to a threshold the",
+        " * answers may legitimately differ, and verify-c tells that case apart",
+        " * from a breakage. */",
         "static inline float aerial_margin(const float *x)",
         "{",
         "    float v = aerial_formula(x), best = -1.0f, d;",
@@ -278,20 +284,21 @@ def generate_single_header(model, input_names: list[str], meta: dict,
     return '\n'.join(lines)
 
 
-# ── Экстрактор признаков -> C ─────────────────────────────────────────────────
+# ── Feature extractor -> C ────────────────────────────────────────────────────
 
 _FEATURES_TEMPLATE = r'''/*
- * aerial_features.h — экстрактор {n_features} признаков из кадра 64x64 RGB.
- * АВТОГЕНЕРАЦИЯ (export.py). Руками не править.
+ * aerial_features.h — extractor of {n_features} features from a 64x64 RGB frame.
+ * AUTO-GENERATED (export.py). Do not edit by hand.
  *
- * Точная копия features.py. Все пороги и масштабы нормализации вписаны из
- * config.py при генерации, чтобы C и Python не разъехались.
+ * An exact copy of features.py. All thresholds and normalization scales are
+ * written in from config.py at generation time so that C and Python cannot
+ * diverge.
  *
- * Вход:  img — {n_pixels} байт, RGB подряд (r,g,b, r,g,b, ...).
- * Выход: f   — {n_features} float в диапазоне [-1, 1].
+ * Input:  img — {n_pixels} bytes, RGB interleaved (r,g,b, r,g,b, ...).
+ * Output: f   — {n_features} floats in the range [-1, 1].
  *
- * Память: одна временная карта яркости float gray[{n_pixels_1}] = {gray_kb} КБ.
- * Если на целевом МК со стеком туго — сделать её статической или int16_t.
+ * Memory: one temporary luminance map float gray[{n_pixels_1}] = {gray_kb} KB.
+ * If stack is tight on the target MCU, make it static or int16_t.
  */
 #ifndef AERIAL_FEATURES_H
 #define AERIAL_FEATURES_H
@@ -342,7 +349,7 @@ static void aerial_extract_features(const uint8_t *img, float *f)
 
     for (i = 0; i < AERIAL_ENTROPY_BINS; ++i) hist[i] = 0;
 
-    /* ---- Проход 1: цвет, яркость, насыщенность, гистограмма ---- */
+    /* ---- Pass 1: color, luminance, saturation, histogram ---- */
     for (i = 0; i < NP; ++i) {{
         float r = (float)img[3 * i + 0];
         float g = (float)img[3 * i + 1];
@@ -404,7 +411,7 @@ static void aerial_extract_features(const uint8_t *img, float *f)
         f[30] = aer_norm((float)dark * (float)inv, 1.0f);
         f[31] = aer_norm((float)bright * (float)inv, 1.0f);
 
-        /* Энтропия гистограммы яркости. */
+        /* Entropy of the luminance histogram. */
         {{
             double h = 0.0;
             for (i = 0; i < AERIAL_ENTROPY_BINS; ++i) {{
@@ -415,12 +422,12 @@ static void aerial_extract_features(const uint8_t *img, float *f)
         }}
     }}
 
-    /* ---- Проход 2: градиенты на сетке (N-1)x(N-1) ---- */
+    /* ---- Pass 2: gradients on an (N-1)x(N-1) grid ---- */
     {{
         double sgx = 0, sgy = 0, smag = 0, smagmag = 0;
         double jxx = 0, jyy = 0, jxy = 0;
         int edges = 0, ng = (N - 1) * (N - 1);
-        int c0 = N / 4, c1 = N - N / 4;      /* центральное окно 16..48 */
+        int c0 = N / 4, c1 = N - N / 4;      /* central window 16..48 */
         double smag_c = 0;
         int nc = 0;
 
@@ -459,20 +466,21 @@ static void aerial_extract_features(const uint8_t *img, float *f)
             f[18] = aer_norm((float)edges * (float)invg, 1.0f);
             f[19] = (float)((mgx - mgy) / (mgx + mgy + AERIAL_EPS));
 
-            /* Когерентность структурного тензора: 1 = выраженное одно
-             * направление (дорога), 0 = хаотичная текстура (песок, толпа). */
+            /* Structure tensor coherence: 1 = one pronounced direction (a
+             * road), 0 = chaotic texture (sand, a crowd). */
             jxx *= invg; jyy *= invg; jxy *= invg;
             num = sqrt((jxx - jyy) * (jxx - jyy) + 4.0 * jxy * jxy);
             den = jxx + jyy + AERIAL_EPS;
             f[20] = aer_norm((float)(num / den), 1.0f);
 
-            /* Разность градиентов центр-периферия мельче самого градиента,
-             * поэтому у неё свой масштаб, а не {scale_grad_mag}f. */
+            /* The center-periphery gradient difference is smaller than the
+             * gradient itself, so it has its own scale rather than
+             * {scale_grad_mag}f. */
             f[26] = aer_norm_signed((float)(smag_c / nc - mmag), {scale_center_edge}f);
         }}
     }}
 
-    /* ---- Проход 3: блоки, центр/периферия, радиальный профиль, квадранты ---- */
+    /* ---- Pass 3: blocks, center/periphery, radial profile, quadrants ---- */
     {{
         int c0 = N / 4, c1 = N - N / 4, half = N / 2;
         double sum_all = 0, sum_center = 0, sat_all = 0, sat_center = 0;
@@ -495,7 +503,7 @@ static void aerial_extract_features(const uint8_t *img, float *f)
             }}
         }}
 
-        /* Блоки {block_size}x{block_size}: шероховатость внутри и разброс между. */
+        /* {block_size}x{block_size} blocks: roughness within and spread between. */
         for (i = 0; i < nb; ++i) {{
             for (j = 0; j < nb; ++j) {{
                 double s = 0, s2 = 0, m, var;
@@ -514,7 +522,7 @@ static void aerial_extract_features(const uint8_t *img, float *f)
             }}
         }}
 
-        /* Блоки 16x16: та же неоднородность на вдвое более крупном масштабе. */
+        /* 16x16 blocks: the same inhomogeneity at twice the scale. */
         for (i = 0; i < nb16; ++i) {{
             for (j = 0; j < nb16; ++j) {{
                 double s = 0, m;
@@ -555,8 +563,8 @@ static void aerial_extract_features(const uint8_t *img, float *f)
             f[29] = aer_norm(sqrtf((float)(vq / 4.0)), {scale_block}f);
         }}
 
-        /* Радиальный профиль: корреляция яркости с расстоянием от центра.
-         * Поворотно-инвариантная замена «верх минус низ». */
+        /* Radial profile: correlation of luminance with distance from the
+         * center. A rotation-invariant replacement for "top minus bottom". */
         gmean = sum_all / NP;
         for (i = 0; i < N; ++i) {{
             for (j = 0; j < N; ++j) {{
@@ -582,7 +590,7 @@ static void aerial_extract_features(const uint8_t *img, float *f)
 
 
 def generate_features_header() -> str:
-    """Собрать текст aerial_features.h с константами из config.py."""
+    """Build the text of aerial_features.h with constants from config.py."""
     n_pixels = config.IMG_SIZE * config.IMG_SIZE
     return _FEATURES_TEMPLATE.format(
         n_features=config.N_FEATURES,
@@ -615,21 +623,21 @@ def _dist_raw() -> np.ndarray:
 
 
 def _dist_mean() -> float:
-    """Среднее расстояние до центра — вычитается в radial_slope."""
+    """Mean distance to the center — subtracted in radial_slope."""
     return float(_dist_raw().mean())
 
 
-# ── Запись файлов ─────────────────────────────────────────────────────────────
+# ── Writing the files ─────────────────────────────────────────────────────────
 
 def export_all(clf, input_names: list[str], meta: dict, branch: str = 'A',
                out_dir: str | None = None, with_features: bool | None = None,
                verbose: bool = True) -> list[str]:
     """
-    Сгенерировать C-файлы. Возвращает список путей.
+    Generate the C files. Returns the list of paths.
 
-    with_features: экстрактор признаков имеет смысл для веток A и C — они
-    работают в пространстве инженерных признаков. В ветке B вход формул это
-    выход свёрток, которые в C здесь не переносятся.
+    with_features: the feature extractor makes sense for branches A and C — they
+    work in the engineered feature space. In branch B the formula input is the
+    output of the convolutions, which are not ported to C here.
     """
     out_dir = out_dir or os.path.join(config.RESULTS_DIR, 'c_export')
     if with_features is None:
@@ -639,7 +647,7 @@ def export_all(clf, input_names: list[str], meta: dict, branch: str = 'A',
     written = []
     path = os.path.join(out_dir, f'aerial_eml_{branch.upper()}.h')
     text = (generate_single_header(clf, input_names, meta, branch)
-            if hasattr(clf, 'decoder')          # ветка C: одна формула
+            if hasattr(clf, 'decoder')          # branch C: a single formula
             else generate_formulas_header(clf, input_names, meta, branch))
     with open(path, 'w', encoding='utf-8') as f:
         f.write(text)

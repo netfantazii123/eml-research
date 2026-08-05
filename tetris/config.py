@@ -1,169 +1,173 @@
 """
-Tetris AI — конфигурация.
-Все гиперпараметры проекта в одном месте (по образцу flappy_bird_with_ai/config.py).
+Tetris AI — configuration.
+All project hyperparameters in one place (modeled on
+flappy_bird_with_ai/config.py).
 
-Три фазы пайплайна — три блока констант:
-  1. Среда (TetrisEnv)
-  2. Оракул (CNN + PPO)
-  3. EML-дистилляция
+Three pipeline phases — three blocks of constants:
+  1. Environment (TetrisEnv)
+  2. Oracle (CNN + PPO)
+  3. EML distillation
 
-АРХИТЕКТУРА v2 — placement-based action space.
-Оракул выбирает ПОСТАНОВКУ фигуры (поворот × колонка = 40 действий с маской
-легальности), а не жмёт кнопки покадрово. Один шаг среды = одна поставленная
-фигура. Frame-by-frame PPO (v1) не обучался: за 4.2M шагов avg 1.45 линии —
-сигнал линии тонул в сотнях кадров между действием и результатом.
+ARCHITECTURE v2 — placement-based action space.
+The oracle chooses a piece PLACEMENT (rotation × column = 40 actions with a
+legality mask) rather than pressing buttons frame by frame. One environment step
+= one placed piece. Frame-by-frame PPO (v1) did not train: over 4.2M steps it
+averaged 1.45 lines — the line signal drowned in the hundreds of frames between
+the action and the result.
 """
 
-# ── Константы среды (TetrisEnv) ──────────────────────────────────────────────
+# ── Environment constants (TetrisEnv) ────────────────────────────────────────
 
-BOARD_W = 10            # ширина доски (колонок)
-BOARD_H = 20            # видимая высота доски (строк)
-BOARD_BUFFER = 4        # буфер сверху для спавна фигур (скрытые строки)
-BOARD_H_TOTAL = BOARD_H + BOARD_BUFFER   # полная высота массива доски = 24
+BOARD_W = 10            # board width (columns)
+BOARD_H = 20            # visible board height (rows)
+BOARD_BUFFER = 4        # top buffer for piece spawning (hidden rows)
+BOARD_H_TOTAL = BOARD_H + BOARD_BUFFER   # full board array height = 24
 
-GRAVITY_TICKS = 20      # кадров между падениями (только legacy frame-режим)
-MAX_EPISODE_FRAMES = 10000   # лимит длины эпизода в frame-режиме (anti-stall)
+GRAVITY_TICKS = 20      # frames between drops (legacy frame mode only)
+MAX_EPISODE_FRAMES = 10000   # episode length limit in frame mode (anti-stall)
 
-N_ACTIONS = 6           # legacy frame-действия: NO-OP, left, right, rot, soft, hard
+N_ACTIONS = 6           # legacy frame actions: NO-OP, left, right, rot, soft, hard
 N_PIECES = 7            # I, O, T, S, Z, J, L
-N_ROTATIONS = 4         # поворотов на фигуру
+N_ROTATIONS = 4         # rotations per piece
 
-# ── Placement action space (основной для оракула) ────────────────────────────
-# Действие = rot * BOARD_W + xi, где xi — колонка самой левой занятой ячейки
-# фигуры. Нелегальные комбинации (за стеной, спавн заблокирован, дубликаты
-# поворотов O/I/S/Z) закрываются маской.
+# ── Placement action space (the main one for the oracle) ─────────────────────
+# Action = rot * BOARD_W + xi, where xi is the column of the leftmost occupied
+# cell of the piece. Illegal combinations (past the wall, blocked spawn,
+# duplicate O/I/S/Z rotations) are closed off by a mask.
 N_PLACEMENTS = N_ROTATIONS * BOARD_W     # 40
-MAX_EPISODE_PLACEMENTS = 1000            # лимит постановок за эпизод (anti-stall)
+MAX_EPISODE_PLACEMENTS = 1000            # placements per episode limit (anti-stall)
 
-# ── Reward shaping (на каждую постановку) ────────────────────────────────────
+# ── Reward shaping (per placement) ───────────────────────────────────────────
 #
-# Каждый placement-шаг заканчивается локом фигуры, поэтому награда плотная:
-#   + REWARD_PIECE                       — бонус «положил фигуру и не умер»
-#   + REWARD_LINE_BASE * n_cleared**2    — за очищенные линии (тетрис → 16)
-#   - REWARD_W_HOLES * max(0, Δholes)    — штраф за новые дыры (главный враг)
-#   - REWARD_W_BUMP  * max(0, Δbumpiness)— штраф за неровность поверхности
-#   - REWARD_W_AGG   * max(0, Δagg_h)    — мягкий штраф за рост стека
-# где Δ = метрика(доска после лока+клир) − метрика(доска до лока).
+# Every placement step ends with a piece lock, so the reward is dense:
+#   + REWARD_PIECE                       — bonus for "placed a piece and survived"
+#   + REWARD_LINE_BASE * n_cleared**2    — for cleared lines (tetris → 16)
+#   - REWARD_W_HOLES * max(0, Δholes)    — penalty for new holes (the main enemy)
+#   - REWARD_W_BUMP  * max(0, Δbumpiness)— penalty for surface unevenness
+#   - REWARD_W_AGG   * max(0, Δagg_h)    — mild penalty for stack growth
+# where Δ = metric(board after lock+clear) − metric(board before lock).
 
-# ВАЖНО (урок первого запуска v2): при REWARD_PIECE=0.1 и w_holes=0.5 случайная
-# игра давала ~-1/шаг, а быстрый суицид — всего -14 за эпизод. PPO свалился в
-# локальный оптимум «умереть побыстрее» и энтропия схлопнулась. Поэтому бонус
-# за постановку должен ДОМИНИРОВАТЬ над штрафами: выживание всегда выгодно,
-# shaping — лишь мягкий градиент качества поверх.
-REWARD_SURVIVE = 0.0        # покадровый бонус (только legacy frame-режим)
-REWARD_GAME_OVER = -5.0     # штраф за game over (суицид строго невыгоден)
-REWARD_PIECE = 1.0          # бонус за каждую успешно поставленную фигуру
+# IMPORTANT (lesson from the first v2 run): at REWARD_PIECE=0.1 and w_holes=0.5
+# random play gave ~-1/step, while a quick suicide cost only -14 per episode. PPO
+# fell into the local optimum "die faster" and the entropy collapsed. The
+# placement bonus must therefore DOMINATE the penalties: survival is always
+# profitable, and the shaping is only a mild quality gradient on top.
+REWARD_SURVIVE = 0.0        # per-frame bonus (legacy frame mode only)
+REWARD_GAME_OVER = -5.0     # game over penalty (suicide is strictly unprofitable)
+REWARD_PIECE = 1.0          # bonus for each successfully placed piece
 
-# Бонус за очистку линий = REWARD_LINE_BASE * (cleared_lines ** 2)
-#   1 линия → 2, 2 → 8, 3 → 18, 4 (тетрис) → 32. Стимулирует тетрисы.
+# Line clear bonus = REWARD_LINE_BASE * (cleared_lines ** 2)
+#   1 line → 2, 2 → 8, 3 → 18, 4 (tetris) → 32. This encourages tetrises.
 REWARD_LINE_BASE = 2.0
 
-# Веса плотного shaping (по дельте метрик доски на локе). Штрафуется только
-# УХУДШЕНИЕ (max(0, Δ)); очистка линий уменьшает метрики → штрафа нет, плюс
-# отдельный бонус за линии. Дыры весят сильнее всего (Dellacherie).
-REWARD_W_HOLES = 0.3        # штраф за прирост числа дыр
-REWARD_W_BUMP = 0.03        # штраф за прирост bumpiness
-REWARD_W_AGG = 0.0          # штраф за прирост суммарной высоты (0 = выключено)
+# Dense shaping weights (by the delta of board metrics at the lock). Only
+# DEGRADATION is penalized (max(0, Δ)); clearing lines decreases the metrics ->
+# no penalty, plus a separate line bonus. Holes weigh the most (Dellacherie).
+REWARD_W_HOLES = 0.3        # penalty for an increase in the number of holes
+REWARD_W_BUMP = 0.03        # penalty for an increase in bumpiness
+REWARD_W_AGG = 0.0          # penalty for an increase in total height (0 = off)
 
-# Ограничение суммарного shaping-штрафа за одну постановку — против спайков,
-# когда один лок на грязной доске хоронит десятки ячеек (Δholes ~ 40).
-# Меньше REWARD_PIECE: даже худшая постановка в сумме не хуже -0.5.
+# Cap on the total shaping penalty per placement — against spikes where one lock
+# on a dirty board buries dozens of cells (Δholes ~ 40). Below REWARD_PIECE:
+# even the worst placement is no worse than -0.5 in total.
 REWARD_SHAPING_CLIP = 1.5
 
-# ── Признаки afterstate для EML (features.py) ────────────────────────────────
+# ── Afterstate features for EML (features.py) ────────────────────────────────
 #
-# EML-формула оценивает ДОСКУ ПОСЛЕ ПОСТАНОВКИ (afterstate) — как
-# классическая оценочная функция Dellacherie. Одна формула, а не 6:
+# The EML formula evaluates the BOARD AFTER PLACEMENT (afterstate) — like a
+# classic Dellacherie evaluation function. One formula rather than 6:
 #   placement* = argmax_i f(features(afterstate_i))
 #
-# Вход формулы = 19 признаков afterstate + one-hot СЛЕДУЮЩЕЙ фигуры (7):
-# оракул планирует с учётом следующей фигуры (видит её в scalars), и формуле
-# нужны те же данные, чтобы воспроизводить это поведение. Оракул получает
-# только 19 afterstate-признаков на кандидата (next-фигура у него в контексте).
+# The formula input = 19 afterstate features + a one-hot of the NEXT piece (7):
+# the oracle plans with the next piece in mind (it sees it in scalars), and the
+# formula needs the same data to reproduce that behavior. The oracle receives
+# only the 19 afterstate features per candidate (the next piece is in its
+# context).
 
 AFTERSTATE_FEATURE_NAMES = [
-    'h0', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'h7', 'h8', 'h9',  # высоты колонок
+    'h0', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'h7', 'h8', 'h9',  # column heights
     'holes', 'bumpiness', 'agg_h', 'max_h', 'wells',
     'row_trans', 'col_trans',
-    'cleared',      # линий очищено этой постановкой (0..4)
-    'landing_h',    # высота, на которую легла фигура
+    'cleared',      # lines cleared by this placement (0..4)
+    'landing_h',    # height at which the piece landed
 ]
-N_AFTERSTATE_FEATURES = len(AFTERSTATE_FEATURE_NAMES)   # 19 — вход оракула
+N_AFTERSTATE_FEATURES = len(AFTERSTATE_FEATURE_NAMES)   # 19 — the oracle input
 
 FEATURE_NAMES = AFTERSTATE_FEATURE_NAMES + [
     'next_I', 'next_O', 'next_T', 'next_S', 'next_Z', 'next_J', 'next_L',
 ]
-N_FEATURES = len(FEATURE_NAMES)   # 26 — вход EML-формулы
+N_FEATURES = len(FEATURE_NAMES)   # 26 — the EML formula input
 
-# ── Оракул: CNN + PPO (по постановкам) ───────────────────────────────────────
+# ── Oracle: CNN + PPO (over placements) ──────────────────────────────────────
 
 PPO_LR = 2.5e-4
 PPO_GAMMA = 0.99
 PPO_GAE_LAMBDA = 0.95
 PPO_CLIP = 0.2
 PPO_VF_COEF = 0.5
-PPO_ENT_COEF = 0.02         # 40 действий: выше, чем классика, против ранней
-                            # детерминизации (коллапс энтропии = смерть разведки)
-PPO_N_ENVS = 16             # параллельных сред
-PPO_ROLLOUT = 128           # ПОСТАНОВОК на env за один сбор rollout
-PPO_EPOCHS = 4              # эпох SGD на собранном rollout
+PPO_ENT_COEF = 0.02         # 40 actions: higher than usual, against early
+                            # determinization (entropy collapse kills exploration)
+PPO_N_ENVS = 16             # parallel environments
+PPO_ROLLOUT = 128           # PLACEMENTS per env per rollout collection
+PPO_EPOCHS = 4              # SGD epochs over a collected rollout
 PPO_BATCH_SIZE = 256
-PPO_TOTAL_STEPS = 3_000_000  # бюджет в постановках (~1 постановка = 20+ кадров)
-PPO_TARGET_SCORE = 100      # avg линий за эпизод → критерий готовности оракула
+PPO_TOTAL_STEPS = 3_000_000  # budget in placements (~1 placement = 20+ frames)
+PPO_TARGET_SCORE = 100      # avg lines per episode -> oracle readiness criterion
 
-# ── Автопилот (обучение без присмотра) ───────────────────────────────────────
-# Включается чекбоксом в GUI. На каждом апдейте реагирует на динамику метрик:
-#   • авто-сейв модели при улучшении best avg lines (прогресс не теряется);
-#   • при плато (нет улучшения PATIENCE апдейтов) — затухание LR;
-#   • при коллапсе энтропии — подброс ent_coef ради разведки.
-# ВАЖНО (урок v3): LR-decay с patience 40 задушил обучение — LR упал до 1e-5
-# уже к трети бюджета, когда агент ещё УЧИЛСЯ, а не сошёлся. Плато «ещё не
-# выучился» и плато «сошёлся» неразличимы для простой эвристики, поэтому
-# patience большой, а floor не даёт убить градиент совсем.
+# ── Autopilot (unattended training) ──────────────────────────────────────────
+# Enabled by a checkbox in the GUI. On every update it reacts to metric dynamics:
+#   • auto-save the model when best avg lines improves (progress is not lost);
+#   • on a plateau (no improvement for PATIENCE updates) — LR decay;
+#   • on entropy collapse — raise ent_coef for the sake of exploration.
+# IMPORTANT (lesson from v3): LR decay with patience 40 strangled training — LR
+# fell to 1e-5 by a third of the budget, while the agent was still LEARNING
+# rather than converged. The plateau "not learned yet" and the plateau
+# "converged" are indistinguishable to a simple heuristic, so patience is large
+# and the floor prevents killing the gradient entirely.
 AUTOPILOT_SAVE_PATH = 'models/autosave_ppo.pt'
-AUTOPILOT_SAVE_DELTA = 0.5      # на сколько best avg должен вырасти для авто-сейва
-AUTOPILOT_PATIENCE = 200        # апдейтов без улучшения best → корректирующее действие
-AUTOPILOT_LR_DECAY = 0.7        # множитель LR при плато
-AUTOPILOT_LR_FLOOR = 5e-5       # ниже LR не опускаем
-AUTOPILOT_ENT_FLOOR = 0.5       # энтропия ниже порога → политика схлопывается
-AUTOPILOT_ENT_BOOST = 1.5       # множитель ent_coef при коллапсе энтропии
-AUTOPILOT_ENT_COEF_MAX = 0.05   # потолок ent_coef
+AUTOPILOT_SAVE_DELTA = 0.5      # how much best avg must grow for an auto-save
+AUTOPILOT_PATIENCE = 200        # updates without improvement -> corrective action
+AUTOPILOT_LR_DECAY = 0.7        # LR multiplier on a plateau
+AUTOPILOT_LR_FLOOR = 5e-5       # LR is not lowered below this
+AUTOPILOT_ENT_FLOOR = 0.5       # entropy below the threshold -> the policy collapses
+AUTOPILOT_ENT_BOOST = 1.5       # ent_coef multiplier on entropy collapse
+AUTOPILOT_ENT_COEF_MAX = 0.05   # ent_coef ceiling
 
-# ── EML-дистилляция (одна формула, afterstate value) ─────────────────────────
+# ── EML distillation (one formula, afterstate value) ─────────────────────────
 
-EML_POPULATION = 600        # размер популяции EML-деревьев
-EML_GENERATIONS = 600       # максимум поколений DATA-фазы
-EML_ELITISM = 20            # элитные особи без изменений
-EML_MAX_DEPTH = 7           # максимальная глубина дерева
-EML_PATIENCE = 120          # поколений без улучшения → стоп
-EML_DATASET_EPISODES = 40   # эпизодов оракула для сбора датасета
-EML_EPSILON = 1e-10         # защита от ln(0)
-EML_PHASE_SWITCH = 0.15     # доля генераций на DATA-фазу (warm-up)
+EML_POPULATION = 600        # EML tree population size
+EML_GENERATIONS = 600       # maximum DATA phase generations
+EML_ELITISM = 20            # elite individuals carried over unchanged
+EML_MAX_DEPTH = 7           # maximum tree depth
+EML_PATIENCE = 120          # generations without improvement -> stop
+EML_DATASET_EPISODES = 40   # oracle episodes for dataset collection
+EML_EPSILON = 1e-10         # guard against ln(0)
+EML_PHASE_SWITCH = 0.15     # fraction of generations for the DATA phase (warm-up)
 
-# ── Сбор датасета ──────────────────────────────────────────────────────────
-EML_DATA_EPSILON_EXPLORE = 0.05   # доля случайных постановок оракула (покрытие)
-EML_DATA_MAX_PLACEMENTS = 400     # лимит постановок на эпизод при сборе
-EML_DATA_SUBSAMPLE = 8000         # подвыборка датасета для оценки fitness (скорость)
-EML_VAR_BONUS = 0.03              # бонус к fitness за каждую уникальную переменную
-EML_DATA_TOP_WEIGHT = 3.0         # доп. вес примеров с высокой вероятн. у оракула
+# ── Dataset collection ─────────────────────────────────────────────────────
+EML_DATA_EPSILON_EXPLORE = 0.05   # fraction of random oracle placements (coverage)
+EML_DATA_MAX_PLACEMENTS = 400     # placement limit per episode during collection
+EML_DATA_SUBSAMPLE = 8000         # dataset subsample for fitness (speed)
+EML_VAR_BONUS = 0.03              # fitness bonus per unique variable used
+EML_DATA_TOP_WEIGHT = 3.0         # extra weight for examples the oracle is sure of
 
-# ── Батч-дистилляция ─────────────────────────────────────────────────────────
-# Дистиллируем сразу пачку формул с контролируемым разбросом GA-параметров
-# (поколения, популяция, depth penalty, глубина, var bonus, сид эволюции).
-# Датасет собирается ОДИН раз на всю пачку. Лучшая формула → best_eml.json,
-# все варианты + summary → runs/<дата>_distill/.
-EML_BATCH_VARIANTS = 5      # формул в пачке
-EML_BATCH_SPREAD = 0.3      # разброс параметров: ±30% к числовым
+# ── Batch distillation ───────────────────────────────────────────────────────
+# Distill a whole batch of formulas at once with a controlled spread of GA
+# parameters (generations, population, depth penalty, depth, var bonus,
+# evolution seed). The dataset is collected ONCE for the whole batch. The best
+# formula -> best_eml.json, all variants + summary -> runs/<date>_distill/.
+EML_BATCH_VARIANTS = 5      # formulas per batch
+EML_BATCH_SPREAD = 0.3      # parameter spread: ±30% on numeric values
 
-# ── Совместная (in-game) фаза дистилляции ────────────────────────────────────
-# DATA-фаза регрессирует формулу к логитам оракула, GAME-фаза доводит её
-# эволюцией по реальному score в TetrisEnv (placement-режим).
-EML_INGAME_GAMES = 3              # игр на оценку одной формулы
-EML_INGAME_MAX_PLACEMENTS = 300   # лимит постановок игры при оценке (скорость)
-EML_JOINT_POPULATION = 60         # размер популяции GAME-фазы
-EML_JOINT_GENERATIONS = 40        # поколений GAME-фазы
-EML_JOINT_ELITISM = 6             # элитных формул
-EML_JOINT_PATIENCE = 12           # поколений без улучшения → стоп
+# ── Joint (in-game) distillation phase ───────────────────────────────────────
+# The DATA phase regresses the formula to the oracle logits, the GAME phase
+# refines it by evolution against the actual score in TetrisEnv (placement mode).
+EML_INGAME_GAMES = 3              # games per formula evaluation
+EML_INGAME_MAX_PLACEMENTS = 300   # placement limit per evaluation game (speed)
+EML_JOINT_POPULATION = 60         # GAME phase population size
+EML_JOINT_GENERATIONS = 40        # GAME phase generations
+EML_JOINT_ELITISM = 6             # elite formulas
+EML_JOINT_PATIENCE = 12           # generations without improvement -> stop
 
 DEPTH_PENALTIES = {
     'weak':   0.01,
@@ -171,7 +175,7 @@ DEPTH_PENALTIES = {
     'strong': 0.15,
 }
 
-# ── Директории ───────────────────────────────────────────────────────────────
+# ── Directories ──────────────────────────────────────────────────────────────
 
 MODELS_DIR = 'models'
 RESULTS_DIR = 'results'

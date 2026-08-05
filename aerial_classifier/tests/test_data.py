@@ -1,11 +1,11 @@
 """
-Тесты парсера BMP и сплитов.
+Tests of the BMP parser and the splits.
 
-Парсер BMP написан вручную (data.read_bmp), и это самое хрупкое место
-загрузки: ошибка в отступе строки или в порядке строк не падает, а молча
-портит картинки — обучение потом идёт на мусоре с виду нормальной формы.
-Поэтому BMP здесь собираются в самом тесте, байт за байтом, во всех
-подформатах, которые парсер обещает понимать.
+The BMP parser is written by hand (data.read_bmp), and it is the most fragile
+part of loading: an error in the row padding or in the row order does not fail
+but silently corrupts the images — training then proceeds on garbage of
+seemingly correct shape. The BMPs here are therefore assembled inside the test,
+byte by byte, in every sub-format the parser promises to understand.
 """
 
 import json
@@ -19,15 +19,15 @@ import config
 import data
 
 
-# ── Сборка BMP в тесте ────────────────────────────────────────────────────────
+# ── Assembling a BMP in the test ──────────────────────────────────────────────
 
 def make_bmp(rgb: np.ndarray, top_down: bool = False, bpp: int = 24,
              compression: int = 0) -> bytes:
     """
-    Собрать 24-битный BMP из массива (H, W, 3) uint8 RGB.
+    Assemble a 24-bit BMP from an (H, W, 3) uint8 RGB array.
 
-    top_down=False — строки снизу вверх (как в датасете), True — сверху вниз
-    (отрицательная высота в заголовке).
+    top_down=False — rows bottom-up (as in the dataset), True — top-down
+    (negative height in the header).
     """
     height, width = rgb.shape[:2]
     row_bytes = width * 3
@@ -54,11 +54,11 @@ def write_bmp(tmp_path, name: str, rgb: np.ndarray, **kwargs) -> str:
     return str(path)
 
 
-# ── Парсер ────────────────────────────────────────────────────────────────────
+# ── Parser ────────────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize('top_down', [False, True])
 def test_read_bmp_roundtrip(tmp_path, top_down):
-    """Пиксели читаются ровно теми же и в обоих порядках строк."""
+    """The pixels are read back exactly, in both row orders."""
     rng = np.random.default_rng(0)
     rgb = rng.integers(0, 256, (7, 12, 3), dtype=np.uint8)
     got = data.read_bmp(write_bmp(tmp_path, 'a.bmp', rgb, top_down=top_down))
@@ -69,11 +69,12 @@ def test_read_bmp_roundtrip(tmp_path, top_down):
 @pytest.mark.parametrize('width', [1, 2, 3, 4, 5, 6, 7, 8])
 def test_read_bmp_row_padding(tmp_path, width):
     """
-    Строка BMP выровнена до кратности 4 байтам.
+    A BMP row is padded to a multiple of 4 bytes.
 
-    При ширине, не кратной 4, между строками есть байты-заполнители. Если их
-    не отбросить, картинка «поедет» вбок нарастающим сдвигом — самая коварная
-    поломка парсера, потому что первая строка при ней выглядит правильно.
+    At a width not divisible by 4 there are filler bytes between rows. If they
+    are not discarded, the image shears sideways with a growing offset — the
+    most insidious parser breakage, because with it the first row still looks
+    correct.
     """
     rng = np.random.default_rng(width)
     rgb = rng.integers(0, 256, (5, width, 3), dtype=np.uint8)
@@ -82,17 +83,17 @@ def test_read_bmp_row_padding(tmp_path, width):
 
 
 def test_read_bmp_channel_order(tmp_path):
-    """BMP хранит BGR; парсер обязан вернуть RGB, а не перепутать каналы."""
+    """BMP stores BGR; the parser must return RGB rather than swap the channels."""
     rgb = np.zeros((2, 2, 3), dtype=np.uint8)
-    rgb[..., 0] = 200        # красный
-    rgb[..., 1] = 100        # зелёный
-    rgb[..., 2] = 50         # синий
+    rgb[..., 0] = 200        # red
+    rgb[..., 1] = 100        # green
+    rgb[..., 2] = 50         # blue
     got = data.read_bmp(write_bmp(tmp_path, 'rgb.bmp', rgb))
     assert got[0, 0].tolist() == [200, 100, 50]
 
 
 def test_read_bmp_rejects_foreign_format(tmp_path):
-    """Чужой подформат — падение, а не молча испорченные данные."""
+    """A foreign sub-format fails rather than silently corrupting the data."""
     rgb = np.zeros((2, 2, 3), dtype=np.uint8)
     with pytest.raises(ValueError):
         data.read_bmp(write_bmp(tmp_path, 'p8.bmp', rgb, bpp=8))
@@ -105,16 +106,17 @@ def test_read_bmp_rejects_foreign_format(tmp_path):
         data.read_bmp(str(not_bmp))
 
 
-# ── Папка с классами ──────────────────────────────────────────────────────────
+# ── Class folder ──────────────────────────────────────────────────────────────
 
 @pytest.fixture
 def sandbox(tmp_path, monkeypatch):
     """
-    Временная папка-датасет; глобальные настройки config восстанавливаются.
+    A temporary dataset folder; the global config settings are restored.
 
-    Выбор датасета меняет config.DATASET_DIR, CLASS_NAMES, N_CLASSES и пути
-    кэшей прямо в модуле. Без восстановления один такой тест испортил бы все
-    следующие, причём не упав, а тихо поменяв им число классов.
+    Selecting a dataset changes config.DATASET_DIR, CLASS_NAMES, N_CLASSES and
+    the cache paths right in the module. Without restoring them, one such test
+    would spoil all the following ones — not by failing, but by quietly changing
+    their number of classes.
     """
     import config as config_mod
 
@@ -128,7 +130,7 @@ def sandbox(tmp_path, monkeypatch):
 
 def put_images(root, class_name: str, n: int, ext: str = '.bmp',
                size: int = 64, start: int = 0):
-    """Насыпать в <root>/<class_name> n картинок заданного формата и размера."""
+    """Drop n images of the given format and size into <root>/<class_name>."""
     from test_imaging import make_png
 
     class_dir = root / class_name
@@ -142,7 +144,7 @@ def put_images(root, class_name: str, n: int, ext: str = '.bmp',
 
 
 def test_scan_classes_reads_subfolders(sandbox):
-    """Классы = подпапки с картинками, в алфавитном порядке."""
+    """Classes = subdirectories with images, in alphabetical order."""
     put_images(sandbox, 'ROADS', 2)
     put_images(sandbox, 'BEACH', 3, ext='.png')
     assert data.scan_classes(str(sandbox)) == ['BEACH', 'ROADS']
@@ -150,21 +152,22 @@ def test_scan_classes_reads_subfolders(sandbox):
 
 def test_scan_classes_skips_empty_and_hidden(sandbox):
     """
-    Пустая подпапка классом не считается.
+    An empty subdirectory does not count as a class.
 
-    Класс без примеров сломал бы и стратификацию, и recall (деление на ноль),
-    а чаще всего это забытая служебная папка вроде .ipynb_checkpoints.
+    A class without examples would break both stratification and recall
+    (division by zero), and most often it is a stray service folder such as
+    .ipynb_checkpoints.
     """
     put_images(sandbox, 'ROADS', 2)
-    (sandbox / 'ПУСТО').mkdir()
+    (sandbox / 'EMPTY').mkdir()
     (sandbox / '.hidden').mkdir()
     put_images(sandbox, '.hidden', 2)
-    (sandbox / 'readme.txt').write_text('не класс', encoding='utf-8')
+    (sandbox / 'readme.txt').write_text('not a class', encoding='utf-8')
     assert data.scan_classes(str(sandbox)) == ['ROADS']
 
 
 def test_use_dataset_switches_everything(sandbox):
-    """Выбор папки меняет и имена классов, и их число, и путь кэша."""
+    """Choosing a folder changes the class names, their count and the cache path."""
     import config as config_mod
 
     put_images(sandbox, 'ONE', 2)
@@ -175,14 +178,14 @@ def test_use_dataset_switches_everything(sandbox):
     assert info['classes'] == ['ONE', 'THREE', 'TWO']
     assert config_mod.N_CLASSES == 3
     assert config_mod.CLASS_NAMES == ['ONE', 'THREE', 'TWO']
-    # Кэш обязан уехать вместе с датасетом: иначе второй датасет прочитал бы
-    # картинки первого и молча обучился не на том.
+    # The cache must move with the dataset: otherwise the second dataset would
+    # read the images of the first and silently train on the wrong data.
     assert str(sandbox) in config_mod.CACHE_PATH
     assert str(sandbox) in config_mod.FEATURES_CACHE_PATH
 
 
 def test_load_dataset_labels_follow_folder_order(sandbox):
-    """Метка = индекс класса в алфавитном порядке имён папок."""
+    """The label = the class index in alphabetical order of folder names."""
     import config as config_mod
 
     put_images(sandbox, 'AAA', 3)
@@ -196,7 +199,7 @@ def test_load_dataset_labels_follow_folder_order(sandbox):
 
 
 def test_load_dataset_normalizes_mixed_sizes_and_formats(sandbox):
-    """Разные форматы и размеры в одной папке приводятся к входу модели."""
+    """Different formats and sizes in one folder are converted to the model input."""
     import config as config_mod
 
     put_images(sandbox, 'MIX', 2, ext='.bmp', size=40)
@@ -212,10 +215,10 @@ def test_load_dataset_normalizes_mixed_sizes_and_formats(sandbox):
 
 def test_cache_is_reused_and_invalidated(sandbox):
     """
-    Кэш подхватывается повторно, но перестаёт быть валидным при правке папки.
+    The cache is reused but stops being valid when the folder is edited.
 
-    Кэш не инвалидировался вообще никогда до появления отпечатка: добавив
-    картинки, пользователь молча продолжал учиться на старом наборе.
+    The cache was never invalidated at all before the fingerprint appeared:
+    after adding images the user silently kept training on the old set.
     """
     import config as config_mod
 
@@ -235,11 +238,11 @@ def test_cache_is_reused_and_invalidated(sandbox):
 
 def test_fingerprint_includes_class_names(sandbox):
     """
-    Отпечаток меняется при смене НАБОРА КЛАССОВ, а не только числа файлов.
+    The fingerprint changes on a change of the CLASS SET, not only the file count.
 
-    Иначе переключение на папку с тем же количеством и размером файлов
-    (переименованная копия, другая разметка) прошло бы по старому кэшу, и
-    метки означали бы совсем другое.
+    Otherwise switching to a folder with the same number and size of files (a
+    renamed copy, a different labeling) would go through the old cache, and the
+    labels would mean something entirely different.
     """
     import config as config_mod
 
@@ -253,7 +256,7 @@ def test_fingerprint_includes_class_names(sandbox):
 
 
 def test_dataset_choice_survives_restart(sandbox):
-    """Выбранный датасет запоминается и применяется в следующем запуске."""
+    """The selected dataset is remembered and applied on the next start."""
     import config as config_mod
 
     put_images(sandbox, 'ONE', 2)
@@ -261,17 +264,17 @@ def test_dataset_choice_survives_restart(sandbox):
     config_mod.use_dataset(str(sandbox))
     config_mod.save_dataset_choice()
 
-    config_mod.use_dataset('dataset', ['X', 'Y', 'Z'])     # «другой запуск»
+    config_mod.use_dataset('dataset', ['X', 'Y', 'Z'])     # "another run"
     assert config_mod.load_dataset_choice() is True
     assert config_mod.CLASS_NAMES == ['ONE', 'TWO']
 
 
 def test_missing_dataset_choice_does_not_break_startup(sandbox):
     """
-    Пропавшая папка не должна ронять запуск.
+    A missing folder must not break startup.
 
-    Датасет может лежать на съёмном диске; невозможность его найти — повод
-    остаться на умолчании и сказать об этом, а не отказаться стартовать.
+    The dataset may live on a removable drive; not finding it is a reason to
+    stay on the default and say so, not to refuse to start.
     """
     import config as config_mod
 
@@ -281,7 +284,7 @@ def test_missing_dataset_choice_does_not_break_startup(sandbox):
     config_mod.CLASS_NAMES = ['A', 'B']
 
     saved = json.loads((sandbox / 'choice.json').read_text(encoding='utf-8'))
-    saved['root'] = str(sandbox / 'нет-такой-папки')
+    saved['root'] = str(sandbox / 'no-such-folder')
     (sandbox / 'choice.json').write_text(json.dumps(saved), encoding='utf-8')
 
     assert config_mod.load_dataset_choice() is False
@@ -289,7 +292,7 @@ def test_missing_dataset_choice_does_not_break_startup(sandbox):
 
 
 def test_describe_root_reports_contents(sandbox):
-    """Сводка по папке собирается ДО выбора — интерфейсу есть что показать."""
+    """The folder summary is assembled BEFORE selection — the GUI has what to show."""
     put_images(sandbox, 'ONE', 3, ext='.bmp', size=64)
     put_images(sandbox, 'TWO', 2, ext='.png', size=32)
     info = data.describe_root(str(sandbox))
@@ -301,17 +304,17 @@ def test_describe_root_reports_contents(sandbox):
     assert set(info['sizes']) == {'64x64', '32x32'}
 
 
-# ── Сплиты ────────────────────────────────────────────────────────────────────
+# ── Splits ────────────────────────────────────────────────────────────────────
 
 def make_labels() -> np.ndarray:
-    """Несбалансированные метки, как в настоящем датасете (примерно 3.4:1)."""
+    """Imbalanced labels, as in the real dataset (about 3.4:1)."""
     counts = [61, 92, 130, 206]
     return np.concatenate([np.full(n, c, dtype=np.int64)
                            for c, n in enumerate(counts)])
 
 
 def test_stratified_split_is_a_partition():
-    """Три части не пересекаются и вместе покрывают датасет целиком."""
+    """The three parts do not overlap and together cover the dataset entirely."""
     labels = make_labels()
     train, val, test = data.stratified_split(labels, seed=1337)
 
@@ -324,7 +327,7 @@ def test_stratified_split_is_a_partition():
 
 
 def test_stratified_split_is_deterministic():
-    """Один сид — один и тот же сплит; иначе метрики между прогонами несравнимы."""
+    """One seed — one and the same split; otherwise metrics across runs differ."""
     labels = make_labels()
     first = data.stratified_split(labels, seed=7)
     second = data.stratified_split(labels, seed=7)
@@ -337,10 +340,10 @@ def test_stratified_split_is_deterministic():
 
 def test_stratified_split_keeps_class_proportions():
     """
-    Доли классов сохраняются в каждой части.
+    Class proportions are preserved in every part.
 
-    Ради этого стратификация и нужна: при случайном сплите редкий класс может
-    почти исчезнуть из валидации, и метрика поедет.
+    That is what stratification is for: under a random split the rare class can
+    almost vanish from validation and skew the metric.
     """
     labels = make_labels()
     train, val, test = data.stratified_split(labels, seed=1337)
@@ -359,13 +362,13 @@ def test_stratified_split_sizes_match_config():
 
 
 def test_class_weights_compensate_imbalance():
-    """Вес обратно пропорционален частоте, среднее веса = 1."""
+    """The weight is inversely proportional to frequency, and the mean weight is 1."""
     labels = make_labels()
     w = data.class_weights(labels)
     assert len(w) == config.N_CLASSES
     assert w.mean() == pytest.approx(1.0, abs=1e-6)
     counts = np.bincount(labels, minlength=config.N_CLASSES)
     assert w[np.argmin(counts)] > w[np.argmax(counts)]
-    # Вес * частота одинаков для всех классов — в этом и смысл 1/freq.
+    # weight * frequency is the same for every class — that is the point of 1/freq.
     products = w * counts
     assert np.allclose(products, products[0], rtol=1e-6)

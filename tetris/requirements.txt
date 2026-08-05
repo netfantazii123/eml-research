@@ -1,8 +1,8 @@
-# Базовые зависимости (CPU). GUI — tkinter (входит в стандартный Python).
+# Base dependencies (CPU). GUI — tkinter (part of standard Python).
 numpy
 torch
 matplotlib
 
-# Для машин с NVIDIA GPU (серверы, чужие компы) вместо CPU-сборки torch:
+# For machines with an NVIDIA GPU, instead of the CPU torch build:
 #   pip install torch --index-url https://download.pytorch.org/whl/cu124
-# Код сам подхватит CUDA (cnn_oracle.get_device), ничего менять не нужно.
+# The code picks up CUDA by itself (cnn_oracle.get_device), nothing to change.

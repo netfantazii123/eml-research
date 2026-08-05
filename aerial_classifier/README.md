@@ -1,185 +1,177 @@
-# aerial_classifier — дистилляция классификатора изображений в EML-формулы
+# aerial_classifier — distilling an image classifier into EML formulas
 
-Подпроект дипломной работы. Проверяет, переносится ли метод EML-дистилляции с
-**управления** (Flappy Bird, Тетрис) на **классификацию изображений**.
+Applies the EML distillation method from **control** (Flappy Bird, Tetris) to
+**image classification**.
 
-Основная задача: 64×64 RGB вырезки с аэрофотосъёмки, 4 класса — `BEACH`,
-`MOTO`, `PEOPLE`, `ROADS`. Датасет 5049 картинок, несбалансирован 3.4 : 1.
-Датасет при этом не зашит: классы читаются из подпапок выбранной папки
-(см. «[Данные](#данные)»), их может быть сколько угодно и называться они могут
-как угодно.
+Reference task: 64×64 RGB aerial imagery crops, 4 classes — `BEACH`, `MOTO`,
+`PEOPLE`, `ROADS`. Dataset of 5049 images, imbalanced 3.4 : 1. The dataset is
+not hard-coded: classes are read from the subdirectories of a selected folder
+(see «[Data](#data)»), in any number and with any names.
 
-## Зачем это в проекте про EML
+## Difference from the control stages
 
-Этапы 1 и 2 показали, что политику агента можно свернуть в аналитическую
-формулу. Но обе задачи были **ранжированием**: формула получала набор
-вариантов хода и выбирала лучший. Классификация устроена иначе, и это меняет
-конструкцию в двух местах:
+Stages 1 and 2 were **ranking** tasks: the formula received a set of candidate
+moves and picked the best one. Classification differs in two places:
 
-1. **Формул несколько — по одной на класс**, решение = `argmax_c f_c(x)`.
-2. **Их выходы приходится калибровать.** В Тетрисе argmax брался по разным
-   входам одной и той же формулы, поэтому общий масштаб выхода сокращался.
-   Здесь argmax берётся между четырьмя независимо эволюционировавшими
-   формулами, и без выравнивания побеждает не самая уместная, а та, что просто
-   выдаёт числа покрупнее. В первом прогоне из-за этого класс `MOTO` не
-   предсказывался **ни разу**. Лечится парой констант на класс (среднее и
-   с.к.о. выхода на train) — на микроконтроллере это 4 вычитания и 4 деления.
+1. **There are several formulas — one per class**, decision = `argmax_c f_c(x)`.
+2. **Their outputs must be calibrated.** In Tetris, argmax was taken over
+   different inputs to the same formula, so the common output scale cancelled.
+   Here argmax is taken between four independently evolved formulas, and without
+   alignment the winner is whichever formula emits larger numbers rather than
+   the most appropriate one. In the first run this caused class `MOTO` to never
+   be predicted at all. It is corrected by two constants per class (mean and
+   standard deviation of the output on train) — on a microcontroller that is
+   4 subtractions and 4 divisions.
 
-Это и есть главный технический вывод подпроекта: перенос метода на
-классификацию упирается не в выразительность формул, а в сопоставимость их
-шкал. Ветка C (ниже) устроена так, что этой проблемы у неё нет вовсе.
+The transfer of the method to classification is limited by the comparability of
+formula scales, not by the expressiveness of the formulas. Branch C (below) is
+constructed so that this problem does not arise.
 
-## Три ветки эксперимента
+## Three experiment branches
 
-| | ветка A (основная) | ветка B (ablation) | ветка C (эксперимент) |
+| | branch A (main) | branch B (ablation) | branch C (single formula) |
 |---|---|---|---|
-| вход оракула | 32 инженерных признака | сырые пиксели 64×64×3 | те же 32 признака |
-| оракул | `FeatureMLP` (32→128→64→4) | `PixelCNN`, 3 свёрточных блока | тот же `FeatureMLP` |
-| формул | по одной на класс | по одной на класс | **одна на все классы** |
-| решение | `argmax_c (f_c − μ_c)/σ_c` | то же | таблица порогов по `f(x)` |
-| что остаётся на МК | экстрактор + формулы | **свёртки** + формулы | экстрактор + формула |
+| oracle input | 32 engineered features | raw 64×64×3 pixels | the same 32 features |
+| oracle | `FeatureMLP` (32→128→64→4) | `PixelCNN`, 3 conv blocks | the same `FeatureMLP` |
+| formulas | one per class | one per class | **one for all classes** |
+| decision | `argmax_c (f_c − μ_c)/σ_c` | same | threshold table over `f(x)` |
+| left on the MCU | extractor + formulas | **convolutions** + formulas | extractor + formula |
 
-Ветка A — то, ради чего всё делается: после дистилляции от нейросети не
-остаётся ничего, на устройстве работают только `aerial_features.h` и
-`aerial_eml_A.h`. Ветка B честно оговаривает свою проблему: она даёт верхнюю
-границу качества, но свёртки с микроконтроллера никуда не деваются, поэтому
-как самостоятельное решение не годится — только как точка отсчёта. Ветка C
-работает в том же пространстве, что и A, и учится у того же оракула — иначе
-сравнение мерило бы заодно и разницу оракулов.
+Branch A is the target configuration: after distillation nothing of the neural
+network remains, and only `aerial_features.h` and `aerial_eml_A.h` run on the
+device. Branch B gives an upper bound on quality, but the convolutions stay on
+the microcontroller, so it serves as a reference point rather than a standalone
+solution. Branch C works in the same space as A and learns from the same oracle,
+so the comparison does not also measure a difference between oracles.
 
-## Признаки (ветка A)
+## Features (branch A)
 
-32 величины, считаются за три прохода по кадру простой арифметикой:
+32 quantities computed in three passes over the frame using plain arithmetic:
 
-* **цвет (14)** — моменты каналов RGB и яркости, оппонентные оси `rg`/`yb`,
-  насыщенность;
-* **текстура (8)** — модули градиентов, плотность краёв, анизотропия,
-  когерентность структурного тензора, энтропия яркости;
-* **блоки 8×8 (2)** — шероховатость внутри блоков и разброс между ними;
-* **раскладка (8)** — центр против периферии, радиальный профиль, квадранты,
-  доли тёмных и ярких пикселей.
+* **color (14)** — RGB and luminance channel moments, opponent axes `rg`/`yb`,
+  saturation;
+* **texture (8)** — gradient magnitudes, edge density, anisotropy, structure
+  tensor coherence, luminance entropy;
+* **8×8 blocks (2)** — within-block roughness and between-block spread;
+* **layout (8)** — center vs periphery, radial profile, quadrants, dark and
+  bright pixel fractions.
 
-Ничего вроде HOG, SIFT или БПФ здесь нет сознательно: они дали бы лучшую
-разделимость, но на STM32 это уже не «дешёвый препроцессинг».
+HOG, SIFT, and FFT are deliberately excluded: they would give better
+separability but no longer qualify as cheap preprocessing on an STM32.
 
-Отбор признаков был не умозрительным. Первая версия содержала `grad_vert`
-(верх минус низ) и `grad_horz` (лево минус право) — на аэроснимке у кадра нет
-канонической ориентации, и оба оказались мусором: F-статистика 2.5 и 1.2 при
-330 у лучшего признака. Их заменили поворотно-инвариантные `radial_slope` и
-`block16_spread` (F = 308 и 174). Самым сильным признаком ожидаемо оказалась
-**когерентность структурного тензора**: у дорог есть выраженное доминирующее
-направление, у песка и толпы — нет.
+Feature selection was measurement-driven. The first version contained
+`grad_vert` (top minus bottom) and `grad_horz` (left minus right); an aerial
+frame has no canonical orientation, and both scored F-statistics of 2.5 and 1.2
+against 330 for the best feature. They were replaced by the rotation-invariant
+`radial_slope` and `block16_spread` (F = 308 and 174). The strongest feature is
+**structure tensor coherence**: roads have a pronounced dominant direction,
+sand and crowds do not.
 
-Проверить актуальные значения: `python main.py info`.
+Current values: `python main.py info`.
 
-### Найдено и исправлено: масштаб `center_edge_diff`
+### Scale of `center_edge_diff`
 
-`python main.py calibrate` проверяет, попадают ли признаки в отведённый им
-диапазон, и нашёл одну проблему: `center_edge_diff` занимал всего **24.6 %**
-от `[-1, 1]` (фактический разброс `[-0.165, +0.327]`). Причина — он
-нормировался константой `_SCALE_GRAD_MAG = 80.0`, то есть масштабом самого
-градиента, тогда как сам признак это *разность* двух средних градиентов и
-вчетверо мельче.
+`python main.py calibrate` checks whether features occupy their allotted range.
+`center_edge_diff` occupied only **24.6 %** of `[-1, 1]` (actual spread
+`[-0.165, +0.327]`). It was normalized by the constant
+`_SCALE_GRAD_MAG = 80.0`, i.e. the scale of the gradient itself, whereas the
+feature is a *difference* of two mean gradients and is four times smaller.
 
-Для оракула это безразлично: у MLP есть обучаемые веса и `BatchNorm`, к
-линейному масштабу входа он нечувствителен (F-статистика признака тоже не
-меняется при аффинном преобразовании — есть тест). А вот для EML-формулы это
-важно: оператор содержит `exp()`, и сжатый в узкую полосу признак ведёт себя
-принципиально иначе, чем разложенный на весь диапазон.
+This is immaterial for the oracle: an MLP has trainable weights and `BatchNorm`
+and is insensitive to a linear input scale (the feature F-statistic is likewise
+invariant under an affine transform — covered by a test). It matters for the EML
+formula: the operator contains `exp()`, and a feature compressed into a narrow
+band behaves differently from one spread across the full range.
 
-Исправление — отдельная константа `_SCALE_CENTER_EDGE = 20.0`. Подтверждено
-замером:
+The fix is a separate constant `_SCALE_CENTER_EDGE = 20.0`:
 
-| | охват `[-1, 1]` | упор в границу | разброс |
+| | coverage of `[-1, 1]` | clipped at bound | spread |
 |---|---|---|---|
-| было (`_SCALE_GRAD_MAG = 80`) | 24.6 % | 0.0 % | `[-0.165, +0.327]` |
-| стало (`_SCALE_CENTER_EDGE = 20`) | **83.0 %** | 0.2 % | `[-0.660, +1.000]` |
+| before (`_SCALE_GRAD_MAG = 80`) | 24.6 % | 0.0 % | `[-0.165, +0.327]` |
+| after (`_SCALE_CENTER_EDGE = 20`) | **83.0 %** | 0.2 % | `[-0.660, +1.000]` |
 
-Правка меняет признаки, поэтому потребовала переобучения оракула и повторной
-дистилляции; все числа ниже пересчитаны после неё.
+The change alters the features, so it required retraining the oracle and
+repeating distillation; all numbers below are recomputed after it.
 
-**Побочный вывод, который чуть не стоил всей правки.** Кэш признаков
-(`dataset/features.npz`) проверялся только по форме массива `(N, 32)`. Смена
-константы масштаба форму не меняет — кэш остался бы «валидным», обучение молча
-пошло бы на старых числах, и исправление выглядело бы как не давшее эффекта.
-Поэтому в кэш теперь пишется отпечаток всех констант, порогов и имён признаков
-(`features.fingerprint()`), и при несовпадении он пересчитывается. То же для
-`dataset/cache.npz` — он не инвалидировался вообще никогда, теперь сверяется
-число файлов и суммарный размер датасета.
+**Cache invalidation.** The feature cache (`dataset/features.npz`) was validated
+only by array shape `(N, 32)`. A change of scale constant does not change the
+shape, so the cache would have remained "valid" and training would silently have
+used the old numbers. The cache now stores a fingerprint of all constants,
+thresholds, and feature names (`features.fingerprint()`) and is recomputed on
+mismatch. The same applies to `dataset/cache.npz`, which previously was never
+invalidated; it now checks the file count and total dataset size.
 
-## Пайплайн
+## Pipeline
 
 ```
-BMP 64×64 ──► features.py (32 признака) ──► оракул (MLP) ──► логиты
+BMP 64×64 ──► features.py (32 features) ──► oracle (MLP) ──► logits
                      │                                          │
-                     │                    датасет (признаки → логиты)
+                     │                    dataset (features → logits)
                      ▼                                          ▼
-              те же 32 признака ──────────────► GA-эволюция 4 EML-формул
+              the same 32 features ─────────► GA evolution of 4 EML formulas
                      │                                          │
                      └────────────► argmax_c (f_c − μ_c)/σ_c ◄──┘
 ```
 
-Дистилляция идёт в две фазы — прямой аналог DATA/GAME из Тетриса:
+Distillation runs in two phases, directly analogous to DATA/GAME from Tetris:
 
-* **DATA-фаза** — символьная регрессия каждой формулы к логиту своего класса.
-  Логиты предварительно z-нормируются *внутри примера* (по 4 классам): это
-  убирает произвольный масштаб и сохраняет argmax, то есть ровно ту
-  информацию, которая нужна.
-* **ACC-фаза** — эволюция всего набора формул целиком, fitness = реальная
-  сбалансированная accuracy. Нужна потому, что малый MSE и правильный argmax —
-  разные вещи: формула может точно повторять логиты и всё равно путать классы
-  на границе.
+* **DATA phase** — symbolic regression of each formula to the logit of its
+  class. Logits are z-normalized beforehand *within an example* (across the 4
+  classes): this removes the arbitrary scale and preserves the argmax.
+* **ACC phase** — evolution of the whole formula set, fitness = actual balanced
+  accuracy. Required because a small MSE and a correct argmax are different
+  things: a formula can reproduce the logits closely and still confuse classes
+  at the boundary.
 
-Fitness ACC-фазы считается **только на подвыборке train**. Эволюционировать по
-val — такая же подгонка, как обучение градиентом, после неё val перестаёт быть
-независимой оценкой.
+ACC-phase fitness is computed **on a train subsample only**. Evolving against
+val is the same kind of fitting as gradient training, after which val is no
+longer an independent estimate.
 
-## Ветка C: одна формула на все классы
+## Branch C: one formula for all classes
 
-Ветка C — прямой ответ на главный дефект ветки A. Формула одна:
-
-```
-картинка ──► features.py (32 признака) ──► оракул (MLP) ──► ответ оракула
-                  │                                              │
-                  │                     датасет (признаки → метка оракула)
-                  ▼                                              ▼
-           те же 32 признака ──────────► островная эволюция ОДНОЙ формулы
-                  │                                              │
-                  └──► v = f(признаки) ──► таблица порогов ◄──────┘
-                                              (подбирается ПОД формулу)
-```
-
-Целью служат **ответы оракула**, а не истинные метки: это по-прежнему
-дистилляция, как этапы 1 и 2, и `fidelity` остаётся осмысленной величиной.
-Истинные метки идут только в отчётные метрики.
-
-Сравнивать нечего, калибровочных констант нет, на устройстве лежит одно дерево
-и таблица из нескольких порогов. Проблема сопоставимости шкал, ради которой в
-ветке A появились `μ_c` и `σ_c`, здесь не решена — её **не существует**.
-
-### Таблицу порогов задавать заранее нельзя
-
-Напрашивается «пусть класс 0 это 0.0, класс 1 это 0.33, класс 2 это 0.6,
-класс 3 это 1.0», а формула к этому коду регрессирует. Так делать не надо, и
-по двум независимым причинам.
-
-**Классы не упорядочены.** Такой код навязывает `BEACH`, `MOTO`, `PEOPLE` и
-`ROADS` и порядок, и расстояния, которых у них нет. MSE к нему штрафует
-«дальние» ошибки сильнее «ближних» — а это осмысленно только для порядковых
-величин. Неэквивалентных порядков для четырёх классов двенадцать, расстояния —
-ещё континуум, и угадать их заранее неоткуда.
-
-**Малый MSE и правильный класс — разные вещи.** Ровно тот аргумент, из-за
-которого в ветке A появилась ACC-фаза.
-
-Поэтому таблица **подбирается под формулу** на каждой оценке fitness — точным
-динамическим программированием по отсортированным выходам, максимизирующим
-сбалансированную accuracy. Формула сама выбирает, в каком порядке и на каком
-расстоянии расположить классы. Куда она их расставила — это **результат
-прогона**, а не наше допущение, и он печатается прямо в отчёте:
+A single formula:
 
 ```
-куда формула расставила классы на своей оси:
+image ──► features.py (32 features) ──► oracle (MLP) ──► oracle answer
+             │                                              │
+             │                  dataset (features → oracle label)
+             ▼                                              ▼
+      the same 32 features ──────► island evolution of ONE formula
+             │                                              │
+             └──► v = f(features) ──► threshold table ◄──────┘
+                                       (fitted TO the formula)
+```
+
+The target is the **oracle's answers**, not the ground truth labels: this
+remains distillation, as in stages 1 and 2, and `fidelity` stays meaningful.
+Ground truth labels are used only for reported metrics.
+
+There is nothing to compare, no calibration constants, and the device holds one
+tree and a table of a few thresholds. The scale comparability problem that
+required `μ_c` and `σ_c` in branch A does not exist here.
+
+### The threshold table cannot be fixed in advance
+
+A fixed code such as "class 0 is 0.0, class 1 is 0.33, class 2 is 0.6, class 3
+is 1.0" with the formula regressing to it fails for two independent reasons.
+
+**The classes are not ordered.** Such a code imposes on `BEACH`, `MOTO`,
+`PEOPLE`, and `ROADS` both an order and distances that they do not have. MSE
+against it penalizes "distant" errors more than "near" ones, which is meaningful
+only for ordinal quantities. There are twelve non-equivalent orders for four
+classes, and the distances form a continuum.
+
+**A small MSE and a correct class are different things.** The same argument that
+motivates the ACC phase in branch A.
+
+The table is therefore **fitted to the formula** at every fitness evaluation, by
+exact dynamic programming over the sorted outputs, maximizing balanced accuracy.
+The formula chooses in what order and at what distance to place the classes.
+The resulting layout is an **output of the run**, not an assumption, and is
+printed in the report:
+
+```
+class layout on the formula axis:
             -inf .. -2.526        ->  BEACH
           -2.526 .. -1.445        ->  ROADS
           -1.445 .. +2.202e+04    ->  PEOPLE
@@ -187,667 +179,632 @@ val — такая же подгонка, как обучение градиен
       +2.202e+04 .. +inf          ->  PEOPLE
 ```
 
-Проверяемое утверждение: соседние на оси классы должны путаться чаще прочих —
-это сверяется с матрицей ошибок в том же отчёте.
+Testable prediction: classes adjacent on the axis should be confused more often
+than others — checked against the confusion matrix in the same report.
 
-### Про «периодическую функцию активации»
+### Multiple intervals per class instead of a periodic activation
 
-В таблице выше `PEOPLE` занимает **два** участка, и это не случайность.
-Участков разрешено больше, чем классов (`EMLC_MAX_INTERVALS`), и метки могут
-повторяться. Тогда класс занимает несколько зон на оси, и линейный порядок
-классов перестаёт быть ограничением вообще.
+In the table above `PEOPLE` occupies **two** intervals. More intervals than
+classes are allowed (`EMLC_MAX_INTERVALS`) and labels may repeat, so a class can
+occupy several zones on the axis and the linear ordering of classes stops being
+a constraint.
 
-Это и есть тот эффект, ради которого напрашивается периодическая активация
-вроде `sin(f(x))`. Самой периодичности при этом не нужно, и брать её было бы
-ошибкой:
+This is the effect a periodic activation such as `sin(f(x))` would target.
+Periodicity itself is not required, and would be harmful:
 
-* выход EML-дерева лежит примерно в `[-10, +2.2·10⁴]` (`exp(clamp(x, ±10))`
-  плюс логарифм), то есть на данные приходятся **тысячи периодов** синуса;
-* **ландшафт fitness становится разрывным**: микроправка дерева сдвигает
-  выход на 0.1, и половина примеров перепрыгивает в другой класс. GA по такому
-  ландшафту не карабкается, он по нему блуждает, и никакое количество
-  поколений этого не лечит;
-* в C всё считается во `float`. При аргументе ~2·10⁴ точности не остаётся, и
-  `verify-c` начал бы краснеть при исправном экспорте.
+* the EML tree output lies roughly in `[-10, +2.2·10⁴]` (`exp(clamp(x, ±10))`
+  plus a logarithm), so the data spans **thousands of sine periods**;
+* the **fitness landscape becomes discontinuous**: a small edit to the tree
+  shifts the output by 0.1 and half the examples jump to a different class. A GA
+  does not climb such a landscape, and no number of generations corrects this;
+* C computes in `float`. At an argument of ~2·10⁴ there is no precision left,
+  and `verify-c` would fail on a correct export.
 
-Таблица порогов даёт ту же выразительность, точный подбор и `K−1` сравнений на
-микроконтроллере.
+The threshold table provides the same expressiveness, an exact fit, and `K−1`
+comparisons on the microcontroller.
 
-### Численная оговорка, которая едва не стала багом
+### float32 resolution of the thresholds
 
-Пороги на уровне 2.2·10⁴ отстоят друг от друга на единицы, а шаг `float32`
-там — около 0.002. Достаточно двум порогам сойтись ближе, и на устройстве
-участок между ними **исчезает вместе со своим классом**, а сверка C с Python
-краснеет так, будто сломан экспорт. Поэтому декодер приводит таблицу к
-различимой во `float32` ещё на этапе подбора: Python и C работают с одной и
-той же таблицей по построению.
+Thresholds at the level of 2.2·10⁴ are units apart, while the `float32` step
+there is about 0.002. If two thresholds converge closer than that, the interval
+between them **disappears along with its class** on the device, and the C/Python
+comparison fails as though the export were broken. The decoder therefore reduces
+the table to one that is distinguishable in `float32` at fitting time: Python
+and C operate on the same table by construction.
 
-Расхождение самого выхода формулы между `float32` и `float64` измеряется, а не
-берётся на глаз, и оно растёт с размером дерева: `1.6·10⁻⁵` на 41 узле,
-`7.1·10⁻⁵` на 39, `6.9·10⁻⁴` на 63 — разброс на полтора порядка при почти
-одинаковом размере, потому что решает не число узлов, а глубина цепочки
-`exp`/`log`, через которую проходит значение. Поэтому `verify-c` для ветки C
-печатает и сверяет не только класс, но и выход формулы: без этой величины
-законное пограничное расхождение неотличимо от поломки экспорта.
+The divergence of the formula output between `float32` and `float64` is
+measured, and it grows with tree size: `1.6·10⁻⁵` at 41 nodes, `7.1·10⁻⁵` at 39,
+`6.9·10⁻⁴` at 63 — one and a half orders of magnitude at nearly the same size,
+because what matters is not the node count but the depth of the `exp`/`log`
+chain a value passes through. `verify-c` for branch C therefore prints and
+compares the formula output as well as the class: without that quantity a
+legitimate borderline divergence is indistinguishable from a broken export.
 
-### Длинные прогоны
+### Long runs
 
-Ветка C рассчитана на часы счёта, и потрачены они на **разнообразие**, а не на
-длину одной цепочки. Из батча ветки A известно: разброс GA по сидам
-(0.525–0.623) больше эффекта любой правки, то есть одна длинная эволюция о
-методе почти ничего не говорит.
+Branch C is designed for hours of computation, spent on **diversity** rather
+than on the length of a single chain. From the branch A batch, GA spread across
+seeds (0.525–0.623) exceeds the effect of any single change, so one long
+evolution says little about the method.
 
-* **Островная модель** — несколько независимых популяций, изредка
-  обменивающихся лучшими особями (копиями, а не переносом: иначе остров теряет
-  элиту и обмен вырождается в перемешивание).
-* **Параллель по процессам** — в процесс уезжает остров целиком на десятки
-  поколений. Раскладывать по процессам отдельные оценки fitness бессмысленно:
-  одна занимает около миллисекунды, передача стоила бы дороже счёта.
-* **Глобальный лучший выбирается переоценкой на полной выборке.** Внутри
-  острова fitness считается на своей случайной подвыборке, и числа с разных
-  островов несопоставимы — выбирать по ним значило бы выбирать по шуму.
-* **Чекпоинт** каждые несколько раундов, атомарной записью. Продолжается
-  только свой прогон: чекпоинт с другим числом входов, классов или особей
-  отвергается, иначе можно молча продолжить чужой эксперимент.
+* **Island model** — several independent populations occasionally exchanging
+  their best individuals (as copies, not transfers: otherwise an island loses
+  its elite and the exchange degenerates into shuffling).
+* **Process-level parallelism** — a whole island goes into a process for tens of
+  generations. Distributing individual fitness evaluations across processes is
+  not viable: one evaluation takes about a millisecond, and transfer would cost
+  more than the computation.
+* **The global best is chosen by re-evaluation on the full sample.** Within an
+  island fitness is computed on its own random subsample, and numbers from
+  different islands are not comparable.
+* **Checkpoint** every few rounds, written atomically. Only the same run is
+  resumed: a checkpoint with a different number of inputs, classes, or
+  individuals is rejected.
 
-## Метрики
+## Metrics
 
-Их три, и путать их нельзя:
+Three distinct quantities:
 
-* **accuracy** — доля правильных ответов относительно истинных меток;
-* **fidelity** — доля совпадений с ответом оракула («копирует ли формула
-  именно оракула»);
-* **balanced accuracy** — accuracy, усреднённая по классам. Главная метрика:
-  при дисбалансе 3.4 : 1 обычная accuracy даёт 0.25 сбалансированной за
-  вырожденное «всё это `ROADS`», получая при этом 0.41 обычной.
+* **accuracy** — fraction of correct answers against ground truth labels;
+* **fidelity** — fraction of matches with the oracle's answer (whether the
+  formula reproduces the oracle specifically);
+* **balanced accuracy** — accuracy averaged over classes. The primary metric: at
+  a 3.4 : 1 imbalance, plain accuracy gives 0.25 balanced for the degenerate
+  "everything is `ROADS`" while reaching 0.41 plain.
 
-Формула может иметь высокую accuracy и низкую fidelity — значит, она решает
-задачу по-своему, а не копирует оракула. Это самостоятельный результат, а не
-ошибка, поэтому считаются обе величины.
+A formula can have high accuracy and low fidelity, meaning it solves the task in
+its own way rather than copying the oracle. Both quantities are therefore
+computed.
 
-**Отбор чекпоинта оракула тоже идёт по сбалансированной.** Раньше здесь была
-несогласованность: лосс взвешен по классам, заявленная главная метрика —
-сбалансированная, а ранняя остановка, затухание LR и выбор лучшего чекпоинта
-шли по обычной accuracy. При перекосе 3.4 : 1 это тянет отбор туда, откуда
-модель уводит взвешенный лосс: эпоха, лучше угадывающая многочисленный `ROADS`
-ценой редкого `BEACH`, выигрывает по обычной accuracy и проигрывает по
-сбалансированной. Теперь все три решения принимаются по сбалансированной, а в
-историю обучения пишутся обе кривые — расстояние между ними и есть мера
-перекоса. В таблицах ниже **везде указано, какая именно метрика приведена**.
+**Oracle checkpoint selection also uses balanced accuracy.** The loss is
+class-weighted and the primary metric is balanced, so early stopping, LR decay,
+and best-checkpoint selection use balanced accuracy as well; previously they
+used plain accuracy. At a 3.4 : 1 skew, plain accuracy pulls selection in the
+direction the weighted loss moves away from: an epoch that predicts the frequent
+`ROADS` better at the cost of the rare `BEACH` wins on plain accuracy and loses
+on balanced. Both curves are written to the training history; the distance
+between them measures the skew. Every table below states which metric is shown.
 
-## Результаты
+## Results
 
-Все числа ниже получены **после** правки масштаба `center_edge_diff` и
-перевода отбора чекпоинта на сбалансированную accuracy: оба оракула обучены
-заново, дистилляция прогнана батчем из 5 вариантов на ветку.
+All numbers below were obtained **after** the `center_edge_diff` scale fix and
+the switch of checkpoint selection to balanced accuracy: both oracles retrained,
+distillation run as a batch of 5 variants per branch.
 
-### Оракулы
+### Oracles
 
-| | модель | параметров | val acc | val bal | test acc | test bal | обучение |
+| | model | parameters | val acc | val bal | test acc | test bal | training |
 |---|---|---|---|---|---|---|---|
-| ветка A | `FeatureMLP` | 13 124 | 0.9037 | 0.9082 | 0.8970 | **0.9053** | **14 с** |
-| ветка B | `PixelCNN` | 292 164 | 0.9142 | 0.9202 | 0.9287 | **0.9256** | 3087 с |
+| branch A | `FeatureMLP` | 13 124 | 0.9037 | 0.9082 | 0.8970 | **0.9053** | **14 s** |
+| branch B | `PixelCNN` | 292 164 | 0.9142 | 0.9202 | 0.9287 | **0.9256** | 3087 s |
 
-Было до правок (обычная accuracy): ветка A — val 0.880, test 0.889; ветка B —
-val 0.913, test 0.929. Оракул ветки A прибавил ~1.5 пункта; оракул ветки B не
-изменился, и не должен был — он ест сырые пиксели, инженерных признаков не
-видит вовсе, а отбор по сбалансированной метрике на нём почти не сказался.
+Before the changes (plain accuracy): branch A — val 0.880, test 0.889; branch B
+— val 0.913, test 0.929. The branch A oracle gained ~1.5 points; the branch B
+oracle did not change, as expected — it consumes raw pixels and does not see
+the engineered features, and balanced-metric selection had almost no effect
+on it.
 
-Первый результат сам по себе: 32 рукописных признака и крошечный MLP отстают
-от свёрточной сети на **2 пункта** сбалансированной accuracy, обучаясь в
-220 раз быстрее.
+32 hand-written features with a small MLP trail the convolutional network by
+**2 points** of balanced accuracy while training 220× faster.
 
-### Дистилляция
+### Distillation
 
-Метрики на test, **сбалансированные**. Набор формул отобран **по val** из
-пяти прогонов с разными сидами и штрафами:
+Metrics on test, **balanced**. The formula set was selected **by val** out of
+five runs with different seeds and penalties:
 
-| | оракул | EML | доля оракула | fidelity | узлов | входов |
+| | oracle | EML | fraction of oracle | fidelity | nodes | inputs |
 |---|---|---|---|---|---|---|
-| ветка A | 0.9053 | 0.5571 | **61.5 %** | 0.5152 | 172 | 32 / 32 |
-| ветка B | 0.9256 | 0.9009 | **97.3 %** | 0.9445 | 28 | 11 / 32 |
+| branch A | 0.9053 | 0.5571 | **61.5 %** | 0.5152 | 172 | 32 / 32 |
+| branch B | 0.9256 | 0.9009 | **97.3 %** | 0.9445 | 28 | 11 / 32 |
 
-**Ветка A не улучшилась, и это главный результат пересчёта.** Разброс по пяти
-сидам оказался больше любого эффекта правок:
+**Branch A did not improve.** The spread across five seeds exceeded the effect
+of the changes:
 
-| сид | штраф | val bal | test bal | узлов |
+| seed | penalty | val bal | test bal | nodes |
 |---|---|---|---|---|
-| 0 | weak | **0.5807** ← отобран | 0.5571 | 172 |
+| 0 | weak | **0.5807** ← selected | 0.5571 | 172 |
 | 1 | medium | 0.5675 | 0.6097 | 30 |
 | 2 | strong | 0.5277 | 0.5246 | 8 |
 | 3 | weak | 0.5524 | 0.5856 | 156 |
 | 4 | medium | 0.5709 | **0.6229** | 78 |
 
-Прежнее опубликованное значение 0.611 лежит внутри этого разброса
-(0.525–0.623) — то есть было не «результатом до правки масштаба», а одной
-точкой из распределения, принятой за результат. Это ретроспективно оправдывает
-батч: **один прогон GA о методе не говорит почти ничего**, и сравнивать
-одиночные прогоны «до» и «после» бессмысленно.
+The previously reported value of 0.611 lies inside this spread (0.525–0.623),
+i.e. it was one point from a distribution rather than a result attributable to
+the state before the scale fix. A single GA run carries little information about
+the method, and comparing single "before" and "after" runs is not meaningful.
 
-Видна и вторая, более неприятная вещь: отбор по val выбрал **худший по test**
-набор из пяти (0.5571 при 0.6229 у лучшего) — и заодно самый раздутый,
-172 узла против 30. При 758 примерах валидации и разбросе в 10 пунктов сам
-отбор по val шумит сопоставимо с тем, что отбирает. Протокол при этом
-соблюдён — test трогать для отбора нельзя, — но напрашивается вывод для этапа
-3: критерий отбора стоит задавать *заранее* с учётом сложности, а не только по
-val.
+Selection by val picked the **worst set on test** of the five (0.5571 against
+0.6229 for the best) and also the largest, 172 nodes against 30. With 758
+validation examples and a 10-point spread, val-based selection is as noisy as
+what it selects. The protocol is nonetheless respected — test must not be used
+for selection.
 
-**Ветка B, наоборот, заметно выросла:** 90.5 % → **97.3 %** от оракула, 22 →
-28 узлов, fidelity 0.857 → 0.944. Правка масштаба признаков к этому отношения
-иметь не может (ветка B их не использует), так что остаётся отбор чекпоинта по
-сбалансированной метрике и батч из пяти сидов вместо одиночного прогона.
-Разброс здесь втрое меньше, чем в ветке A: test bal 0.8905–0.9089.
+**Branch B improved:** 90.5 % → **97.3 %** of the oracle, 22 → 28 nodes,
+fidelity 0.857 → 0.944. The feature scale fix cannot be responsible (branch B
+does not use the features), leaving checkpoint selection by balanced metric and
+the batch of five seeds instead of a single run. The spread here is three times
+smaller than in branch A: test bal 0.8905–0.9089.
 
-**Вывод ablation только усилился.** Формулы поверх эмбеддинга CNN держат 97 %
-оракула двадцатью восемью узлами и 11 входами; поверх инженерных признаков —
-62 % при 172 узлах и всех 32 входах. Причина не в признаках, а в том, кто
-делает нелинейную работу: CNN обучается так, чтобы её эмбеддинг разделялся
-**линейной** головой, и формуле остаётся приблизить почти линейную функцию. В
-ветке A всю нелинейность должно взять на себя само дерево глубины ≤ 7, и этого
-не хватает.
+Formulas over the CNN embedding hold 97 % of the oracle with 28 nodes and 11
+inputs; over engineered features, 62 % with 172 nodes and all 32 inputs. The
+cause is not the features but which component does the nonlinear work: the CNN
+is trained so that its embedding is separable by a **linear** head, leaving the
+formula to approximate a nearly linear function. In branch A the tree of depth
+≤ 7 must supply all the nonlinearity, which is insufficient.
 
-Отсюда практический ориентир для этапа 3: чем «более линеаризована» подача на
-вход формулы, тем дешевле дистилляция. Но в ветке B за это платят свёртками,
-остающимися на устройстве, — а ради их устранения всё и затевалось.
+The more linearized the input to the formula, the cheaper the distillation. In
+branch B this is paid for with the convolutions that remain on the device.
 
-### Ветка C: батч из пяти сидов
+### Branch C: batch of five seeds
 
-Потолок 3000 поколений, популяция 400, 8 островов на 8 процессах. Все пять
-прогонов остановились раньше по `patience` — от 925 до 2975 поколений, от 16
-до 70 минут. Метрики на test, **сбалансированные**; набор отобран **по val**.
+Cap of 3000 generations, population 400, 8 islands on 8 processes. All five runs
+stopped early on `patience` — between 925 and 2975 generations, 16 to 70
+minutes. Metrics on test, **balanced**; the set was selected **by val**.
 
-| сид | штраф | поколений | val bal | test bal | узлов | участков |
+| seed | penalty | generations | val bal | test bal | nodes | intervals |
 |---|---|---|---|---|---|---|
 | 0 | weak | 1100 | 0.6042 | 0.5944 | 69 | 4 |
-| 1 | medium | 1900 | **0.6332** ← отобран | 0.6237 | 61 | 4 |
+| 1 | medium | 1900 | **0.6332** ← selected | 0.6237 | 61 | 4 |
 | 2 | strong | 925 | 0.5632 | 0.5664 | **23** | 4 |
 | 3 | weak | 2375 | 0.5971 | 0.6233 | 95 | 6 |
 | 4 | medium | 2975 | 0.6181 | **0.6305** | 59 | 4 |
 
-Сравнение с веткой A на том же оракуле и тех же признаках:
+Comparison with branch A on the same oracle and the same features:
 
-| | формул | test bal (5 сидов) | среднее | узлов | входов | констант |
+| | formulas | test bal (5 seeds) | mean | nodes | inputs | constants |
 |---|---|---|---|---|---|---|
-| ветка A | 4 | 0.5246 – 0.6229 | 0.5800 | 8 – 172 | 32 / 32 | 8 (μ и σ) |
-| ветка C | **1** | 0.5664 – 0.6305 | **0.6077** | 23 – 95 | 16 / 32 | 4 порога |
+| branch A | 4 | 0.5246 – 0.6229 | 0.5800 | 8 – 172 | 32 / 32 | 8 (μ and σ) |
+| branch C | **1** | 0.5664 – 0.6305 | **0.6077** | 23 – 95 | 16 / 32 | 4 thresholds |
 
-Что из этого следует.
+**One formula is not worse than four.** The mean test value is 0.028 higher at a
+spread of 0.064, i.e. borderline significant; val-based selection did not
+mispick here, and the selected formula holds **69.2 %** of oracle balanced
+accuracy with 61 nodes, against 61.5 % with 172 nodes for branch A — three times
+more compact and eight points closer to the oracle.
 
-**Одна формула не хуже четырёх — а по отобранному варианту заметно лучше.**
-Средний test выше на 0.028 при разбросе 0.064, то есть на грани значимости; а
-вот отбор по val на этот раз не промахнулся, и выбранная формула держит
-**69.2 %** сбалансированной точности оракула при 61 узле против 61.5 % при
-172 узлах у ветки A. Втрое компактнее и на восемь пунктов ближе к оракулу.
+**The spread is narrower.** 0.064 against 0.098 on test. This follows partly
+from the island model (eight populations instead of one chain) and partly from
+not having to reconcile four independently evolved scales.
 
-**Разброс уже.** 0.064 против 0.098 по test. Отчасти это следствие островной
-модели (восемь популяций вместо одной цепочки), отчасти — того, что здесь не
-приходится согласовывать четыре независимо эволюционировавшие шкалы.
-
-**А вот раскладка классов на оси по сидам НЕ воспроизводится.** На коротком
-батче (200 поколений, для сравнения бюджета) пять сидов дали пять разных
-порядков:
+**The class layout on the axis does not reproduce across seeds.** On a short
+batch (200 generations, for budget comparison) five seeds gave five different
+orders:
 
 ```
-сид 0   ROADS < BEACH < MOTO < PEOPLE
-сид 1   BEACH < MOTO < PEOPLE < ROADS
-сид 2   BEACH < MOTO < ROADS < PEOPLE
-сид 3   PEOPLE < MOTO < PEOPLE < ROADS < BEACH < ROADS
-сид 4   ROADS < BEACH < PEOPLE < MOTO
+seed 0   ROADS < BEACH < MOTO < PEOPLE
+seed 1   BEACH < MOTO < PEOPLE < ROADS
+seed 2   BEACH < MOTO < ROADS < PEOPLE
+seed 3   PEOPLE < MOTO < PEOPLE < ROADS < BEACH < ROADS
+seed 4   ROADS < BEACH < PEOPLE < MOTO
 ```
 
-Сказать «формула обнаружила естественный порядок классов» **нельзя**: раскладка
-это свойство конкретного найденного дерева, а не структуры данных.
-Воспроизводимо качество, а не расположение.
+The layout is a property of the particular tree found, not of the data
+structure. Quality reproduces; placement does not.
 
-Заодно видно, что свобода занимать несколько зон реально используется: у сида 3
-шесть участков, `PEOPLE` и `ROADS` по два каждый.
+The freedom to occupy several zones is used in practice: seed 3 has six
+intervals, with `PEOPLE` and `ROADS` holding two each.
 
-Про бюджет счёта: короткий батч (200 поколений, ~3 минуты на прогон) дал
-0.5664–0.5916 при среднем 0.5783 — то есть **девять десятых результата за
-десятую долю времени**. Длинные прогоны здесь покупают последние два-три
-пункта, а не порядок величины.
+Compute budget: the short batch (200 generations, ~3 minutes per run) gave
+0.5664–0.5916 at a mean of 0.5783 — nine tenths of the result for a tenth of the
+time. Long runs buy the last two or three points, not an order of magnitude.
 
-### Другой датасет: 2 класса
+### Different dataset: 2 classes
 
-Тот же код на другой папке — `PEOPLE` и `ROADS`, два класса, тот же
-экстрактор признаков и тот же тип оракула:
+The same code on a different folder — `PEOPLE` and `ROADS`, two classes, the
+same feature extractor and the same oracle type:
 
-| | оракул | EML | доля оракула | fidelity | узлов | участков |
+| | oracle | EML | fraction of oracle | fidelity | nodes | intervals |
 |---|---|---|---|---|---|---|
-| ветка C, 2 класса | 0.9394 | 0.7892 | **84.0 %** | 0.8177 | 41 | 2 |
-| ветка C, 4 класса | 0.9017 | 0.6237 | 69.2 % | 0.6473 | 61 | 4 |
+| branch C, 2 classes | 0.9394 | 0.7892 | **84.0 %** | 0.8177 | 41 | 2 |
+| branch C, 4 classes | 0.9017 | 0.6237 | 69.2 % | 0.6473 | 61 | 4 |
 
-1350 поколений, 21 минута, 12 входов из 32. Таблица порогов выродилась ровно в
-то, чем она и должна быть на бинарной задаче — один порог:
+1350 generations, 21 minutes, 12 inputs out of 32. The threshold table
+degenerates to a single threshold, as expected on a binary task:
 
 ```
             -inf .. +1.858        ->  PEOPLE
           +1.858 .. +inf          ->  ROADS
 ```
 
-Вывод, который стоит записать прямо: **потолок ветки C на аэроснимках задавала
-задача, а не метод**. Четыре класса, из которых `MOTO` и `PEOPLE` систематически
-путаются даже у оракула, — это тяжёлый случай для одномерной проекции; на
-разделимой паре классов та же формула из 41 узла воспроизводит сеть на 82 %
-ответов. Числа четырёхклассового и двухклассового наборов между собой
-**несравнимы** (сбалансированная accuracy на двух классах стартует с 0.5), и
-рядом они стоят только чтобы показать, где именно упирается метод.
+The branch C ceiling on aerial imagery is set by the task rather than the
+method: four classes in which `MOTO` and `PEOPLE` are systematically confused
+even by the oracle are a hard case for a one-dimensional projection, whereas on
+a separable pair of classes the same 41-node formula reproduces the network on
+82 % of answers. The four-class and two-class numbers are **not comparable**
+(balanced accuracy on two classes starts at 0.5); they are shown together to
+locate the limit of the method.
 
-### Влияние штрафа за размер
+### Effect of the size penalty
 
-Первая версия штрафовала только глубину — как в Тетрисе. Глубина ограничена
-`EML_MAX_DEPTH`, поэтому внутри лимита дерево росло вширь бесплатно; член за
-число узлов (`EML_SIZE_PENALTY_WEIGHT`) это и лечит. Свежий батч ветки A
-показывает, как штраф работает на практике (те же пять прогонов, что выше,
-сгруппированные по штрафу):
+The first version penalized depth only, as in Tetris. Depth is bounded by
+`EML_MAX_DEPTH`, so within the limit the tree grew in width at no cost; the node
+count term (`EML_SIZE_PENALTY_WEIGHT`) addresses this. The branch A batch (the
+same five runs as above, grouped by penalty):
 
-| штраф | узлов | test bal.acc |
+| penalty | nodes | test bal.acc |
 |---|---|---|
 | `weak` (0.01) | 156, 172 | 0.586, 0.557 |
 | `medium` (0.05) | 30, 78 | **0.610, 0.623** |
 | `strong` (0.15) | 8 | 0.525 |
 
-Картина без исключений: слабый штраф даёт деревья в 5 раз толще и результат
-хуже, сильный обрезает до восьми узлов и теряет ещё больше, лучшее — посередине.
-Раздувание не окупается: 172 узла проигрывают тридцати.
+A weak penalty gives trees 5× larger and a worse result, a strong one truncates
+to eight nodes and loses more; the best result is in between. 172 nodes lose to
+thirty.
 
-### Скорость и размер
+### Speed and size
 
-Замер `python main.py bench` (numpy/torch на CPU, батчами):
-
-```
-экстрактор признаков :    508.7 мкс/кадр
-MLP-оракул (ветка A) :      0.7 мкс/кадр
-CNN-оракул (ветка B) :   1628.1 мкс/кадр
-EML-формулы          :      3.6 мкс/кадр  (172 узла)
-```
-
-Здесь важно не преувеличивать. **Формулы не быстрее MLP** — на батчах numpy
-маленькая матричная свёртка дешевле обхода дерева. С отобранным набором в
-172 узла они теперь и вовсе в пять раз медленнее, а время кадра в ветке A всё
-равно на 99 % определяется экстрактором признаков (509 из 512 мкс). Выигрыш
-ветки A не в скорости модели, а в трёх других вещах:
-
-* **размер**: 13 124 параметра MLP это ≈ 51 КБ весов во float32, а формулы —
-  5.5 КБ сгенерированного C вместе с комментариями и ноль весов (ветка B:
-  292 164 параметра ≈ 1.1 МБ, при 4.1 КБ формул — но плюс сами свёртки);
-* **зависимости**: ни torch, ни рантайма — только `<math.h>`;
-* **прозрачность**: `f_MOTO = eml(center_edge_diff, eml(eml(center_gray_diff,
-  −0.792), grad_y))` читается и проверяется глазами — кстати, ровно через тот
-  признак, у которого чинился масштаб.
-
-Последний пункт после пересчёта стоит оговорить честнее: читаемы **не все**
-формулы. `f_MOTO` выше — три узла, а `f_BEACH` того же набора это 172-узловое
-дерево, которое глазами не проверить. Прозрачность здесь не свойство метода, а
-следствие штрафа за размер: она есть ровно там, где формула осталась мелкой.
-Ветке C с этим проще: дерево одно, и отобранный по val вариант батча — 61
-узел на все четыре класса против 172 у ветки A.
-
-Единственное честное сравнение по скорости — ветка A целиком (512 мкс) против
-CNN (1628 мкс): **в 3.2 раза**.
-
-### Сверка C-экспорта
-
-`python main.py verify-c --branch A` и `--branch C` на 200 тестовых кадрах:
+Measurement from `python main.py bench` (numpy/torch on CPU, batched):
 
 ```
-ветка A (4 формулы)                      ветка C (одна формула, 41 узел)
-макс. расхождение признака : 9.13e-07    макс. расхождение выхода   : 1.62e-05
-совпадение класса          : 200/200     макс. расхождение признака : 8.80e-07
-ПРОЙДЕНО                                 совпадение класса          : 200/200
-                                         ПРОЙДЕНО
+feature extractor    :    508.7 µs/frame
+MLP oracle (branch A):      0.7 µs/frame
+CNN oracle (branch B):   1628.1 µs/frame
+EML formulas         :      3.6 µs/frame  (172 nodes)
 ```
 
-## Запуск
+**The formulas are not faster than the MLP** — on numpy batches a small matrix
+multiply is cheaper than a tree traversal. With the selected 172-node set they
+are five times slower, and frame time in branch A is 99 % determined by the
+feature extractor (509 of 512 µs). The branch A advantage is in three other
+properties:
+
+* **size**: 13 124 MLP parameters are ≈ 51 KB of float32 weights, while the
+  formulas are 5.5 KB of generated C including comments and zero weights
+  (branch B: 292 164 parameters ≈ 1.1 MB, with 4.1 KB of formulas — plus the
+  convolutions themselves);
+* **dependencies**: no torch, no runtime — only `<math.h>`;
+* **transparency**: `f_MOTO = eml(center_edge_diff, eml(eml(center_gray_diff,
+  −0.792), grad_y))` is readable and verifiable by inspection.
+
+Not all formulas are readable. `f_MOTO` above is three nodes, while `f_BEACH` of
+the same set is a 172-node tree that cannot be checked by inspection.
+Transparency here is a consequence of the size penalty, present where the
+formula stayed small. Branch C is more favorable: a single tree, and the
+val-selected variant of the batch is 61 nodes for all four classes against 172
+for branch A.
+
+The direct speed comparison is branch A as a whole (512 µs) against the CNN
+(1628 µs): **3.2×**.
+
+### C export verification
+
+`python main.py verify-c --branch A` and `--branch C` on 200 test frames:
+
+```
+branch A (4 formulas)                    branch C (one formula, 41 nodes)
+max feature divergence : 9.13e-07        max output divergence  : 1.62e-05
+class agreement        : 200/200         max feature divergence : 8.80e-07
+PASSED                                   class agreement        : 200/200
+                                         PASSED
+```
+
+## Running
 
 ```bash
 cd aerial_classifier
 python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
 
-python main.py --dataset <папка> info   # выбрать датасет (запоминается)
-python main.py info                     # датасет и F-статистика признаков
-python main.py train --branch A         # оракул (14 c на CPU; ветка B — 50 мин)
-python main.py distill --branch A       # GA-дистилляция (~40 мин на прогон)
-python main.py distill --branch C       # одна формула, острова, по числу ядер
-python main.py export --branch C        # C-код в results/c_export/
-python main.py verify-c --branch C      # компиляция C и сверка с Python
-python main.py bench                    # сравнение скорости
+python main.py --dataset <folder> info  # select dataset (remembered)
+python main.py info                     # dataset and feature F-statistics
+python main.py train --branch A         # oracle (14 s on CPU; branch B — 50 min)
+python main.py distill --branch A       # GA distillation (~40 min per run)
+python main.py distill --branch C       # one formula, islands, one per core
+python main.py export --branch C        # C code into results/c_export/
+python main.py verify-c --branch C      # compile C and compare against Python
+python main.py bench                    # speed comparison
 ```
 
-`python main.py distill --batch` прогоняет несколько вариантов с разными
-сидами и штрафами за сложность, лучший **по val** сохраняется как основной. GA
-стохастичен, и один прогон о методе говорит мало.
+`python main.py distill --batch` runs several variants with different seeds and
+complexity penalties; the best **by val** is saved as the main one.
 
-Ручки ветки C:
+Branch C options:
 
 ```bash
-python main.py distill --branch C --islands 8 --workers 8   # 0 = по числу ядер
-python main.py distill --branch C --generations 3000        # длинный прогон
-python main.py distill --branch C --restart                 # не продолжать сохранённый
+python main.py distill --branch C --islands 8 --workers 8   # 0 = one per core
+python main.py distill --branch C --generations 3000        # long run
+python main.py distill --branch C --restart                 # do not resume saved state
 python main.py distill --branch C --batch --variants 5 --generations 200
 ```
 
-Прогон ветки C пишет состояние в `runs/checkpoints/eml_C_seed<N>.json` и по
-умолчанию продолжает прерванный. После нормального завершения чекпоинт
-удаляется — иначе следующий прогон с тем же сидом молча продолжил бы уже
-отработавший и сразу упёрся в `patience`.
+A branch C run writes state to `runs/checkpoints/eml_C_seed<N>.json` and resumes
+an interrupted run by default. After normal completion the checkpoint is
+deleted; otherwise the next run with the same seed would silently continue an
+already finished one and immediately hit `patience`.
 
-Любой прогон — одиночный или батч — сначала целиком пишется в `runs/`, и
-только потом сравнивается с уже сохранённым `models/best_eml_A.json` по val.
-Хуже — не перезаписывает (прежний файл на всякий случай остаётся рядом как
-`.prev.json`), прерванный вручную — не претендует на лучший никогда. Раньше
-любой прогон с `save=True` (а это умолчание и в GUI, и в CLI) молча затирал
-отобранный батчем результат, и заметить это было не по чему.
+Any run — single or batch — is first written in full to `runs/`, and only then
+compared by val against the saved `models/best_eml_A.json`. A worse run does not
+overwrite it (the previous file is kept alongside as `.prev.json`), and a
+manually interrupted run never claims best. Previously any run with `save=True`
+(the default in both GUI and CLI) overwrote the batch-selected result.
 
-## Библиотека моделей
+## Model library
 
-Каждое обучение и каждая дистилляция кладут именованную копию в
-`models/library/`, а активная модель — та, которую берут экспорт в C,
-`verify-c`, `bench` и вкладки теста — лежит на прежнем месте
-(`models/oracle_A.pt`, `models/best_eml_A.json`).
+Every training and every distillation places a named copy into
+`models/library/`, while the active model — the one used by C export,
+`verify-c`, `bench`, and the test tabs — stays in place (`models/oracle_A.pt`,
+`models/best_eml_A.json`).
 
 ```bash
-python main.py models                             # список с характеристиками
-python main.py train --branch A --name "mlp-32признака"
-python main.py distill --branch A --name "medium-сид4"
-python main.py models --activate mlp-32признака   # выбрать активную
-python main.py models --rename старое новое
-python main.py models --delete лишняя
+python main.py models                             # list with characteristics
+python main.py train --branch A --name "mlp-32features"
+python main.py distill --branch A --name "medium-seed4"
+python main.py models --activate mlp-32features   # select the active one
+python main.py models --rename old new
+python main.py models --delete unwanted
 ```
 
 ```
-   вид     ветка имя                        val bal  test bal   сложность
-★• оракул  A     mlp-признаки-bal0.908       0.9082    0.9053  13124 пар.
-   оракул  A     быстрый-12эпох              0.8017    0.8138  13124 пар.
-★• формулы B     батч-seed1-medium-28узлов   0.8958    0.9009     28 узл.
+   kind    branch name                      val bal  test bal   complexity
+★• oracle  A      mlp-features-bal0.908      0.9082    0.9053  13124 par.
+   oracle  A      fast-12epochs              0.8017    0.8138  13124 par.
+★• formula B      batch-seed1-medium-28nodes 0.8958    0.9009     28 nodes
 ```
 
-`★` — лучшая в своей группе, `•` — активная сейчас. Пометки независимы:
-активной вполне может быть не лучшая, и это ровно то, что нужно видеть.
+`★` — best in its group, `•` — currently active. The marks are independent: the
+active model need not be the best one.
 
-Зачем это понадобилось. Раньше каждый прогон затирал единственный слот, и
-сравнить две модели можно было только по памяти — «вроде вчера было лучше».
-При разбросе GA по сидам в 10 пунктов (см. таблицу выше) выбор из нескольких
-сохранённых наборов это не удобство, а условие осмысленного сравнения.
+Three rules:
 
-Три правила, каждое из которых закрывает свою дыру:
+* **Best is determined by val**, not by test. Test is inspected once, at the
+  end; selecting a model by it would mean looking into the held-out sample.
+* **A taken name is not overwritten** — it is qualified to `name-2`. Runs take
+  from seconds to an hour.
+* **Training always occupies the active slot** (after `train` the slot must hold
+  the model that was just trained, otherwise the command misreports its action),
+  but if it is worse than the best saved one this is stated explicitly, with a
+  ready revert command. Distillation is stricter: it does not touch the active
+  slot if the run is worse by val.
 
-* **Лучшая определяется по val**, не по test. Test смотрят один раз, в самом
-  конце; выбирать по нему модель значило бы подглядывать в отложенную выборку.
-* **Занятое имя не затирается** — уточняется до `имя-2`. Прогоны стоят от
-  секунд до часа, и потерять чужой результат из-за совпадения имени обиднее,
-  чем увидеть в списке лишнюю цифру.
-* **Обучение всегда занимает активный слот** (после `train` там должна лежать
-  именно та модель, которую обучили, иначе команда врёт о своём действии), но
-  если она хуже лучшей сохранённой, об этом говорится прямо, с готовой
-  командой возврата. Дистилляция строже: она активный слот не трогает, если
-  прогон хуже по val.
+The same is available in the GUI on the **Models** tab, and the test tabs have a
+model dropdown, so one frame can be run through two different formula versions.
 
-В интерфейсе всё то же лежит на вкладке **Модели**, а вкладки теста получили
-выпадающий выбор модели — можно прогнать один кадр двумя разными версиями
-формул и посмотреть, где они расходятся.
-
-## Тесты
+## Tests
 
 ```bash
 pip install pytest
-python -m pytest                 # 211 тестов, ~4 c
+python -m pytest                 # 211 tests, ~4 s
 ```
 
-Каждый прогон печатает 15 самых долгих тестов с их временем и итоговое
-`211 passed in Xs` (настроено в `pytest.ini`) — набор быстрый, и если один
-тест вдруг вырастет до секунд, это сразу видно.
+Each run prints the 15 slowest tests with their times and the final
+`211 passed in Xs` (configured in `pytest.ini`).
 
-Тестам не нужны ни датасет, ни обученные чекпоинты — всё, что нужно,
-генерируется прямо в тестах (BMP и PNG собираются побайтово, деревья и входы
-случайные). Поэтому набор запускается на любой машине, а не только там, где
-лежат 83 МБ картинок. Без установленного torch пропускаются два файла
-(`test_pipeline.py` и `test_library.py` — они работают с чекпоинтами),
-остальные идут как обычно.
+The tests need neither the dataset nor trained checkpoints — everything required
+is generated in the tests themselves (BMP and PNG are assembled byte by byte,
+trees and inputs are random). The suite therefore runs on any machine. Without
+torch installed, two files are skipped (`test_pipeline.py` and
+`test_library.py`, which work with checkpoints); the rest run as usual.
 
-Проверяется именно то, что при поломке **не падает само по себе**:
-
-| файл | что ловит |
+| file | coverage |
 |---|---|
-| `test_data.py` | парсер BMP: оба порядка строк, выравнивание строки до 4 байт (при ширине не кратной 4 картинка «поехала бы» вбок), порядок каналов BGR→RGB; классы из подпапок и алфавитный порядок; кэш инвалидируется при смене НАБОРА классов, а не только числа файлов; сплит — разбиение без пересечений и потерь, детерминизм, сохранение долей классов |
-| `test_imaging.py` | PNG во всех пяти фильтрах строки (свой кодировщик пишет только нулевой, так что на файлах проекта ветки Sub/Up/Average/Paeth не исполняются ни разу); уменьшение усредняет, а не прореживает; приведение не растягивает картинку |
-| `test_features.py` | все 32 признака в `[-1, 1]` и конечны на любой картинке; `radial_slope` и `coherence` действительно инвариантны к повороту и отражению (на этом построен отбор признаков); отпечаток кэша меняется при правке любой константы |
-| `test_eml.py` | `to_dict`/`from_dict` без потерь; `evaluate` и `evaluate_batch` совпадают; вырожденная формула получает масштаб 1; калибровка спасает от вырожденного argmax; сбалансированная accuracy на посчитанной вручную матрице ошибок |
-| `test_eml_single.py` | ДП декодера действительно находит оптимум (сверка с полным перебором); обещанный score равен настоящей accuracy этого же декодера; класс получает несколько зон, когда это выгодно; пороги остаются различимыми во `float32`; чекпоинт продолжает прогон, а миграция не обкрадывает остров-донор |
-| `test_vision.py` | тайлинг: точное совпадение пикселей после круга «мозаика → окна», пустой список на кадре меньше окна; оверлей не портит исходный кадр; классы чужого датасета получают разные цвета, а не общий серый |
-| `test_export.py` | в C-шаблоне не осталось незаполненных плейсхолдеров, заполнены все 32 признака, `f[26]` использует свою константу масштаба; таблица порогов ветки C читается из C обратно тем же `float32`, а вырожденная таблица не даёт массива нулевой длины |
-| `test_pipeline.py` | прогон хуже сохранённого не становится активным; прерванный не претендует никогда; каждый прогон уцелел в `runs/`; формула ветки C возвращается из JSON вместе с таблицей порогов; модель с чужим набором классов не применяется молча |
-| `test_library.py` | имя пользователя не разрушает путь и не выходит за пределы папки; совпадение имён не затирает чужой прогон; переименование не теряет пометку активной; удаление из библиотеки не трогает активный слот |
+| `test_data.py` | BMP parser: both row orders, row padding to 4 bytes (at a width not divisible by 4 the image would shear), BGR→RGB channel order; classes from subdirectories and alphabetical order; cache invalidated on a change of the class SET, not only of the file count; split — partition without overlap or loss, determinism, preservation of class proportions |
+| `test_imaging.py` | PNG in all five row filters (the project's own encoder writes only filter zero, so the Sub/Up/Average/Paeth branches are never exercised on project files); downscaling averages rather than decimates; conversion does not stretch the image |
+| `test_features.py` | all 32 features in `[-1, 1]` and finite on any image; `radial_slope` and `coherence` are invariant to rotation and reflection (feature selection relies on this); the cache fingerprint changes when any constant is edited |
+| `test_eml.py` | `to_dict`/`from_dict` round-trip without loss; `evaluate` and `evaluate_batch` agree; a degenerate formula gets scale 1; calibration prevents a degenerate argmax; balanced accuracy against a manually computed confusion matrix |
+| `test_eml_single.py` | the decoder DP finds the optimum (checked against exhaustive search); the promised score equals the actual accuracy of the same decoder; a class receives several zones when that is advantageous; thresholds stay distinguishable in `float32`; a checkpoint resumes a run, and migration does not deplete the donor island |
+| `test_vision.py` | tiling: exact pixel match after the "mosaic → windows" round trip, empty list on a frame smaller than the window; the overlay does not corrupt the source frame; classes of a foreign dataset get distinct colors rather than a shared gray |
+| `test_export.py` | no unfilled placeholders remain in the C template, all 32 features are filled, `f[26]` uses its own scale constant; the branch C threshold table reads back from C as the same `float32`, and a degenerate table does not produce a zero-length array |
+| `test_pipeline.py` | a run worse than the saved one does not become active; an interrupted run never claims best; every run survives in `runs/`; a branch C formula is restored from JSON together with its threshold table; a model with a foreign class set is not applied silently |
+| `test_library.py` | a user-supplied name does not break the path or escape the directory; a name collision does not overwrite another run; renaming does not lose the active mark; deletion from the library does not touch the active slot |
 
-Отдельно есть две интеграционные проверки, которым датасет и модели нужны:
-`python vision.py` (тайлинг и точность движков всех веток на мозаике) и
-`python main.py verify-c --branch A|C` (компиляция C и сверка с Python).
+Two integration checks require the dataset and models: `python vision.py`
+(tiling and engine accuracy for all branches on a mosaic) and
+`python main.py verify-c --branch A|C` (C compilation and comparison against
+Python).
 
-## Графический интерфейс
+## Graphical interface
 
 ```bash
-python main.py gui              # или: python main.py gui --tab test
+python main.py gui              # or: python main.py gui --tab test
 ```
 
-Шесть вкладок: **Данные**, **Признаки**, **Обучение**, **Дистилляция**,
-**Модели**, **Тест**. Под каждым графиком есть кнопка «Сохранить график» —
-файл ложится в `results/`.
+Six tabs: **Data**, **Features**, **Training**, **Distillation**, **Models**,
+**Test**. Under each plot there is a "Save plot" button; the file is written to
+`results/`.
 
-На вкладке **Данные** выбирается папка с классами. Её состав показывается
-**до** применения — классы со счётчиками, форматы, размеры — и отдельно
-предупреждает, когда набор классов отличается от текущего: обученные модели к
-нему не подойдут, и узнать об этом лучше из диалога, чем из отказа загрузить
-оракула посреди работы.
+The **Data** tab selects the folder of classes. Its contents are shown **before**
+applying — classes with counts, formats, sizes — with a separate warning when
+the class set differs from the current one, since trained models will not apply
+to it.
 
-Вкладка **Дистилляция** переключается между ветками. У ветки C вместо
-галочки «ACC-фаза» появляются её собственные ручки — острова, процессы,
-продолжение прогона, — а в панели формул под самой формулой печатается
-раскладка классов на оси.
+The **Distillation** tab switches between branches. For branch C the "ACC phase"
+checkbox is replaced by its own controls — islands, processes, run resumption —
+and the formula panel prints the class layout on the axis below the formula.
 
-Обучение и дистилляция показывают **живые кривые** и останавливаются кнопкой
-«Стоп»: остановка происходит на ближайшей эпохе или поколении и сохраняет
-лучшее найденное на этот момент, а не выбрасывает работу. Для дистилляции это
-существенно — полный прогон занимает больше часа, и раньше всё это время окно
-стояло неподвижно с одной заблокированной кнопкой.
+Training and distillation show **live curves** and stop on a "Stop" button:
+stopping happens at the nearest epoch or generation and saves the best found so
+far rather than discarding the work.
 
-Тяжёлая задача в приложении может идти только одна: обучение переписывает
-`models/oracle_X.pt`, дистилляция его же читает, и запускать их одновременно
-значит читать чекпоинт в момент записи. Вкладка, начавшая работу, забирает
-общую блокировку, остальные на это время гасят кнопки запуска.
+Only one heavy task can run at a time: training rewrites `models/oracle_X.pt`
+and distillation reads it, so running them together would read the checkpoint
+mid-write. The tab that starts work takes a shared lock, and the others disable
+their start buttons for the duration.
 
-### Тест · Фото
+### Test · Photo
 
-Классифицирует одну вырезку и показывает ответы **обоих движков рядом**:
-формулы против оракула, с оценками классов после softmax и пометкой, где они
-расходятся. Источник — случайная картинка из датасета (с фильтром по классу,
-тогда видна и истинная метка) или файл с диска.
+Classifies a single crop and shows the answers of **both engines side by side**:
+formulas against the oracle, with per-class scores after softmax and a mark
+where they diverge. The source is a random image from the dataset (with a class
+filter, which also shows the ground truth label) or a file from disk.
 
-Числа рядом с ответами подписаны по-разному, и это не придирка. У оракула
-softmax логитов — настоящая оценка вероятности класса. У формул веток A и B
-выходы никто как вероятности не калибровал, их softmax это просто монотонное
-приведение к `[0, 1]`, поэтому там пишется `score`, и оговорено, что при
-четырёх классах максимум softmax не бывает меньше `0.25` — порог уверенности
-ниже этого значения не фильтрует ничего.
+The numbers next to the answers are labeled differently. For the oracle, the
+softmax of the logits is an actual class probability estimate. For branch A and
+B formulas the outputs were never calibrated as probabilities, and their softmax
+is only a monotone mapping to `[0, 1]`, so it is labeled `score`, with a note
+that with four classes the softmax maximum is never below `0.25` — a confidence
+threshold below that value filters nothing.
 
-У ветки C softmax не годится вовсе: её оценки живут на оси выхода формулы
-(до 2.2·10⁴) и насыщают softmax в единицу почти всегда. Вместо него
-показывается **запас до порога** — насколько глубоко кадр сидит внутри своего
-участка оси: `0` — вплотную к границе, `1` — ровно посередине. Шкала честно
-доходит до нуля, и порог уверенности на видео начинает что-то значить.
+For branch C, softmax is unusable: its scores live on the formula output axis
+(up to 2.2·10⁴) and saturate softmax to one almost always. Instead the **margin
+to the threshold** is shown — how deep the frame sits inside its interval of the
+axis: `0` — at the boundary, `1` — exactly in the middle. The scale reaches
+zero, so a confidence threshold on video is meaningful.
 
-Картинка произвольного размера обрезается по центру до 64×64, а не
-растягивается: растяжение изменило бы масштаб текстуры, на который опираются
-`coherence`, `block_std` и другие признаки.
+An image of arbitrary size is center-cropped to 64×64 rather than stretched:
+stretching would change the texture scale that `coherence`, `block_std`, and
+other features rely on.
 
-### Тест · Видео
+### Test · Video
 
-Кадр режется на окна 64×64 — ровно того размера, на котором обучалась
-модель, — каждое окно классифицируется, и поверх ложится полупрозрачная
-заливка цветом класса. Настраиваются шаг окна, прозрачность и порог
-уверенности (окна ниже порога не закрашиваются, поэтому сразу видно, где
-модель сомневается). Показываются FPS и время инференса; результат можно
-писать в mp4.
+The frame is cut into 64×64 windows — the size the model was trained on — each
+window is classified, and a semi-transparent fill in the class color is overlaid.
+Window step, transparency, and confidence threshold are configurable (windows
+below the threshold are not filled, showing where the model is uncertain). FPS
+and inference time are displayed; the result can be written to mp4.
 
-Три источника:
+Three sources:
 
-| источник | зачем |
+| source | purpose |
 |---|---|
-| видеофайл | mp4/avi/mov, проигрывается по кругу |
-| веб-камера | проверить живой поток |
-| **синтетический из датасета** | мозаика из тестовых вырезок |
+| video file | mp4/avi/mov, played in a loop |
+| webcam | live stream check |
+| **synthetic from dataset** | mosaic of test crops |
 
-Синтетический источник — не заглушка. У каждого окна в нём **известна истинная
-метка**, поэтому в углу показывается настоящая точность разметки, а не только
-красивые рамки. Это единственный способ проверить видео-режим численно, не
-имея под рукой аэросъёмки. Замер на 8 кадрах по 84 окна:
+In the synthetic source every window has a **known ground truth label**, so the
+corner shows the actual labeling accuracy. This is the way to check the video
+mode numerically without aerial footage at hand. Measurement over 8 frames of 84
+windows each:
 
-| движок | точность разметки | инференс |
+| engine | labeling accuracy | inference |
 |---|---|---|
-| EML, ветка A | 52.4 % | 44 мс/кадр |
-| оракул, ветка A | 85.3 % | 64 мс/кадр |
-| EML, ветка B | 88.1 % | 140 мс/кадр |
-| оракул, ветка B | 89.6 % | 142 мс/кадр |
+| EML, branch A | 52.4 % | 44 ms/frame |
+| oracle, branch A | 85.3 % | 64 ms/frame |
+| EML, branch B | 88.1 % | 140 ms/frame |
+| oracle, branch B | 89.6 % | 142 ms/frame |
 
-Каждая строка сходится с точностью соответствующей модели на test — то есть
-тайлинг ничего не теряет и не сдвигает, и это ровно то, ради чего замер и
-нужен.
+Each row agrees with the accuracy of the corresponding model on test, i.e.
+tiling loses and shifts nothing.
 
-Честная оговорка: модель обучена на аэрофотоснимках. На видео с веб-камеры она
-будет уверенно выдавать бессмыслицу — это не поломка, а работа вне обучающего
-распределения.
+The model is trained on aerial imagery. On webcam video it produces confident
+nonsense — operation outside the training distribution, not a malfunction.
 
-### Замечания по реализации
+### Implementation notes
 
-Обучение, дистилляция и декодирование видео идут в отдельных потоках, а
-результаты передаются в интерфейс через `queue.Queue`. Настройки оверлея
-снимаются в главном потоке в обычный словарь (`_refresh_settings`) и только
-потом читаются рабочим: tkinter не потокобезопасен, и чтение `StringVar` из
-чужого потока даёт `RuntimeError: main thread is not in main loop` — причём не
-всегда, а как повезёт.
+Training, distillation, and video decoding run in separate threads, and results
+are passed to the interface through `queue.Queue`. Overlay settings are read in
+the main thread into a plain dict (`_refresh_settings`) and only then read by
+the worker: tkinter is not thread-safe, and reading a `StringVar` from another
+thread raises `RuntimeError: main thread is not in main loop` intermittently.
 
-Кадры показываются через `tk.Canvas` и `PhotoImage` из собранного вручную PPM,
-поэтому показ картинок не требует ни Pillow, ни OpenCV. OpenCV нужен **только**
-для вкладки видео (декодер) и для чтения jpeg; bmp и png читаются своими
-парсерами из `imaging.py`. Без OpenCV остальное работает, а вкладка видео
-объясняет, чего не хватает.
+Frames are displayed through `tk.Canvas` and `PhotoImage` from manually
+assembled PPM, so image display requires neither Pillow nor OpenCV. OpenCV is
+needed **only** for the video tab (decoder) and for reading jpeg; bmp and png are
+read by the project's own parsers in `imaging.py`. Without OpenCV everything
+else works, and the video tab reports what is missing.
 
-## Данные
+## Data
 
-**Классы — это подпапки.** Никаких зашитых имён: выбирается папка, её подпапки
-становятся классами, их имена — именами классов.
+**Classes are subdirectories.** No hard-coded names: a folder is selected, its
+subdirectories become the classes, and their names become the class names.
 
 ```
-<любая папка>/
+<any folder>/
   BEACH/*.bmp      MOTO/*.png      PEOPLE/*.jpg      ROADS/...
 ```
 
 ```bash
-python main.py --dataset C:\путь\к\папке info    # выбор запоминается
-python main.py gui                               # или кнопкой на вкладке «Данные»
+python main.py --dataset C:\path\to\folder info  # the choice is remembered
+python main.py gui                               # or via the Data tab button
 ```
 
-Порядок классов — алфавитный, и это не косметика: индекс класса попадает и в
-веса оракула, и в таблицу порогов ветки C, поэтому зависеть от того, в каком
-порядке ОС отдала записи каталога, он не может. Подпапки без картинок
-пропускаются: класс без примеров сломал бы и стратификацию, и recall.
+Class order is alphabetical: the class index enters both the oracle weights and
+the branch C threshold table, so it cannot depend on the order in which the OS
+returned the directory entries. Subdirectories without images are skipped, since
+a class without examples would break both stratification and recall.
 
-Форматы и размеры:
+Formats and sizes:
 
-| формат | чем читается |
+| format | reader |
 |---|---|
-| `.bmp` | свой парсер на numpy (`imaging.py`), 24 бита BI_RGB |
-| `.png` | свой декодер на `zlib`, все пять фильтров строки |
-| `.jpg`, `.jpeg` | только через OpenCV или Pillow, если они установлены |
+| `.bmp` | own numpy parser (`imaging.py`), 24-bit BI_RGB |
+| `.png` | own `zlib` decoder, all five row filters |
+| `.jpg`, `.jpeg` | only through OpenCV or Pillow, if installed |
 
-Картинка не 64×64 обрезается по центру до квадрата и масштабируется
-**усреднением по площади**, а не растягивается и не прореживается. Растяжение
-изменило бы масштаб текстуры по одной оси — ровно то, что меряют `anisotropy`
-и `coherence`; прореживание превратило бы регулярную текстуру в муар, и
-признаки текстуры стали бы мерить артефакт масштабирования.
+An image that is not 64×64 is center-cropped to a square and scaled by **area
+averaging**, not stretched or decimated. Stretching would change the texture
+scale along one axis — exactly what `anisotropy` and `coherence` measure;
+decimation would turn a regular texture into moiré, and the texture features
+would measure a scaling artifact.
 
-Первый запуск кэширует распакованный массив рядом с датасетом (`cache.npz`,
-~62 МБ на исходном наборе). Отпечаток кэша включает **имена классов**, число
-файлов и суммарный размер: без имён переключение на папку с тем же числом
-файлов прошло бы по старому кэшу, и метки означали бы совсем другое.
+The first run caches the decoded array next to the dataset (`cache.npz`, ~62 MB
+on the reference set). The cache fingerprint includes the **class names**, file
+count, and total size: without the names, switching to a folder with the same
+file count would reuse the old cache and the labels would mean something
+different.
 
-**Смена датасета делает старые модели неприменимыми,** и это отказ, а не
-молчаливая бессмыслица: список классов пишется внутрь каждого чекпоинта и
-каждого JSON с формулами и сверяется при загрузке. В библиотеке такие модели
-помечены `≠`, в выборе лучшей не участвуют (их метрики несравнимы: на двух
-классах сбалансированная accuracy стартует с 0.5), а `bench` и `vision.py`
-просто пропускают их строкой «пропуск», а не падают.
+**Changing the dataset makes old models inapplicable,** and this is an explicit
+refusal: the class list is written into every checkpoint and every formula JSON
+and is verified on load. Such models are marked `≠` in the library, do not take
+part in best-model selection (their metrics are not comparable: on two classes
+balanced accuracy starts at 0.5), and `bench` and `vision.py` skip them with a
+"skipped" line rather than failing.
 
 ```
-★•  формулы C  20260804-1352_bal0.821   0.8213  0.7892   41 узл.
-  ≠ формулы A  батч-seed0-weak-172узла  0.5807  0.5571  172 узл.
+★•  formula C  20260804-1352_bal0.821    0.8213  0.7892   41 nodes
+  ≠ formula A  batch-seed0-weak-172nodes 0.5807  0.5571  172 nodes
 ```
 
-Исходный датасет (83 МБ) в репозиторий не входит — см. `.gitignore`. Исходные
-скрипты обучения (`C:\summer_practice_2025\tf_cnn`) были на TensorFlow и
-содержали две ошибки, которые здесь не воспроизводятся: `NUM_CLASSES = 42` при
-4 реальных классах и аугментация, подключённая в обход backbone — то есть
-фактически не работавшая.
+The reference dataset (83 MB) is not part of the repository — see `.gitignore`.
 
-## Экспорт на микроконтроллер
+## Microcontroller export
 
-`python main.py export` генерирует два самодостаточных заголовка (только
-`<math.h>`):
+`python main.py export` generates self-contained headers (only `<math.h>`):
 
-* `aerial_features.h` — экстрактор 32 признаков из буфера `uint8_t[64*64*3]`;
-* `aerial_eml_A.h` — 4 формулы, константы калибровки и `aerial_classify()`;
-* `aerial_eml_C.h` — **одна** формула, таблица порогов и `aerial_classify()`:
-  `K−1` сравнений и ни одного деления.
+* `aerial_features.h` — extractor of 32 features from a `uint8_t[64*64*3]`
+  buffer;
+* `aerial_eml_A.h` — 4 formulas, calibration constants, and `aerial_classify()`;
+* `aerial_eml_C.h` — **one** formula, threshold table, and `aerial_classify()`:
+  `K−1` comparisons and no divisions.
 
-В Тетрисе экспортировалась только формула: признаки выдавала сама игра. Здесь
-экстрактор — это и есть весь препроцессинг, и без него заявление «нейросеть
-больше не нужна» ничем не подкреплено.
+In Tetris only the formula was exported: features were supplied by the game
+itself. Here the extractor is the entire preprocessing step, and without it the
+claim that the neural network is no longer needed is unsupported.
 
-`python main.py verify-c --branch A|C` компилирует сгенерированный код через
-gcc, прогоняет через него тестовые кадры и сверяет с Python — и признаки
-поэлементно, и итоговый класс.
+`python main.py verify-c --branch A|C` compiles the generated code with gcc,
+runs test frames through it, and compares against Python — features
+element-wise and the resulting class.
 
-Допуск по признакам жёсткий (`1e-4`), а вот к расхождению класса проверка
-терпима, и намеренно: C считает во `float`, Python во `float64`, поэтому на
-кадре, где решение принимается впритык, ответы могут законно разойтись.
-Требование «совпадение класса ровно 1.0» давало красные прогоны там, где
-экспорт исправен. Что считается «впритык», у веток разное:
+The feature tolerance is strict (`1e-4`), while class divergence is tolerated
+deliberately: C computes in `float` and Python in `float64`, so on a frame where
+the decision is marginal the answers may legitimately differ. Requiring exact
+1.0 class agreement produced failures on a correct export. What counts as
+marginal differs by branch:
 
-* **A и B** — зазор между двумя лучшими калиброванными оценками меньше `1e-3`;
-* **C** — расстояние от выхода формулы до ближайшего порога не больше, чем
-  само расхождение `float32`/`float64` на этом кадре. Поэтому обвязка на C
-  печатает не только класс, но и выход формулы: расхождение гуляет на
-  полтора порядка от формулы к формуле (`1.6e-05` … `6.9e-04`), и брать порог
-  «на глаз» здесь нельзя.
+* **A and B** — the gap between the two best calibrated scores is below `1e-3`;
+* **C** — the distance from the formula output to the nearest threshold is no
+  greater than the `float32`/`float64` divergence on that frame. The C harness
+  therefore prints the formula output as well as the class: the divergence
+  varies by one and a half orders of magnitude across formulas
+  (`1.6e-05` … `6.9e-04`).
 
-Пороги ветки C выписываются девятью значащими цифрами — минимум, при котором
-десятичная запись однозначно восстанавливает `float32`. Порог и есть граница
-решения, и `%.6f` округлил бы его до соседнего представимого числа.
+Branch C thresholds are written with nine significant digits — the minimum at
+which the decimal form uniquely recovers the `float32`. The threshold is the
+decision boundary, and `%.6f` would round it to a neighboring representable
+number.
 
-## Структура
+## Layout
 
-| файл | что делает |
+| file | role |
 |---|---|
-| `config.py` | гиперпараметры, имена признаков, выбор датасета |
-| `imaging.py` | декодеры BMP и PNG, приведение картинки к входу модели |
-| `data.py` | сканирование папок-классов, кэш, стратифицированный сплит |
-| `features.py` | экстрактор 32 признаков |
-| `oracle.py` | `FeatureMLP` (ветки A и C) и `PixelCNN` (ветка B) |
-| `train_oracle.py` | обучение оракула |
-| `eml_distiller.py` | AST EML, GA, DATA- и ACC-фазы, `EMLClassifier` (A и B) |
-| `eml_single.py` | ветка C: таблица порогов, островная эволюция, `EMLSingle` |
-| `pipeline.py` | сбор датасета логитов, полный прогон, метрики |
-| `export.py` | генерация C |
-| `reports.py` | графики и замеры скорости |
-| `storage.py` | чекпоинты оракула, JSON формул и библиотека именованных моделей |
-| `vision.py` | движок теста: тайлинг кадра, оверлей, источники видео |
-| `gui.py` | интерфейс на tkinter |
+| `config.py` | hyperparameters, feature names, dataset selection |
+| `imaging.py` | BMP and PNG decoders, conversion of an image to model input |
+| `data.py` | class folder scanning, cache, stratified split |
+| `features.py` | extractor of 32 features |
+| `oracle.py` | `FeatureMLP` (branches A and C) and `PixelCNN` (branch B) |
+| `train_oracle.py` | oracle training |
+| `eml_distiller.py` | EML AST, GA, DATA and ACC phases, `EMLClassifier` (A and B) |
+| `eml_single.py` | branch C: threshold table, island evolution, `EMLSingle` |
+| `pipeline.py` | logit dataset collection, full run, metrics |
+| `export.py` | C generation |
+| `reports.py` | plots and speed measurements |
+| `storage.py` | oracle checkpoints, formula JSON, named model library |
+| `vision.py` | test engine: frame tiling, overlay, video sources |
+| `gui.py` | tkinter interface |
 | `main.py` | CLI |
-| `tests/` | 211 тестов на pytest, без датасета и torch |
+| `tests/` | 211 pytest tests, without dataset or torch |
 
-`vision.py` вынесен из `gui.py` намеренно: логика классификации кадра не должна
-зависеть от tkinter. Благодаря этому её можно прогнать из консоли и проверить
-числами, а не разглядывая картинку в окне:
+`vision.py` is separated from `gui.py` so that frame classification logic does
+not depend on tkinter, and can be run from the console and checked numerically:
 
 ```bash
-python vision.py        # самопроверка: тайлинг, точность обоих движков, FPS
+python vision.py        # self-check: tiling, accuracy of both engines, FPS
 ```

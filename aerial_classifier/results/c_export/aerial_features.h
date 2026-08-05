@@ -1,15 +1,16 @@
 /*
- * aerial_features.h — экстрактор 32 признаков из кадра 64x64 RGB.
- * АВТОГЕНЕРАЦИЯ (export.py). Руками не править.
+ * aerial_features.h — extractor of 32 features from a 64x64 RGB frame.
+ * AUTO-GENERATED (export.py). Do not edit by hand.
  *
- * Точная копия features.py. Все пороги и масштабы нормализации вписаны из
- * config.py при генерации, чтобы C и Python не разъехались.
+ * An exact copy of features.py. All thresholds and normalization scales are
+ * written in from config.py at generation time so that C and Python cannot
+ * diverge.
  *
- * Вход:  img — 12288 байт, RGB подряд (r,g,b, r,g,b, ...).
- * Выход: f   — 32 float в диапазоне [-1, 1].
+ * Input:  img — 12288 bytes, RGB interleaved (r,g,b, r,g,b, ...).
+ * Output: f   — 32 floats in the range [-1, 1].
  *
- * Память: одна временная карта яркости float gray[4096] = 16 КБ.
- * Если на целевом МК со стеком туго — сделать её статической или int16_t.
+ * Memory: one temporary luminance map float gray[4096] = 16 KB.
+ * If stack is tight on the target MCU, make it static or int16_t.
  */
 #ifndef AERIAL_FEATURES_H
 #define AERIAL_FEATURES_H
@@ -60,7 +61,7 @@ static void aerial_extract_features(const uint8_t *img, float *f)
 
     for (i = 0; i < AERIAL_ENTROPY_BINS; ++i) hist[i] = 0;
 
-    /* ---- Проход 1: цвет, яркость, насыщенность, гистограмма ---- */
+    /* ---- Pass 1: color, luminance, saturation, histogram ---- */
     for (i = 0; i < NP; ++i) {
         float r = (float)img[3 * i + 0];
         float g = (float)img[3 * i + 1];
@@ -122,7 +123,7 @@ static void aerial_extract_features(const uint8_t *img, float *f)
         f[30] = aer_norm((float)dark * (float)inv, 1.0f);
         f[31] = aer_norm((float)bright * (float)inv, 1.0f);
 
-        /* Энтропия гистограммы яркости. */
+        /* Entropy of the luminance histogram. */
         {
             double h = 0.0;
             for (i = 0; i < AERIAL_ENTROPY_BINS; ++i) {
@@ -133,12 +134,12 @@ static void aerial_extract_features(const uint8_t *img, float *f)
         }
     }
 
-    /* ---- Проход 2: градиенты на сетке (N-1)x(N-1) ---- */
+    /* ---- Pass 2: gradients on an (N-1)x(N-1) grid ---- */
     {
         double sgx = 0, sgy = 0, smag = 0, smagmag = 0;
         double jxx = 0, jyy = 0, jxy = 0;
         int edges = 0, ng = (N - 1) * (N - 1);
-        int c0 = N / 4, c1 = N - N / 4;      /* центральное окно 16..48 */
+        int c0 = N / 4, c1 = N - N / 4;      /* central window 16..48 */
         double smag_c = 0;
         int nc = 0;
 
@@ -177,20 +178,21 @@ static void aerial_extract_features(const uint8_t *img, float *f)
             f[18] = aer_norm((float)edges * (float)invg, 1.0f);
             f[19] = (float)((mgx - mgy) / (mgx + mgy + AERIAL_EPS));
 
-            /* Когерентность структурного тензора: 1 = выраженное одно
-             * направление (дорога), 0 = хаотичная текстура (песок, толпа). */
+            /* Structure tensor coherence: 1 = one pronounced direction (a
+             * road), 0 = chaotic texture (sand, a crowd). */
             jxx *= invg; jyy *= invg; jxy *= invg;
             num = sqrt((jxx - jyy) * (jxx - jyy) + 4.0 * jxy * jxy);
             den = jxx + jyy + AERIAL_EPS;
             f[20] = aer_norm((float)(num / den), 1.0f);
 
-            /* Разность градиентов центр-периферия мельче самого градиента,
-             * поэтому у неё свой масштаб, а не 80.0f. */
+            /* The center-periphery gradient difference is smaller than the
+             * gradient itself, so it has its own scale rather than
+             * 80.0f. */
             f[26] = aer_norm_signed((float)(smag_c / nc - mmag), 20.0f);
         }
     }
 
-    /* ---- Проход 3: блоки, центр/периферия, радиальный профиль, квадранты ---- */
+    /* ---- Pass 3: blocks, center/periphery, radial profile, quadrants ---- */
     {
         int c0 = N / 4, c1 = N - N / 4, half = N / 2;
         double sum_all = 0, sum_center = 0, sat_all = 0, sat_center = 0;
@@ -213,7 +215,7 @@ static void aerial_extract_features(const uint8_t *img, float *f)
             }
         }
 
-        /* Блоки 8x8: шероховатость внутри и разброс между. */
+        /* 8x8 blocks: roughness within and spread between. */
         for (i = 0; i < nb; ++i) {
             for (j = 0; j < nb; ++j) {
                 double s = 0, s2 = 0, m, var;
@@ -232,7 +234,7 @@ static void aerial_extract_features(const uint8_t *img, float *f)
             }
         }
 
-        /* Блоки 16x16: та же неоднородность на вдвое более крупном масштабе. */
+        /* 16x16 blocks: the same inhomogeneity at twice the scale. */
         for (i = 0; i < nb16; ++i) {
             for (j = 0; j < nb16; ++j) {
                 double s = 0, m;
@@ -273,8 +275,8 @@ static void aerial_extract_features(const uint8_t *img, float *f)
             f[29] = aer_norm(sqrtf((float)(vq / 4.0)), 60.0f);
         }
 
-        /* Радиальный профиль: корреляция яркости с расстоянием от центра.
-         * Поворотно-инвариантная замена «верх минус низ». */
+        /* Radial profile: correlation of luminance with distance from the
+         * center. A rotation-invariant replacement for "top minus bottom". */
         gmean = sum_all / NP;
         for (i = 0; i < N; ++i) {
             for (j = 0; j < N; ++j) {

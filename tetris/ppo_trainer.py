@@ -1,17 +1,17 @@
 """
-ppo_trainer.py — обучение CNN-оракула методом PPO (placement-based).
+ppo_trainer.py — training the CNN oracle with PPO (placement-based).
 
-Содержит:
-    VecTetris   — синхронная векторизованная обёртка над N средами
-                  с авто-ресетом и сбором статистики эпизодов.
-    train_ppo() — основной цикл: rollout → GAE → clipped surrogate update.
+Contains:
+    VecTetris   — a synchronous vectorized wrapper over N environments with
+                  auto-reset and episode statistics collection.
+    train_ppo() — the main loop: rollout -> GAE -> clipped surrogate update.
 
-Один шаг среды = одна ПОСТАНОВКА фигуры (см. env.step_placement), поэтому
-награда плотная и кредит присваивается мгновенно. Нелегальные постановки
-закрываются маской в Categorical-распределении.
+One environment step = one piece PLACEMENT (see env.step_placement), so the
+reward is dense and credit is assigned immediately. Illegal placements are
+closed off by a mask in the Categorical distribution.
 
-Реализация ванильного PPO (Schulman et al. 2017) с GAE (lambda).
-Device-aware. Гиперпараметры — из config (резолвятся при вызове).
+A vanilla PPO implementation (Schulman et al. 2017) with GAE (lambda).
+Device-aware. Hyperparameters come from config (resolved at call time).
 """
 
 import time
@@ -28,14 +28,14 @@ from cnn_oracle import (TetrisCNN, get_device, GRID_CHANNELS, SCALAR_SIZE,
                         AFEAT_SIZE)
 
 
-# ── Векторизованная среда ────────────────────────────────────────────────────
+# ── Vectorized environment ───────────────────────────────────────────────────
 
 class VecTetris:
     """
-    Синхронная векторизованная обёртка над N экземплярами TetrisEnv.
+    A synchronous vectorized wrapper over N TetrisEnv instances.
 
-    step() авто-ресетит завершившиеся среды и записывает (return, lines)
-    эпизода в очередь статистики, доступную через pop_episode_stats().
+    step() auto-resets finished environments and records the episode's
+    (return, lines) into a statistics queue available via pop_episode_stats().
     """
 
     def __init__(self, n_envs: int, seed: int = 0):
@@ -56,7 +56,7 @@ class VecTetris:
     def step(self, actions: np.ndarray):
         """
         Args:
-            actions: (N,) int — placement-действия.
+            actions: (N,) int — placement actions.
         Returns:
             grids (N,1,24,10), scalars (N,14), afeats (N,40,19), masks (N,40),
             rewards (N,), dones (N,)
@@ -73,7 +73,7 @@ class VecTetris:
                 self.ep_returns[i] = 0
                 self.ep_lines[i] = 0
                 self.ep_lens[i] = 0
-                obs = env.reset()            # авто-ресет
+                obs = env.reset()            # auto-reset
             grids.append(obs['grid'])
             scalars.append(obs['scalars'])
             afeats.append(obs['afeats'])
@@ -93,7 +93,7 @@ class VecTetris:
                 np.stack([o['mask'] for o in obs_list]))
 
     def pop_episode_stats(self):
-        """Вернуть и очистить накопленную статистику эпизодов."""
+        """Return and clear the accumulated episode statistics."""
         stats = list(self._stats)
         self._stats.clear()
         return stats
@@ -107,7 +107,7 @@ def compute_gae(rewards, values, dones, last_value, gamma, lam):
 
     Args:
         rewards, values, dones: (T, N) np.ndarray.
-        last_value: (N,) бутстрап-значение состояния после последнего шага.
+        last_value: (N,) bootstrap value of the state after the last step.
     Returns:
         advantages (T, N), returns (T, N).
     """
@@ -124,7 +124,7 @@ def compute_gae(rewards, values, dones, last_value, gamma, lam):
     return advantages, returns
 
 
-# ── Основной цикл обучения ───────────────────────────────────────────────────
+# ── Main training loop ───────────────────────────────────────────────────────
 
 def train_ppo(
     total_steps: int | None = None,
@@ -150,9 +150,9 @@ def train_ppo(
     autopilot: bool = False,
 ) -> dict:
     """
-    Обучить TetrisCNN методом PPO.
+    Train a TetrisCNN with PPO.
 
-    Гиперпараметры: None → берётся из config на момент вызова.
+    Hyperparameters: None -> taken from config at call time.
 
     Returns:
         dict: 'model', 'history', 'elapsed', 'total_steps', 'best_avg_lines',
@@ -196,17 +196,17 @@ def train_ppo(
         elif verbose:
             print(f"  [autopilot] {msg}")
 
-    # Автопилот: состояние плато-детектора и авто-сейва.
+    # Autopilot: state of the plateau detector and the auto-save.
     overrides = overrides if overrides is not None else {}
-    ap_since_improve = 0           # апдейтов без улучшения best
-    ap_saved_best = 0.0            # best avg на момент последнего авто-сейва
+    ap_since_improve = 0           # updates without improving best
+    ap_saved_best = 0.0            # best avg at the last auto-save
 
     def _set_lr(new_lr: float):
         nonlocal lr
         lr = new_lr
         for _pg in optimizer.param_groups:
             _pg['lr'] = new_lr
-        overrides['lr'] = new_lr   # чтобы верх цикла не откатил значение
+        overrides['lr'] = new_lr   # so the top of the loop does not revert it
 
     def _set_ent_coef(new_ec: float):
         nonlocal ent_coef
@@ -232,7 +232,7 @@ def train_ppo(
             if 'batch_size' in overrides: batch_size  = int(overrides['batch_size'])
             if 'target' in overrides:     target_score = float(overrides['target'])
 
-        # ── Сбор rollout ──────────────────────────────────────────────────
+        # ── Rollout collection ────────────────────────────────────────────
         b_grids = np.zeros((rollout, n_envs, GRID_CHANNELS,
                             config.BOARD_H_TOTAL, config.BOARD_W),
                            dtype=np.float32)
@@ -270,7 +270,7 @@ def train_ppo(
             b_dones[t] = dones
             global_step += n_envs
 
-        # Бутстрап значения для последнего состояния
+        # Bootstrap value for the last state
         with torch.no_grad():
             g = torch.from_numpy(grids_np).to(device)
             s = torch.from_numpy(scalars_np).to(device)
@@ -293,11 +293,11 @@ def train_ppo(
         f_advantages = advantages.reshape(-1)
         f_returns = returns.reshape(-1)
 
-        # Нормализация advantage
+        # Advantage normalization
         f_advantages = (f_advantages - f_advantages.mean()) / \
                        (f_advantages.std() + 1e-8)
 
-        # ── PPO-обновление (K эпох, мини-батчи) ──────────────────────────
+        # ── PPO update (K epochs, mini-batches) ──────────────────────────
         model.train()
         n_samples = f_grids.shape[0]
         idx = np.arange(n_samples)
@@ -336,7 +336,7 @@ def train_ppo(
                 last_pg, last_vf, last_ent = (pg_loss.item(), vf_loss.item(),
                                               ent_loss.item())
 
-        # ── Статистика ────────────────────────────────────────────────────
+        # ── Statistics ────────────────────────────────────────────────────
         for _, lines, ep_len in vec.pop_episode_stats():
             recent_lines.append(lines)
             recent_lens.append(ep_len)
@@ -348,11 +348,11 @@ def train_ppo(
         if improved:
             best_avg_lines = avg_lines
 
-        # ── Автопилот (обучение без присмотра) ───────────────────────────
+        # ── Autopilot (unattended training) ──────────────────────────────
         if autopilot:
             if improved:
                 ap_since_improve = 0
-                # Авто-сейв при заметном росте best — прогресс не теряется.
+                # Auto-save on a noticeable growth of best — progress is kept.
                 if best_avg_lines >= ap_saved_best + config.AUTOPILOT_SAVE_DELTA:
                     try:
                         path = storage.save_oracle(
@@ -367,14 +367,14 @@ def train_ppo(
                 ap_since_improve += 1
                 if ap_since_improve >= config.AUTOPILOT_PATIENCE:
                     ap_since_improve = 0
-                    # Плато: затухание LR.
+                    # Plateau: LR decay.
                     if lr > config.AUTOPILOT_LR_FLOOR:
                         new_lr = max(config.AUTOPILOT_LR_FLOOR,
                                      lr * config.AUTOPILOT_LR_DECAY)
                         _set_lr(new_lr)
                         _log(f"plateau {config.AUTOPILOT_PATIENCE} upd -> LR "
                              f"{new_lr:.2e}")
-                    # Коллапс энтропии: подбросить ent_coef ради разведки.
+                    # Entropy collapse: raise ent_coef for exploration.
                     if last_ent < config.AUTOPILOT_ENT_FLOOR and \
                             ent_coef < config.AUTOPILOT_ENT_COEF_MAX:
                         new_ec = min(config.AUTOPILOT_ENT_COEF_MAX,

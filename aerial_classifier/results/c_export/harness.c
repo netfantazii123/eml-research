@@ -3,7 +3,7 @@
 #include "aerial_features.h"
 #include "aerial_eml_C.h"
 
-/* Тестовая обвязка: читает сырые кадры, печатает признаки и класс. */
+/* Test harness: reads raw frames, prints the features and the class. */
 int main(int argc, char **argv)
 {
     FILE *fp;
@@ -24,9 +24,9 @@ int main(int argc, char **argv)
         for (i = 0; i < AERIAL_N_FEATURES; ++i) printf("%.6f ", f[i]);
         printf("%d", aerial_classify(f));
 #ifdef AERIAL_N_INTERVALS
-        /* Ветка C: печатаем ещё и сам выход формулы. По нему видно, насколько
-         * float32 разошёлся с float64, — а значит, законно ли расхождение
-         * класса на кадре, легшем вплотную к порогу. */
+        /* Branch C: also print the formula output itself. It shows how far
+         * float32 diverged from float64 — and therefore whether a class
+         * mismatch on a frame lying right next to a threshold is legitimate. */
         printf(" %.9g", aerial_formula(f));
 #endif
         printf("\n");

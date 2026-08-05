@@ -1,19 +1,26 @@
-# Tetris + EML-дистилляция (этап 2, текущий)
+# Tetris + EML distillation (stage 2)
 
-Масштабирование EML-пайплайна: оракул — CNN, обученная PPO с placement-based действиями (поворот × колонка, 40 действий с маской легальности). Политика дистиллируется в одну EML-формулу над инженерными признаками доски (afterstate-оценка в духе Dellacherie).
+Scaling up the EML pipeline: the oracle is a CNN trained with PPO over
+placement-based actions (rotation × column, 40 actions with a legality mask).
+The policy is distilled into a single EML formula over engineered board features
+(afterstate evaluation in the style of Dellacherie).
 
-**Результаты (июль 2026):** лучшая формула играет **355.6 линий/игру = 97.4 % от оракула** при 43 узлах AST и латентности в 5 раз ниже CNN (103 vs 518 мкс). Цели диплома (≥50 % от оракула, <50 узлов) достигнуты.
+**Results:** the best formula plays **355.6 lines/game = 97.4 % of the oracle**
+with 43 AST nodes and 5× lower latency than the CNN (103 vs 518 µs).
 
-## Запуск
+## Running
 
 ```bash
 pip install -r requirements.txt
-python main.py            # список команд
-python main.py train      # обучение CNN-оракула (PPO), ~90 мин на CPU
-python main.py distill    # EML-дистилляция оракула в формулу
-python main.py bench 30   # сравнение CNN vs EML, CSV в results/
-python main.py export     # экспорт формулы в C-инлайн (results/eml_formula.h)
-python main.py gui        # GUI: обучение · дистилляция · play · формулы
+python main.py            # command list
+python main.py train      # train the CNN oracle (PPO), ~90 min on CPU
+python main.py distill    # distill the oracle into an EML formula
+python main.py bench 30   # CNN vs EML comparison, CSV into results/
+python main.py export     # export the formula to inline C (results/eml_formula.h)
+python main.py gui        # GUI: training · distillation · play · formulas
 ```
 
-Итоговые формулы — `models/best_eml*.json`, готовый C-заголовок для микроконтроллера — `results/eml_formula.h`, таблицы для диплома — `results/benchmark_table.csv`. Чекпоинты оракула (`*.pt`) в репозиторий не входят — переобучаются командой `train`.
+Final formulas are in `models/best_eml*.json`, the microcontroller-ready C
+header in `results/eml_formula.h`, and summary tables in
+`results/benchmark_table.csv`. Oracle checkpoints (`*.pt`) are not tracked; they
+are regenerated with `train`.

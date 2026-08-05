@@ -1,14 +1,14 @@
 """
-reports.py — сохранение результатов обучения/дистилляции: графики + история.
+reports.py — saving training/distillation results: plots + history.
 
-Всё пишется в results/:
-    ppo_history.json          — полная история PPO-обучения (по апдейтам)
-    ppo_learning_curve.png    — линии/длина эпизода + лоссы
-    distill_history.json      — история DATA/GAME фаз дистилляции
-    eml_fitness_curve.png     — fitness DATA-фазы + lines GAME-фазы
+Everything is written into results/:
+    ppo_history.json          — full PPO training history (per update)
+    ppo_learning_curve.png    — lines/episode length + losses
+    distill_history.json      — history of the DATA/GAME distillation phases
+    eml_fitness_curve.png     — DATA phase fitness + GAME phase lines
 
-Используется и CLI (main.py train/distill), и GUI (кнопки Save Charts).
-Matplotlib в headless-режиме (Agg) — безопасно из фоновых потоков.
+Used by both the CLI (main.py train/distill) and the GUI (Save Charts buttons).
+Matplotlib in headless mode (Agg) — safe from background threads.
 """
 
 import os
@@ -37,7 +37,7 @@ def _stamp(meta: dict | None) -> dict:
 
 def save_ppo_history(history: list[dict], meta: dict | None = None,
                      path: str | None = None) -> str:
-    """История PPO-обучения → JSON (для диплома: learning curve по точкам)."""
+    """PPO training history -> JSON (the learning curve point by point)."""
     if path is None:
         path = os.path.join(_ensure_results(), 'ppo_history.json')
     with open(path, 'w', encoding='utf-8') as f:
@@ -46,7 +46,7 @@ def save_ppo_history(history: list[dict], meta: dict | None = None,
 
 
 def plot_ppo_history(history: list[dict], path: str | None = None) -> str:
-    """Learning curve PPO → PNG (2 панели: линии/длина + лоссы)."""
+    """PPO learning curve -> PNG (2 panels: lines/length + losses)."""
     if path is None:
         path = os.path.join(_ensure_results(), 'ppo_learning_curve.png')
 
@@ -88,11 +88,11 @@ def plot_ppo_history(history: list[dict], path: str | None = None) -> str:
     return path
 
 
-# ── Дистилляция ──────────────────────────────────────────────────────────────
+# ── Distillation ─────────────────────────────────────────────────────────────
 
 def save_distill_history(result: dict, meta: dict | None = None,
                          path: str | None = None) -> str:
-    """История дистилляции (fitness DATA + lines GAME) → JSON."""
+    """Distillation history (DATA fitness + GAME lines) -> JSON."""
     if path is None:
         path = os.path.join(_ensure_results(), 'distill_history.json')
     data_hist = []
@@ -116,7 +116,7 @@ def save_distill_history(result: dict, meta: dict | None = None,
 
 def plot_distill_history(data_hist: list[float], joint_hist: list[float],
                          path: str | None = None) -> str:
-    """Кривые дистилляции → PNG (DATA fitness + GAME lines)."""
+    """Distillation curves -> PNG (DATA fitness + GAME lines)."""
     if path is None:
         path = os.path.join(_ensure_results(), 'eml_fitness_curve.png')
 

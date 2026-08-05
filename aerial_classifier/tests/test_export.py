@@ -1,11 +1,11 @@
 """
-Тесты генератора C-кода.
+Tests of the C code generator.
 
-Сгенерированный заголовок — конечный артефакт проекта, и рассинхрон между
-features.py и шаблоном в export.py самая вероятная поломка при правках:
-Python считает одно, микроконтроллер другое, а заметно это только по
-`main.py verify-c` — если его вообще запустят. Здесь проверяется то, что
-можно проверить без gcc и без обученных моделей.
+The generated header is the final artifact of the project, and a desync between
+features.py and the template in export.py is the most likely breakage after
+edits: Python computes one thing, the microcontroller another, and it is only
+noticeable through `main.py verify-c` — if it is run at all. What can be checked
+without gcc and without trained models is checked here.
 """
 
 import re
@@ -24,15 +24,15 @@ def inputs_configured():
     dist.configure_inputs(config.N_FEATURES, list(config.FEATURE_NAMES))
 
 
-# ── Экстрактор признаков ──────────────────────────────────────────────────────
+# ── Feature extractor ─────────────────────────────────────────────────────────
 
 def test_features_header_has_no_unfilled_placeholders():
     """
-    Ни одной незакрытой фигурной скобки формата.
+    Not a single unclosed format brace.
 
-    Забытый ключ в generate_features_header упал бы сам, а вот лишний
-    плейсхолдер в шаблоне уехал бы в C как есть и сломал компиляцию уже у
-    того, кто взял заголовок на устройство.
+    A forgotten key in generate_features_header would fail on its own, but a
+    stray placeholder in the template would travel into the C as is and break
+    compilation for whoever took the header to a device.
     """
     header = export.generate_features_header()
     assert not re.search(r'(?<!\{)\{[a-z_][a-z0-9_]*\}', header)
@@ -40,11 +40,11 @@ def test_features_header_has_no_unfilled_placeholders():
 
 def test_features_header_uses_dedicated_center_edge_scale():
     """
-    f[26] нормируется своей константой, а не общей _SCALE_GRAD_MAG.
+    f[26] is normalized by its own constant, not the shared _SCALE_GRAD_MAG.
 
-    Тест держит на месте исправление масштаба center_edge_diff: разъехавшись,
-    Python и C дали бы для этого признака разные числа — молча, потому что
-    формы и типы совпадают.
+    The test keeps the center_edge_diff scale fix in place: if they diverged,
+    Python and C would give different numbers for this feature — silently,
+    because the shapes and types match.
     """
     header = export.generate_features_header()
     line = next(ln for ln in header.splitlines() if 'f[26]' in ln)
@@ -53,7 +53,7 @@ def test_features_header_uses_dedicated_center_edge_scale():
 
 
 def test_features_header_carries_config_constants():
-    """Пороги вписываются из config, а не дублируются в шаблоне руками."""
+    """Thresholds are written in from config rather than duplicated by hand."""
     header = export.generate_features_header()
     for value in (config.EDGE_THRESHOLD, config.DARK_THRESHOLD,
                   config.BRIGHT_THRESHOLD):
@@ -64,18 +64,18 @@ def test_features_header_carries_config_constants():
 
 
 def test_features_header_assigns_every_feature():
-    """Каждый из 32 признаков должен получить значение в C-коде."""
+    """Each of the 32 features must receive a value in the C code."""
     header = export.generate_features_header()
     for i in range(config.N_FEATURES):
-        assert re.search(rf'f\[{i}\]\s*=', header), f"признак {i} не заполнен"
+        assert re.search(rf'f\[{i}\]\s*=', header), f"feature {i} is not filled"
 
 
 def test_radial_constants_match_python():
     """
-    Константы радиального профиля в C совпадают с посчитанными в features.py.
+    The radial profile constants in C match those computed in features.py.
 
-    Они не берутся из config, а вычисляются по геометрии кадра — значит могут
-    разъехаться при смене IMG_SIZE.
+    They do not come from config but are derived from the frame geometry — so
+    they can diverge when IMG_SIZE changes.
     """
     header = export.generate_features_header()
     assert f"{features._DIST_STD:.10f}" in header
@@ -87,7 +87,7 @@ def test_radial_constants_match_python():
     assert export._dist_mean() == pytest.approx(expected_mean, rel=1e-12)
 
 
-# ── Формулы ───────────────────────────────────────────────────────────────────
+# ── Formulas ──────────────────────────────────────────────────────────────────
 
 def toy_classifier():
     trees = [
@@ -103,7 +103,7 @@ def toy_classifier():
 
 
 def test_formulas_header_is_named_after_branch():
-    """Имя в шапке файла должно совпадать с именем самого файла."""
+    """The name in the file header must match the file name itself."""
     header = export.generate_formulas_header(
         toy_classifier(), list(config.FEATURE_NAMES), {}, branch='A')
     assert 'aerial_eml_A.h' in header
@@ -112,8 +112,8 @@ def test_formulas_header_is_named_after_branch():
 
 def test_formulas_header_contains_calibration():
     """
-    Калибровка — часть артефакта, а не отладочная информация: без неё argmax
-    между четырьмя независимыми формулами не имеет смысла.
+    The calibration is part of the artifact rather than debug information:
+    without it the argmax between four independent formulas is meaningless.
     """
     clf = toy_classifier()
     header = export.generate_formulas_header(
@@ -127,7 +127,7 @@ def test_formulas_header_contains_calibration():
 
 
 def test_formulas_header_translates_ast():
-    """Переменная становится x[i], константа — литералом, eml — вызовом eml_op."""
+    """A variable becomes x[i], a constant a literal, eml a call to eml_op."""
     header = export.generate_formulas_header(
         toy_classifier(), list(config.FEATURE_NAMES), {}, branch='A')
     assert 'eml_op(x[20], -0.367000f)' in header
@@ -145,8 +145,9 @@ def test_export_writes_expected_files(tmp_path):
 
 def test_branch_b_export_has_no_feature_extractor(tmp_path):
     """
-    У ветки B вход формул — выход свёрток, экстрактор признаков ей не подходит.
-    Класть его рядом значило бы намекать, что ветка B тоже обходится без сети.
+    In branch B the formula input is the convolution output, so the feature
+    extractor does not apply to it. Placing it alongside would imply that branch
+    B also does without the network.
     """
     written = export.export_all(toy_classifier(),
                                 [f'e{i}' for i in range(config.CNN_EMBED_DIM)],
@@ -156,7 +157,7 @@ def test_branch_b_export_has_no_feature_extractor(tmp_path):
     assert written[0].endswith('aerial_eml_B.h')
 
 
-# ── Ветка C: одна формула и таблица порогов ───────────────────────────────────
+# ── Branch C: one formula and a threshold table ───────────────────────────────
 
 def toy_single(thresholds=(-2.5, 1.25, 22021.0156), labels=(0, 3, 2, 1)):
     import eml_single as single
@@ -168,7 +169,7 @@ def toy_single(thresholds=(-2.5, 1.25, 22021.0156), labels=(0, 3, 2, 1)):
 
 
 def test_single_header_has_thresholds_and_labels():
-    """Таблица порогов и метки участков попадают в C целиком."""
+    """The threshold table and interval labels reach the C in full."""
     model = toy_single()
     header = export.generate_single_header(model, list(config.FEATURE_NAMES),
                                            {}, branch='C')
@@ -176,17 +177,17 @@ def test_single_header_has_thresholds_and_labels():
     assert '#define AERIAL_N_THRESHOLDS 3' in header
     assert 'aerial_interval_class[AERIAL_N_INTERVALS] = { 0, 3, 2, 1 }' in header
     assert 'aerial_classify' in header
-    # Калибровки у ветки C нет по построению: сравнивать нечего.
+    # Branch C has no calibration by construction: there is nothing to compare.
     assert 'aerial_offset' not in header
 
 
 def test_single_header_thresholds_round_trip_through_float32():
     """
-    Порог читается из C обратно ровно тем же float32.
+    A threshold is read back from C as exactly the same float32.
 
-    Порог — это и есть граница решения. Записанный с недостаточной точностью,
-    он сместится, и часть кадров на устройстве получит другой класс: сверка
-    verify-c покраснеет при исправном во всём остальном экспорте.
+    The threshold is the decision boundary. Written with insufficient precision
+    it shifts, and some frames on the device get a different class: the verify-c
+    comparison fails on an otherwise correct export.
     """
     values = [-2.5, 1.2345678e-05, 22021.015625, 22024.258]
     model = toy_single(thresholds=values[:3], labels=(0, 1, 2, 3))
@@ -200,11 +201,11 @@ def test_single_header_thresholds_round_trip_through_float32():
 
 def test_single_header_survives_a_degenerate_table():
     """
-    Один участок — тоже валидный C.
+    A single interval is valid C too.
 
-    Вырожденная формула (константа) даёт таблицу без порогов, а массив нулевой
-    длины в C некорректен: заголовок просто не скомпилировался бы, причём
-    только в том редком прогоне, где эволюция ничего не нашла.
+    A degenerate formula (a constant) yields a table without thresholds, and a
+    zero-length array is not valid C: the header would simply fail to compile,
+    and only in the rare run where evolution found nothing.
     """
     header = export.generate_single_header(
         toy_single(thresholds=(), labels=(2,)),
@@ -214,7 +215,7 @@ def test_single_header_survives_a_degenerate_table():
 
 
 def test_branch_c_export_keeps_feature_extractor(tmp_path):
-    """Ветка C работает на тех же признаках, что и A, — экстрактор ей нужен."""
+    """Branch C runs on the same features as A — it needs the extractor."""
     written = export.export_all(toy_single(), list(config.FEATURE_NAMES), {},
                                 branch='C', out_dir=str(tmp_path), verbose=False)
     names = sorted(p.rsplit('\\', 1)[-1].rsplit('/', 1)[-1] for p in written)

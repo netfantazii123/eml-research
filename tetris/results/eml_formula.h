@@ -1,15 +1,15 @@
 /*
- * eml_formula.h — дистиллированная EML-политика Tetris (автогенерация).
+ * eml_formula.h — distilled Tetris EML policy (auto-generated).
  *
- * Источник: models/best_eml.json
+ * Source: models/best_eml.json
  * AST: size=83  depth=7  unique_vars=23
- * Метрики дистилляции: {'final_lines': 121.33333333333331, 'base_lines': 8.333333333333334, 'oracle_lines': 105.0, 'ratio_pct': 115.55555555555554, 'dataset_size': 251492, 'depth_penalty': 'medium', 'joint': True}
+ * Distillation metrics: {'final_lines': 121.33333333333331, 'base_lines': 8.333333333333334, 'oracle_lines': 105.0, 'ratio_pct': 115.55555555555554, 'dataset_size': 251492, 'depth_penalty': 'medium', 'joint': True}
  *
- * Использование: для каждой легальной постановки заполнить f[26]
- * (нормализация как в features.py: [-1,1]) и выбрать постановку
- * с максимальным eml_formula(f).
+ * Usage: for every legal placement fill f[26] (normalized as in
+ * features.py: [-1,1]) and choose the placement with the maximum
+ * eml_formula(f).
  *
- * Индексы признаков:
+ * Feature indices:
  *   f[ 0] = h0
  *   f[ 1] = h1
  *   f[ 2] = h2

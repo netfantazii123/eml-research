@@ -1,82 +1,84 @@
 """
-vision.py — движок инференса для вкладок «Тест · Фото» и «Тест · Видео».
+vision.py — the inference engine for the "Test · Photo" and "Test · Video" tabs.
 
-Вынесен из gui.py намеренно: логика классификации кадра не должна зависеть от
-tkinter. Благодаря этому её можно прогнать из консоли (`python vision.py`) и
-проверить численно, а не «на глаз» по картинке в окне.
+Separated from gui.py deliberately: frame classification logic must not depend
+on tkinter. This makes it possible to run it from the console
+(`python vision.py`) and check it numerically rather than by eye on a picture in
+a window.
 
-Что здесь есть:
+Contents:
 
-    Predictor    — единый интерфейс к обеим моделям. Оракул и EML-формулы
-                   отвечают на один и тот же вопрос («что на этом кадре 64x64»)
-                   и потому вызываются одинаково; вкладка теста только
-                   переключает движок и сравнивает ответы.
-    тайлинг      — разбиение большого кадра на окна 64x64. Модель обучена
-                   именно на таких вырезках, поэтому единственный честный
-                   способ применить её к кадру целиком — нарезать его так же.
-    оверлей      — полупрозрачная заливка каждого окна цветом класса, numpy.
-                   Текст здесь НЕ рисуется: подписи кладёт tk.Canvas поверх
-                   картинки, так они выходят резче и не портят сам кадр.
-    VideoSource  — обёртка над cv2.VideoCapture (файл или веб-камера).
+    Predictor    — a single interface to both models. The oracle and the EML
+                   formulas answer the same question ("what is in this 64x64
+                   frame") and are therefore called the same way; the test tab
+                   only switches the engine and compares the answers.
+    tiling       — splitting a large frame into 64x64 windows. The model was
+                   trained on exactly such crops, so the only honest way to
+                   apply it to a whole frame is to cut it the same way.
+    overlay      — a semi-transparent fill of each window in the class color,
+                   in numpy. Text is NOT drawn here: labels are placed by
+                   tk.Canvas over the image, which renders sharper and does not
+                   corrupt the frame itself.
+    VideoSource  — a wrapper over cv2.VideoCapture (file or webcam).
 
-OpenCV нужен ТОЛЬКО для VideoSource и импортируется лениво. Фото-режим, тайлинг
-и оверлей работают на чистом numpy, поэтому отсутствие cv2 отключает вкладку
-видео, но не ломает остальное.
+OpenCV is needed ONLY for VideoSource and is imported lazily. Photo mode, tiling
+and the overlay work in pure numpy, so a missing cv2 disables the video tab
+without breaking anything else.
 """
 
 import numpy as np
 
 import config
 
-# Цвета классов для оверлея (RGB). Различимы и в цвете, и в оттенках серого.
+# Class colors for the overlay (RGB). Distinguishable in color and in grayscale.
 CLASS_COLORS = {
-    'BEACH':  (249, 226, 175),   # песочно-жёлтый
-    'MOTO':   (243, 139, 168),   # красный
-    'PEOPLE': (166, 227, 161),   # зелёный
-    'ROADS':  (137, 180, 250),   # синий
+    'BEACH':  (249, 226, 175),   # sandy yellow
+    'MOTO':   (243, 139, 168),   # red
+    'PEOPLE': (166, 227, 161),   # green
+    'ROADS':  (137, 180, 250),   # blue
 }
 
-DEFAULT_TILE = config.IMG_SIZE          # 64 — размер, на котором обучались
-DEFAULT_STRIDE = config.IMG_SIZE        # без перекрытия
+DEFAULT_TILE = config.IMG_SIZE          # 64 — the size the models were trained on
+DEFAULT_STRIDE = config.IMG_SIZE        # no overlap
 
 
 def class_color(class_idx: int) -> tuple[int, int, int]:
     """
-    Цвет класса для оверлея и графиков.
+    Class color for the overlay and the plots.
 
-    Для классов исходного датасета цвета подобраны вручную. Для чужой папки с
-    произвольными именами они генерируются по индексу: раньше все неизвестные
-    классы получали один и тот же серый, и оверлей на новом датасете превращался
-    в равномерную заливку, по которой ничего не видно.
+    Colors for the classes of the reference dataset are chosen by hand. For a
+    foreign folder with arbitrary names they are generated from the index:
+    previously every unknown class got the same gray, and the overlay on a new
+    dataset turned into a uniform fill showing nothing.
     """
     if class_idx < len(config.CLASS_NAMES):
         known = CLASS_COLORS.get(config.CLASS_NAMES[class_idx])
         if known is not None:
             return known
-    # Золотое сечение по кругу оттенков: соседние индексы получают далёкие
-    # цвета, и разных классов может быть сколько угодно.
+    # Golden ratio around the hue circle: neighboring indices get distant
+    # colors, and there may be arbitrarily many classes.
     import colorsys
     hue = (class_idx * 0.618033988749895) % 1.0
     r, g, b = colorsys.hsv_to_rgb(hue, 0.45, 0.95)
     return int(r * 255), int(g * 255), int(b * 255)
 
 
-# ── Единый интерфейс к моделям ────────────────────────────────────────────────
+# ── Single interface to the models ────────────────────────────────────────────
 
 class Predictor:
     """
-    Классификатор кадров 64x64 — либо нейросеть-оракул, либо EML-формулы.
+    Classifier of 64x64 frames — either the neural oracle or the EML formulas.
 
-    Оба движка отвечают на один вопрос и возвращают одинаковые структуры,
-    поэтому вкладка теста может переключать их одной кнопкой и показывать
-    ответы рядом.
+    Both engines answer the same question and return identical structures, so
+    the test tab can switch them with one button and show the answers side by
+    side.
 
     Args:
-        branch: 'A' (признаки) или 'B' (эмбеддинг CNN).
-        engine: 'eml' — дистиллированные формулы, 'oracle' — нейросеть.
-        path:   конкретный файл модели вместо активного слота. Через него
-                вкладки теста прогоняют кадр любой моделью из библиотеки —
-                сравнить две сохранённые модели на одном кадре иначе никак.
+        branch: 'A' (features) or 'B' (CNN embedding).
+        engine: 'eml' — the distilled formulas, 'oracle' — the neural network.
+        path:   a specific model file instead of the active slot. The test tabs
+                use it to run a frame through any model from the library —
+                otherwise two saved models cannot be compared on one frame.
     """
 
     def __init__(self, branch: str = 'A', engine: str = 'eml',
@@ -84,8 +86,8 @@ class Predictor:
         self.branch = branch.upper()
         self.engine = engine.lower()
         if self.engine not in ('eml', 'oracle'):
-            raise ValueError(f"engine должен быть 'eml' или 'oracle', "
-                             f"получено {engine!r}")
+            raise ValueError(f"engine must be 'eml' or 'oracle', "
+                             f"got {engine!r}")
         self.path = path
         self._model = None
         self._clf = None
@@ -94,11 +96,12 @@ class Predictor:
     @property
     def oracle_branch(self) -> str:
         """
-        Чей оракул стоит за этой веткой.
+        Whose oracle stands behind this branch.
 
-        Ветка C работает в пространстве признаков ветки A и учится у того же
-        MLP — своего оракула у неё нет и быть не должно, иначе сравнение
-        «одна формула против четырёх» мерило бы заодно и разницу оракулов.
+        Branch C works in the branch A feature space and learns from the same
+        MLP — it has no oracle of its own and must not have one, otherwise the
+        "one formula against four" comparison would also measure a difference
+        between oracles.
         """
         return 'B' if self.branch == 'B' else 'A'
 
@@ -119,13 +122,14 @@ class Predictor:
             import eml_distiller as dist
             self._clf, payload = storage.load_classifier(branch=self.branch,
                                                          path=self.path)
-            # Формулы индексируют входы по номеру — сообщаем движку, какое
-            # пространство сейчас активно, иначе to_string() наврёт с именами.
+            # The formulas index inputs by number — tell the engine which space
+            # is active now, otherwise to_string() reports the wrong names.
             dist.configure_inputs(len(payload['input_names']),
                                   payload['input_names'])
             self.meta = payload.get('meta', {})
             if self.branch == 'B':
-                # Ветка B: вход формул — эмбеддинг, значит CNN всё равно нужна.
+                # Branch B: the formula input is an embedding, so the CNN is
+                # still needed.
                 import oracle as oracle_mod
                 self._device = oracle_mod.get_device()
                 self._model = oracle_mod.PixelCNN()
@@ -134,76 +138,77 @@ class Predictor:
                 self._model.eval()
 
     def label(self) -> str:
-        """Короткое имя движка для подписи в интерфейсе."""
-        name = 'EML-формулы' if self.engine == 'eml' else 'нейросеть-оракул'
+        """Short engine name for the GUI caption."""
+        name = 'EML formulas' if self.engine == 'eml' else 'neural oracle'
         model = self.meta.get('library_name') if self.meta else None
         suffix = f", {model}" if model and self.path else ""
-        return f"{name} (ветка {self.branch}{suffix})"
+        return f"{name} (branch {self.branch}{suffix})"
 
     @property
     def is_single(self) -> bool:
-        """Ветка C: одна формула и таблица порогов вместо набора и argmax."""
+        """Branch C: one formula and a threshold table instead of a set + argmax."""
         return self._clf is not None and hasattr(self._clf, 'decoder')
 
     @property
     def conf_is_probability(self) -> bool:
         """
-        Можно ли называть третье возвращаемое значение вероятностью.
+        Whether the third return value may be called a probability.
 
-        У оракула да: softmax логитов обученной на кросс-энтропии сети —
-        настоящая оценка вероятности класса. У формул НЕТ: их выходы никто не
-        калибровал как вероятности, softmax над ними — просто монотонное
-        приведение к [0, 1]. Интерфейс обязан подписывать эти два числа
-        по-разному, иначе рядом стоят «87%» и «87%», означающие разное.
+        For the oracle, yes: the softmax of the logits of a network trained on
+        cross-entropy is an actual class probability estimate. For the formulas,
+        NO: their outputs were never calibrated as probabilities, and a softmax
+        over them is only a monotone mapping to [0, 1]. The GUI must label these
+        two numbers differently, otherwise "87%" and "87%" sit side by side
+        meaning different things.
         """
         return self.engine == 'oracle'
 
     def conf_label(self) -> str:
-        """Как подписать conf в интерфейсе."""
+        """How to label conf in the GUI."""
         if self.conf_is_probability:
-            return 'уверенность'
-        return 'запас' if self.is_single else 'оценка'
+            return 'confidence'
+        return 'margin' if self.is_single else 'score'
 
     @property
     def conf_floor(self) -> float:
         """
-        Наименьшее значение, которое conf вообще может принять.
+        The smallest value conf can possibly take.
 
-        У softmax по N классам максимум не бывает меньше 1/N, поэтому порог
-        уверенности ниже этой величины не фильтрует ничего — интерфейс обязан
-        об этом сказать. У ветки C conf это доля участка оси, отделяющая кадр
-        от ближайшего порога, и она честно доходит до нуля.
+        For a softmax over N classes the maximum is never below 1/N, so a
+        confidence threshold below that value filters nothing — the GUI must say
+        so. For branch C, conf is the fraction of the axis interval separating
+        the frame from the nearest threshold, and it does reach zero.
         """
         return 0.0 if self.is_single else 1.0 / max(config.N_CLASSES, 1)
 
     def predict(self, crops: np.ndarray):
         """
-        Классифицировать пачку кадров 64x64.
+        Classify a batch of 64x64 frames.
 
         Args:
             crops: (N, 64, 64, 3) uint8 RGB.
 
         Returns:
-            preds:  (N,) int   — индекс класса;
-            scores: (N, 4)     — оценки классов;
-            conf:   (N,)       — softmax(оценки).max().
+            preds:  (N,) int   — class index;
+            scores: (N, 4)     — class scores;
+            conf:   (N,)       — softmax(scores).max().
 
-        Про conf: для оракула это настоящая вероятность после softmax, для
-        формул — лишь удобный прокси. Выходы EML не калибровались как
-        вероятности, их softmax не имеет вероятностного смысла и годится
-        только чтобы отсортировать окна по «уверенности» на оверлее.
-        Проверять, что именно вернулось, — через conf_is_probability.
+        On conf: for the oracle this is an actual probability after softmax, for
+        the formulas only a convenient proxy. EML outputs were not calibrated as
+        probabilities, their softmax has no probabilistic meaning, and it is
+        only good for sorting windows by "confidence" on the overlay. Use
+        conf_is_probability to check which one was returned.
 
-        И для того, и для другого движка нижняя граница здесь 1/4, а не 0:
-        softmax по 4 классам меньше 0.25 максимум не даёт. Порог уверенности
-        ниже 0.25 поэтому не фильтрует ничего.
+        For both engines the lower bound here is 1/4 rather than 0: a softmax
+        over 4 classes never yields a maximum below 0.25. A confidence threshold
+        below 0.25 therefore filters nothing.
         """
         crops = np.asarray(crops)
         if crops.ndim == 3:
             crops = crops[None, ...]
         if crops.shape[1:] != (config.IMG_SIZE, config.IMG_SIZE, 3):
-            raise ValueError(f"ожидались кадры {config.IMG_SIZE}x"
-                             f"{config.IMG_SIZE}x3, получено {crops.shape[1:]}")
+            raise ValueError(f"expected {config.IMG_SIZE}x{config.IMG_SIZE}x3 "
+                             f"frames, got {crops.shape[1:]}")
 
         if self.is_single:
             return self._predict_single(crops)
@@ -214,14 +219,16 @@ class Predictor:
 
     def _predict_single(self, crops: np.ndarray):
         """
-        Ветка C: класс из таблицы порогов, «уверенность» — запас до порога.
+        Branch C: class from the threshold table, "confidence" = margin to the
+        threshold.
 
-        Softmax тут не годится совсем. Выход формулы доходит до 2.2e4, а
-        оценки классов ветки C это расстояния по той же оси; softmax от них
-        насыщается в единицу почти всегда, и порог уверенности перестал бы
-        фильтровать что-либо. Осмысленная величина здесь другая: насколько
-        глубоко кадр сидит внутри своего участка. 0 — вплотную к порогу,
-        1 — ровно посередине участка. У неё и шкала честная, и смысл понятный.
+        Softmax is entirely unsuitable here. The formula output reaches 2.2e4,
+        and branch C class scores are distances along the same axis; a softmax
+        of them saturates to one almost always, and the confidence threshold
+        would stop filtering anything. The meaningful quantity here is
+        different: how deep the frame sits inside its interval. 0 — right at the
+        threshold, 1 — exactly in the middle of the interval. Its scale is
+        honest and its meaning is clear.
         """
         import features as features_mod
 
@@ -234,10 +241,11 @@ class Predictor:
                                 [np.inf]))
         idx = np.searchsorted(self._clf.decoder.thresholds, values, side='right')
         lo, hi = edges[idx], edges[idx + 1]
-        gap = np.minimum(values - lo, hi - values)          # запас до порога
+        gap = np.minimum(values - lo, hi - values)          # margin to threshold
         width = hi - lo
-        # Крайние участки бесконечны: там запас ограничен только своей
-        # стороной, и делить его не на что — считаем такой кадр уверенным.
+        # The outermost intervals are infinite: there the margin is bounded only
+        # on its own side and there is nothing to divide it by — such a frame
+        # counts as confident.
         conf = np.where(np.isfinite(width), 2.0 * gap / np.maximum(width, 1e-30),
                         1.0)
         return preds, scores, np.clip(conf, 0.0, 1.0)
@@ -262,7 +270,7 @@ class Predictor:
         return self._clf.scores(x)
 
     def formulas(self) -> list[str]:
-        """Тексты формул — для показа во вкладке теста."""
+        """Formula texts — for display in the test tab."""
         if self._clf is None:
             return []
         if self.is_single:
@@ -272,11 +280,11 @@ class Predictor:
 
 def softmax(z: np.ndarray) -> np.ndarray:
     """
-    Softmax по строкам, с вычитанием максимума против переполнения.
+    Row-wise softmax, subtracting the maximum to avoid overflow.
 
-    Публичная функция: интерфейсу она нужна, чтобы привести оценки оракула
-    (логиты) и формул (калиброванные выходы) к одной шкале — иначе столбики
-    двух движков на одном графике несопоставимы.
+    A public function: the GUI needs it to bring the oracle scores (logits) and
+    the formula scores (calibrated outputs) to a common scale — otherwise the
+    bars of the two engines on one plot are not comparable.
     """
     z = np.asarray(z, dtype=np.float64)
     z = z - z.max(axis=1, keepdims=True)
@@ -284,20 +292,22 @@ def softmax(z: np.ndarray) -> np.ndarray:
     return e / e.sum(axis=1, keepdims=True)
 
 
-# ── Тайлинг кадра ─────────────────────────────────────────────────────────────
+# ── Frame tiling ──────────────────────────────────────────────────────────────
 
 def tile_positions(height: int, width: int, tile: int = DEFAULT_TILE,
                    stride: int | None = None) -> list[tuple[int, int]]:
     """
-    Левые верхние углы всех окон, целиком помещающихся в кадр.
+    Top-left corners of all windows that fit entirely inside the frame.
 
-    Остаток справа и снизу отбрасывается, а не дополняется: дополненное окно
-    содержало бы выдуманные пиксели, и классификация по нему была бы враньём.
+    The remainder on the right and at the bottom is discarded rather than
+    padded: a padded window would contain invented pixels, and classifying it
+    would be a lie.
 
-    Кадр меньше окна => окон НЕТ (пустой список). Раньше здесь стояло
-    max(h - tile + 1, 1), и такой кадр давал одну позицию (0, 0), по которой
-    extract_tiles потом падал на несовпадении форм: окно 64x64 не вырезается
-    из кадра 40x30. Вызывающий код пустой список уже обрабатывает.
+    A frame smaller than the window => NO windows (an empty list). Previously
+    this used max(h - tile + 1, 1), and such a frame produced one position
+    (0, 0), on which extract_tiles then failed on a shape mismatch: a 64x64
+    window cannot be cut out of a 40x30 frame. The calling code already handles
+    the empty list.
     """
     stride = stride or tile
     if height < tile or width < tile:
@@ -309,7 +319,7 @@ def tile_positions(height: int, width: int, tile: int = DEFAULT_TILE,
 
 def extract_tiles(frame: np.ndarray, positions, tile: int = DEFAULT_TILE
                   ) -> np.ndarray:
-    """Вырезать окна по списку позиций -> (N, tile, tile, 3) uint8."""
+    """Cut out windows at the listed positions -> (N, tile, tile, 3) uint8."""
     out = np.empty((len(positions), tile, tile, 3), dtype=np.uint8)
     for i, (y, x) in enumerate(positions):
         out[i] = frame[y:y + tile, x:x + tile]
@@ -320,15 +330,16 @@ def draw_overlay(frame: np.ndarray, positions, preds, conf=None,
                  tile: int = DEFAULT_TILE, alpha: float = 0.35,
                  conf_threshold: float = 0.0) -> np.ndarray:
     """
-    Залить каждое окно полупрозрачным цветом его класса.
+    Fill every window with a semi-transparent color of its class.
 
     Args:
-        alpha: сила заливки; 0 — ничего не видно, 1 — исходный кадр закрашен.
-        conf_threshold: окна с меньшей уверенностью не закрашиваются —
-            так на кадре сразу видно, где модель сомневается.
+        alpha: fill strength; 0 — nothing visible, 1 — the source frame is
+            painted over.
+        conf_threshold: windows with lower confidence are not filled — this
+            immediately shows where the model is uncertain on the frame.
 
-    Возвращает НОВЫЙ массив; исходный кадр не трогается, иначе повторный
-    рендер накладывал бы заливку на заливку и картинка бы «выгорала».
+    Returns a NEW array; the source frame is not touched, otherwise a repeated
+    render would stack fills and the image would wash out.
     """
     out = frame.astype(np.float32).copy()
     for i, (y, x) in enumerate(positions):
@@ -341,7 +352,7 @@ def draw_overlay(frame: np.ndarray, positions, preds, conf=None,
 
 
 def center_crop(frame: np.ndarray, size: int = DEFAULT_TILE) -> np.ndarray:
-    """Центральное окно size x size. Если кадр меньше — растянуть повтором."""
+    """Central size x size window. If the frame is smaller — upscale by repeat."""
     h, w = frame.shape[:2]
     if h < size or w < size:
         frame = resize_nearest(frame, max(size, h), max(size, w))
@@ -353,10 +364,10 @@ def center_crop(frame: np.ndarray, size: int = DEFAULT_TILE) -> np.ndarray:
 
 def resize_nearest(frame: np.ndarray, height: int, width: int) -> np.ndarray:
     """
-    Масштабирование ближайшим соседом на чистом numpy.
+    Nearest-neighbor scaling in pure numpy.
 
-    Нужно, чтобы показ и подгонка кадров не тянули за собой Pillow или cv2:
-    видео-вкладка опциональна, а фото-режим должен работать всегда.
+    Needed so that displaying and fitting frames does not pull in Pillow or cv2:
+    the video tab is optional, while photo mode must always work.
     """
     h, w = frame.shape[:2]
     ys = (np.arange(height) * h // height).clip(0, h - 1)
@@ -367,11 +378,11 @@ def resize_nearest(frame: np.ndarray, height: int, width: int) -> np.ndarray:
 def mosaic(crops: np.ndarray, rows: int, cols: int,
            tile: int = DEFAULT_TILE) -> np.ndarray:
     """
-    Сложить кадры 64x64 в одно большое изображение rows x cols.
+    Assemble 64x64 frames into one large rows x cols image.
 
-    Используется для проверки тайлинга: из вырезок с ИЗВЕСТНЫМИ метками
-    собирается «кадр», и можно точно посчитать, сколько окон оверлей разметил
-    правильно. Без этого видео-режим пришлось бы оценивать на глаз.
+    Used to verify tiling: a "frame" is assembled from crops with KNOWN labels,
+    and it becomes possible to count exactly how many windows the overlay
+    labeled correctly. Without this, video mode could only be judged by eye.
     """
     frame = np.zeros((rows * tile, cols * tile, 3), dtype=np.uint8)
     for i in range(min(len(crops), rows * cols)):
@@ -380,18 +391,18 @@ def mosaic(crops: np.ndarray, rows: int, cols: int,
     return frame
 
 
-# ── Источник видео ────────────────────────────────────────────────────────────
+# ── Video source ──────────────────────────────────────────────────────────────
 
 class VideoUnavailable(RuntimeError):
-    """OpenCV не установлен либо источник не открылся."""
+    """OpenCV is not installed, or the source did not open."""
 
 
 class VideoSource:
     """
-    Обёртка над cv2.VideoCapture: видеофайл или веб-камера.
+    Wrapper over cv2.VideoCapture: a video file or a webcam.
 
-    cv2 импортируется лениво и только здесь — всё остальное в проекте от него
-    не зависит (см. requirements.txt).
+    cv2 is imported lazily and only here — nothing else in the project depends
+    on it (see requirements.txt).
     """
 
     def __init__(self, source, max_width: int = 960):
@@ -399,27 +410,27 @@ class VideoSource:
             import cv2
         except ImportError as exc:
             raise VideoUnavailable(
-                "для вкладки видео нужен OpenCV:\n"
+                "the video tab requires OpenCV:\n"
                 "    pip install opencv-python\n"
-                "Остальной проект от него не зависит.") from exc
+                "The rest of the project does not depend on it.") from exc
 
         self._cv2 = cv2
         self.source = source
         self.max_width = max_width
         self.cap = cv2.VideoCapture(source)
         if not self.cap.isOpened():
-            raise VideoUnavailable(f"не удалось открыть источник: {source}")
+            raise VideoUnavailable(f"could not open the source: {source}")
 
         self.fps = self.cap.get(cv2.CAP_PROP_FPS) or 0.0
         self.n_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         self.is_camera = isinstance(source, int)
 
     def read(self) -> np.ndarray | None:
-        """Следующий кадр в RGB или None, если поток кончился."""
+        """The next frame in RGB, or None if the stream ended."""
         ok, frame = self.cap.read()
         if not ok or frame is None:
             return None
-        frame = frame[:, :, ::-1]                     # OpenCV отдаёт BGR
+        frame = frame[:, :, ::-1]                     # OpenCV returns BGR
         h, w = frame.shape[:2]
         if w > self.max_width:
             scale = self.max_width / w
@@ -443,21 +454,21 @@ class VideoSource:
 
 def write_image(path: str, frame: np.ndarray) -> str:
     """
-    Сохранить кадр RGB в PNG БЕЗ пересэмплинга — ровно те пиксели, что пришли.
+    Save an RGB frame to PNG WITHOUT resampling — exactly the pixels that came in.
 
-    Кодировщик PNG написан здесь на zlib из стандартной библиотеки (полтора
-    десятка строк), поэтому сохранение кадра, как и всё остальное кроме
-    декодера видео, не требует ни OpenCV, ни Pillow. Если cv2 всё же
-    установлен, пишем им — он быстрее на больших кадрах.
+    The PNG encoder is written here over zlib from the standard library (about
+    fifteen lines), so saving a frame, like everything else except the video
+    decoder, requires neither OpenCV nor Pillow. If cv2 is installed after all,
+    it is used — it is faster on large frames.
     """
     frame = np.ascontiguousarray(frame, dtype=np.uint8)
     if frame.ndim != 3 or frame.shape[2] != 3:
-        raise ValueError(f"ожидался кадр (H, W, 3) uint8, получен {frame.shape}")
+        raise ValueError(f"expected an (H, W, 3) uint8 frame, got {frame.shape}")
 
     try:
         import cv2
-        if not cv2.imwrite(path, frame[:, :, ::-1]):     # cv2 ждёт BGR
-            raise RuntimeError(f"cv2.imwrite не смог записать {path}")
+        if not cv2.imwrite(path, frame[:, :, ::-1]):     # cv2 expects BGR
+            raise RuntimeError(f"cv2.imwrite could not write {path}")
         return path
     except ImportError:
         pass
@@ -468,12 +479,12 @@ def write_image(path: str, frame: np.ndarray) -> str:
 
 
 def _png_bytes(rgb: np.ndarray) -> bytes:
-    """Минимальный кодировщик PNG (8 бит, truecolor RGB, без интерлейса)."""
+    """Minimal PNG encoder (8 bit, truecolor RGB, non-interlaced)."""
     import struct
     import zlib
 
     height, width = rgb.shape[:2]
-    # Каждая строка PNG предваряется байтом фильтра; 0 = «без фильтра».
+    # Every PNG row is prefixed by a filter byte; 0 = "no filter".
     raw = np.hstack([np.zeros((height, 1), dtype=np.uint8),
                      rgb.reshape(height, width * 3)]).tobytes()
 
@@ -491,19 +502,19 @@ def _png_bytes(rgb: np.ndarray) -> bytes:
 
 def write_video(path: str, frames, fps: float = 12.0) -> str:
     """
-    Сохранить последовательность RGB-кадров в mp4 (нужен OpenCV).
+    Save a sequence of RGB frames to mp4 (requires OpenCV).
 
-    Используется кнопкой «Сохранить видео» — чтобы размеченный оверлеем
-    результат можно было положить в диплом, а не только посмотреть в окне.
+    Used by the "Save video" button, so that the overlay-annotated result can be
+    exported rather than only viewed in the window.
     """
     try:
         import cv2
     except ImportError as exc:
-        raise VideoUnavailable("для записи видео нужен OpenCV") from exc
+        raise VideoUnavailable("writing video requires OpenCV") from exc
 
     frames = list(frames)
     if not frames:
-        raise ValueError("нет кадров для записи")
+        raise ValueError("no frames to write")
     h, w = frames[0].shape[:2]
     writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
     try:
@@ -514,27 +525,27 @@ def write_video(path: str, frames, fps: float = 12.0) -> str:
     return path
 
 
-# ── Самопроверка ──────────────────────────────────────────────────────────────
+# ── Self-check ────────────────────────────────────────────────────────────────
 
 def _self_test():
     """
-    Проверка движка без GUI.
+    Engine check without the GUI.
 
-    Из тестовых вырезок с известными метками собирается мозаика, она режется
-    тайлингом обратно и классифицируется — если тайлинг где-то съезжает на
-    пиксель, точность рухнет, и это будет видно числом.
+    A mosaic is assembled from test crops with known labels, then cut back by
+    tiling and classified — if tiling shifts by a pixel anywhere, the accuracy
+    collapses and that shows up as a number.
     """
     import time
 
     import data
 
-    # Самопроверка — самостоятельная точка входа, как main.py и gui.py, и
-    # выбранный датасет применяет сама. Без этого она шла бы по умолчанию, то
-    # есть по ДРУГОМУ набору классов, чем весь остальной проект, и падала бы
-    # на первой же модели.
+    # The self-check is a standalone entry point, like main.py and gui.py, and
+    # applies the selected dataset itself. Without this it would run on the
+    # default, i.e. on a DIFFERENT class set from the rest of the project, and
+    # would fail on the very first model.
     config.load_dataset_choice(verbose=True)
 
-    print("── vision.py: самопроверка ──\n")
+    print("── vision.py: self-check ──\n")
     images, labels, _ = data.load_dataset(verbose=False)
     _, _, test_idx = data.stratified_split(labels)
 
@@ -544,14 +555,14 @@ def _self_test():
     crops, true_labels = images[sel], labels[sel]
 
     frame = mosaic(crops, rows, cols)
-    print(f"мозаика {frame.shape[1]}x{frame.shape[0]} из {rows * cols} вырезок")
+    print(f"mosaic {frame.shape[1]}x{frame.shape[0]} from {rows * cols} crops")
 
     positions = tile_positions(frame.shape[0], frame.shape[1])
     assert len(positions) == rows * cols, (
-        f"тайлинг дал {len(positions)} окон вместо {rows * cols}")
+        f"tiling produced {len(positions)} windows instead of {rows * cols}")
     tiles = extract_tiles(frame, positions)
-    assert np.array_equal(tiles, crops), "тайлинг вернул не те пиксели"
-    print(f"тайлинг: {len(positions)} окон, пиксели совпали с исходными\n")
+    assert np.array_equal(tiles, crops), "tiling returned the wrong pixels"
+    print(f"tiling: {len(positions)} windows, pixels match the originals\n")
 
     formula_engine = None
     for branch in ('A', 'B', 'C'):
@@ -559,9 +570,10 @@ def _self_test():
             try:
                 predictor = Predictor(branch=branch, engine=engine)
             except (FileNotFoundError, ValueError) as exc:
-                # ValueError = модель обучена на другом наборе классов. После
-                # смены датасета это норма, а не поломка самопроверки.
-                print(f"  {branch}/{engine}: пропуск ({exc})")
+                # ValueError = the model was trained on a different class set.
+                # After a dataset change this is normal, not a self-check
+                # failure.
+                print(f"  {branch}/{engine}: skipped ({exc})")
                 continue
             if engine == 'eml' and formula_engine is None:
                 formula_engine = predictor
@@ -569,37 +581,38 @@ def _self_test():
             preds, _, conf = predictor.predict(tiles)
             dt = time.perf_counter() - t0
             acc = float((preds == true_labels).mean())
-            print(f"  {predictor.label():<28} точность {acc:.3f} | "
-                  f"{dt * 1000:6.1f} мс на {len(tiles)} окон "
-                  f"({len(tiles) / dt:5.0f} окон/с)")
+            print(f"  {predictor.label():<28} accuracy {acc:.3f} | "
+                  f"{dt * 1000:6.1f} ms for {len(tiles)} windows "
+                  f"({len(tiles) / dt:5.0f} windows/s)")
 
-    # Оверлей проверяется первым же движком формул, который загрузился, а не
-    # веткой A жёстко: после смены датасета применимой может оказаться другая.
+    # The overlay is checked with the first formula engine that loaded rather
+    # than with branch A rigidly: after a dataset change a different one may be
+    # the applicable one.
     if formula_engine is None:
-        print("\nни одного набора формул для текущего датасета — "
-              "оверлей и пропускная способность не проверены")
+        print("\nno formula set for the current dataset — "
+              "overlay and throughput were not checked")
         return
     predictor = formula_engine
     preds, _, conf = predictor.predict(tiles)
     overlaid = draw_overlay(frame, positions, preds, conf)
     assert overlaid.shape == frame.shape
-    assert not np.array_equal(overlaid, frame), "оверлей ничего не изменил"
-    assert frame.max() > 0, "исходный кадр испорчен оверлеем"
-    print("\nоверлей: кадр размечен, исходник не изменён")
+    assert not np.array_equal(overlaid, frame), "the overlay changed nothing"
+    assert frame.max() > 0, "the source frame was corrupted by the overlay"
+    print("\noverlay: frame annotated, the original was not modified")
 
     t0 = time.perf_counter()
     predictor.predict(tiles)
     rate = len(tiles) / max(time.perf_counter() - t0, 1e-9)
-    print(f"пропускная способность: ~{rate:.0f} окон/с "
-          f"=> кадр из {rows * cols} окон при ~{rate / (rows * cols):.1f} FPS")
+    print(f"throughput: ~{rate:.0f} windows/s "
+          f"=> a frame of {rows * cols} windows at ~{rate / (rows * cols):.1f} FPS")
 
     try:
         import cv2                                    # noqa: F401
-        print("\nOpenCV найден — вкладка видео доступна")
+        print("\nOpenCV found — the video tab is available")
     except ImportError:
-        print("\nOpenCV не найден — вкладка видео будет отключена")
+        print("\nOpenCV not found — the video tab will be disabled")
 
-    print("\nвсе проверки пройдены")
+    print("\nall checks passed")
 
 
 if __name__ == '__main__':

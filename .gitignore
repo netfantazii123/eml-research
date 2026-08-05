@@ -4,50 +4,50 @@ __pycache__/
 .venv/
 venv/
 
-# IDE / локальные настройки инструментов
+# IDE / local tool settings
 .idea/
 .vscode/
 .claude/
 
-# Сборка C (eml_try_1) — пересобирается через CMake
+# C build (eml_try_1) — regenerated through CMake
 build/
 .cache/
 *.dll
 *.exe
 *.a
 
-# Выходы обучения — тяжёлые и воспроизводимые
+# Training outputs — heavy and reproducible
 logs/
 runs/
 *.pt
 !flappy_bird_with_ai/models/best_ga.pt
 *.npz
 
-# Датасеты (десятки-сотни МБ картинок) — см. aerial_classifier/README.md.
-# Со звёздочкой, потому что папку с классами теперь выбирает пользователь, и
-# рядом заводятся копии и подмножества: `dataset – копія`, `dataset_2class`.
+# Datasets (tens to hundreds of MB of images) — see aerial_classifier/README.md.
+# With a wildcard, because the class folder is now selected by the user, and
+# copies and subsets appear next to it: `dataset - copy`, `dataset_2class`.
 aerial_classifier/dataset*/
 
-# Бэкап моделей, снятый перед правкой масштаба признаков: старые формулы
-# считаны в ДРУГОМ пространстве признаков и годятся только как исторический
-# слепок, в репозиторий им не надо.
+# Model backup taken before the feature scale fix: the old formulas were
+# computed in a DIFFERENT feature space and are only a historical snapshot, not
+# something for the repository.
 aerial_classifier/models_pre_scalefix/
 
-# Кэш распакованных датасетов (привязан к папке на конкретной машине)
+# Cache of decoded datasets (tied to a folder on a specific machine)
 aerial_classifier/cache/
 
-# Выбранный датасет и страховочные копии активных моделей — машинно-локальное:
-# в dataset.json лежит путь этой машины, в .prev.json — предыдущая версия
-# активной модели на случай отката. Сами модели (best_eml_*.json) в репозитории
-# остаются: это конечный артефакт проекта.
+# The selected dataset and safety copies of the active models are machine-local:
+# dataset.json holds this machine's path, .prev.json the previous version of the
+# active model in case of a rollback. The models themselves (best_eml_*.json)
+# stay in the repository: they are the final artifact of the project.
 aerial_classifier/models/dataset.json
 *.prev.json
 
-# Кэш pytest
+# pytest cache
 .pytest_cache/
 
-# Внутренние планы — не для публикации
+# Internal planning notes — not for publication
 PROJECT_BLUEPRINT.md
 
-# Архивы и бэкапы
+# Archives and backups
 *.zip

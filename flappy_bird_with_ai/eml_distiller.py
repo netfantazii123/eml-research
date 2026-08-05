@@ -1,12 +1,12 @@
 """
-EML Distiller — символьная дистилляция нейросети в формулу.
+EML Distiller — symbolic distillation of a neural network into a formula.
 
-Пайплайн:
-    1. Собрать датасет (state → oracle_output) с GA-оракула.
-    2. Эволюционировать EML-деревья (символьная регрессия).
-    3. Получить компактную формулу jump = eml(...).
+Pipeline:
+    1. Collect a dataset (state -> oracle_output) from the GA oracle.
+    2. Evolve EML trees (symbolic regression).
+    3. Obtain a compact formula jump = eml(...).
 
-EML оператор: eml(x, y) = exp(x) - ln(|y| + ε)
+EML operator: eml(x, y) = exp(x) - ln(|y| + eps)
 """
 
 import math
@@ -21,24 +21,24 @@ from env import FlappyEnv
 from ga_net import GANet
 
 
-# ── EML оператор ────────────────────────────────────────────────────────────
+# ── EML operator ────────────────────────────────────────────────────────────
 
 def eml_op(x: float, y: float) -> float:
-    """eml(x, y) = exp(clamp(x)) - ln(|y| + ε). Безопасный от NaN."""
+    """eml(x, y) = exp(clamp(x)) - ln(|y| + eps). NaN-safe."""
     x_clamped = max(-10.0, min(10.0, x))
     return math.exp(x_clamped) - math.log(abs(y) + EML_EPSILON)
 
 
-# ── AST-дерево ──────────────────────────────────────────────────────────────
+# ── AST tree ────────────────────────────────────────────────────────────────
 
 class EMLNode:
     """
-    Узел AST-дерева EML-формулы.
+    A node of the EML formula AST.
 
-    Типы:
+    Kinds:
         'eml'   — eml(left, right)
-        'var'   — входная переменная (index 0..3)
-        'const' — числовая константа
+        'var'   — input variable (index 0..3)
+        'const' — numeric constant
     """
 
     __slots__ = ('kind', 'left', 'right', 'var_idx', 'value')
@@ -52,7 +52,7 @@ class EMLNode:
         self.value = value
 
     def evaluate(self, inputs: np.ndarray) -> float:
-        """Вычислить значение формулы для данного state."""
+        """Evaluate the formula for the given state."""
         if self.kind == 'const':
             return self.value
         elif self.kind == 'var':
@@ -64,21 +64,21 @@ class EMLNode:
         return 0.0
 
     def depth(self) -> int:
-        """Глубина дерева."""
+        """Tree depth."""
         if self.kind in ('const', 'var'):
             return 0
         return 1 + max(self.left.depth(), self.right.depth())
 
     def size(self) -> int:
-        """Количество узлов в дереве."""
+        """Number of nodes in the tree."""
         if self.kind in ('const', 'var'):
             return 1
         return 1 + self.left.size() + self.right.size()
 
     def count_vars(self) -> int:
-        """Сколько уникальных переменных используется."""
+        """Which unique variables are used (as a bit mask)."""
         if self.kind == 'var':
-            return 1 << self.var_idx  # битовая маска
+            return 1 << self.var_idx  # bit mask
         elif self.kind == 'const':
             return 0
         elif self.kind == 'eml':
@@ -86,12 +86,12 @@ class EMLNode:
         return 0
 
     def n_unique_vars(self) -> int:
-        """Количество уникальных переменных."""
+        """Number of unique variables."""
         mask = self.count_vars()
         return bin(mask).count('1')
 
     def to_string(self) -> str:
-        """Человекочитаемая формула."""
+        """Human-readable formula."""
         VAR_NAMES = ['y', 'vel', 'dx', 'gap']
         if self.kind == 'const':
             return f"{self.value:.3f}"
@@ -103,7 +103,7 @@ class EMLNode:
         return "?"
 
     def clone(self) -> "EMLNode":
-        """Глубокая копия дерева."""
+        """Deep copy of the tree."""
         if self.kind in ('const', 'var'):
             return EMLNode(self.kind, var_idx=self.var_idx, value=self.value)
         return EMLNode('eml',
@@ -111,7 +111,7 @@ class EMLNode:
                        right=self.right.clone())
 
     def to_dict(self) -> dict:
-        """JSON-сериализация дерева."""
+        """JSON serialization of the tree."""
         if self.kind == 'const':
             return {'kind': 'const', 'value': self.value}
         if self.kind == 'var':
@@ -124,7 +124,7 @@ class EMLNode:
 
     @classmethod
     def from_dict(cls, d: dict) -> "EMLNode":
-        """Восстановление дерева из словаря."""
+        """Restore a tree from a dict."""
         kind = d['kind']
         if kind == 'const':
             return cls('const', value=float(d['value']))
@@ -137,10 +137,10 @@ class EMLNode:
         raise ValueError(f"Unknown node kind: {kind}")
 
 
-# ── Генерация случайных деревьев ─────────────────────────────────────────────
+# ── Random tree generation ───────────────────────────────────────────────────
 
 def _random_leaf() -> EMLNode:
-    """Случайный лист: переменная (70%) или константа (30%)."""
+    """Random leaf: a variable (70%) or a constant (30%)."""
     if random.random() < 0.7:
         return EMLNode('var', var_idx=random.randint(0, 3))
     else:
@@ -149,11 +149,11 @@ def _random_leaf() -> EMLNode:
 
 def random_tree(max_depth: int = 3, force_eml: bool = False) -> EMLNode:
     """
-    Случайное EML-дерево.
+    A random EML tree.
 
     Args:
-        max_depth: максимальная глубина.
-        force_eml: если True, корень всегда eml-узел (гарантирует depth >= 1).
+        max_depth: maximum depth.
+        force_eml: if True, the root is always an eml node (guarantees depth >= 1).
     """
     if force_eml and max_depth >= 1:
         return EMLNode('eml',
@@ -166,10 +166,10 @@ def random_tree(max_depth: int = 3, force_eml: bool = False) -> EMLNode:
                    right=random_tree(max_depth - 1))
 
 
-# ── Мутации ──────────────────────────────────────────────────────────────────
+# ── Mutation ─────────────────────────────────────────────────────────────────
 
 def _collect_nodes(node: EMLNode) -> list[EMLNode]:
-    """Собрать все узлы дерева в плоский список."""
+    """Collect all tree nodes into a flat list."""
     nodes = [node]
     if node.kind == 'eml':
         nodes.extend(_collect_nodes(node.left))
@@ -179,17 +179,17 @@ def _collect_nodes(node: EMLNode) -> list[EMLNode]:
 
 def mutate_tree(root: EMLNode, intensity: float = 1.0) -> EMLNode:
     """
-    Мутация дерева с адаптивной интенсивностью.
+    Tree mutation with adaptive intensity.
 
     Args:
-        root: дерево для мутации.
-        intensity: 0..1, чем выше — тем агрессивнее мутации.
-            1.0 = начало эволюции (дикие мутации)
-            0.1 = конец (тонкая настройка)
+        root: the tree to mutate.
+        intensity: 0..1; the higher it is, the more aggressive the mutations.
+            1.0 = start of evolution (wild mutations)
+            0.1 = end (fine tuning)
     """
     tree = root.clone()
 
-    # Количество мутаций за раз: больше при высокой интенсивности
+    # Number of mutations at once: more at a high intensity
     n_mutations = 1 + int(intensity * 2 * random.random())
 
     for _ in range(n_mutations):
@@ -199,31 +199,31 @@ def mutate_tree(root: EMLNode, intensity: float = 1.0) -> EMLNode:
         r = random.random()
 
         if r < 0.2 and target.kind == 'const':
-            # Подвинуть константу (сильнее при высокой intensity)
+            # Nudge the constant (harder at a high intensity)
             noise_std = 0.2 + intensity * 1.0
             target.value += random.gauss(0, noise_std)
             target.value = max(-5.0, min(5.0, target.value))
 
         elif r < 0.35 and target.kind == 'var':
-            # Сменить переменную
+            # Switch the variable
             target.var_idx = random.randint(0, 3)
 
         elif r < 0.6 and target.kind in ('const', 'var'):
-            # Вырастить: лист → eml(лист, лист)
+            # Grow: leaf -> eml(leaf, leaf)
             if tree.depth() < config.EML_MAX_DEPTH:
                 target.kind = 'eml'
                 target.left = _random_leaf()
                 target.right = _random_leaf()
 
         elif r < 0.7 and target.kind == 'eml':
-            # Заменить одну ветку
+            # Replace one branch
             if random.random() < 0.5:
                 target.left = random_tree(max_depth=2)
             else:
                 target.right = random_tree(max_depth=2)
 
         elif r < 0.8 and target.kind == 'eml' and intensity < 0.5:
-            # Упрощение: поддерево → лист (только при низкой intensity)
+            # Simplification: subtree -> leaf (only at a low intensity)
             leaf = _random_leaf()
             target.kind = leaf.kind
             target.left = None
@@ -232,7 +232,7 @@ def mutate_tree(root: EMLNode, intensity: float = 1.0) -> EMLNode:
             target.value = leaf.value
 
         else:
-            # Полная замена поддерева
+            # Full subtree replacement
             depth = 1 + int(intensity * 2)
             new_sub = random_tree(max_depth=depth, force_eml=True)
             target.kind = new_sub.kind
@@ -245,13 +245,13 @@ def mutate_tree(root: EMLNode, intensity: float = 1.0) -> EMLNode:
 
 
 def _prune_tree(node: EMLNode, max_depth: int | None = None) -> EMLNode:
-    """Обрезать дерево до max_depth — глубокие поддеревья заменяются листами."""
+    """Trim the tree to max_depth — deep subtrees are replaced by leaves."""
     if max_depth is None:
         max_depth = config.EML_MAX_DEPTH
     if node.kind in ('const', 'var'):
         return node
     if max_depth <= 0:
-        # Заменить на лист
+        # Replace with a leaf
         return _random_leaf()
     node.left = _prune_tree(node.left, max_depth - 1)
     node.right = _prune_tree(node.right, max_depth - 1)
@@ -259,7 +259,7 @@ def _prune_tree(node: EMLNode, max_depth: int | None = None) -> EMLNode:
 
 
 def crossover(parent1: EMLNode, parent2: EMLNode) -> EMLNode:
-    """Кросовер: заменить случайное поддерево parent1 поддеревом из parent2."""
+    """Crossover: replace a random subtree of parent1 with one from parent2."""
     child = parent1.clone()
     nodes1 = _collect_nodes(child)
     nodes2 = _collect_nodes(parent2)
@@ -276,7 +276,7 @@ def crossover(parent1: EMLNode, parent2: EMLNode) -> EMLNode:
     return child
 
 
-# ── Сбор датасета ────────────────────────────────────────────────────────────
+# ── Dataset collection ───────────────────────────────────────────────────────
 
 def collect_dataset(
     oracle: GANet,
@@ -285,16 +285,16 @@ def collect_dataset(
     max_frames: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Собрать датасет (states, targets) из игры GA-оракула.
+    Collect a dataset (states, targets) from the GA oracle's play.
 
     Args:
-        oracle: обученная GANet.
-        n_episodes: количество эпизодов (None → config.EML_DATASET_EPISODES).
-        mode: 'sigmoid' (float 0..1) или 'binary' (0/1).
-        max_frames: лимит кадров на эпизод (None → config.GA_MAX_FRAMES).
+        oracle: a trained GANet.
+        n_episodes: number of episodes (None -> config.EML_DATASET_EPISODES).
+        mode: 'sigmoid' (float 0..1) or 'binary' (0/1).
+        max_frames: frame limit per episode (None -> config.GA_MAX_FRAMES).
 
     Returns:
-        (states, targets): np.ndarray shape (N, 4) и (N,).
+        (states, targets): np.ndarray of shape (N, 4) and (N,).
     """
     if n_episodes is None:
         n_episodes = config.EML_DATASET_EPISODES
@@ -330,27 +330,27 @@ def _compute_fitness(
     mode: str,
 ) -> float:
     """
-    Fitness дерева на датасете.
+    Fitness of a tree on the dataset.
 
-    Правила:
-    - Дерево БЕЗ переменных (чистая константа) → почти ноль.
-    - Для sigmoid: fitness = 1 / (MSE + depth_penalty * depth + eps)
-    - Для binary:  fitness = balanced_accuracy - depth_penalty * depth
-      (balanced = (TPR + TNR) / 2, чтобы класс-дисбаланс не давал
-       тривиальное решение "всегда 0")
-    - Бонус за использование >= 2 переменных.
+    Rules:
+    - A tree WITHOUT variables (a pure constant) -> nearly zero.
+    - For sigmoid: fitness = 1 / (MSE + depth_penalty * depth + eps)
+    - For binary:  fitness = balanced_accuracy - depth_penalty * depth
+      (balanced = (TPR + TNR) / 2, so that the class imbalance does not make
+       the trivial "always 0" solution win)
+    - A bonus for using >= 2 variables.
     """
     n = len(states)
     if n == 0:
         return 0.0
 
-    # Штраф за отсутствие переменных — дерево-константа бесполезно
+    # Penalty for having no variables — a constant tree is useless
     n_vars = tree.n_unique_vars()
     if n_vars == 0:
         return 1e-6
 
     errors = 0.0
-    # Для balanced accuracy
+    # For balanced accuracy
     tp = 0  # true positive (target=1, pred=1)
     tn = 0  # true negative (target=0, pred=0)
     fp = 0  # false positive
@@ -381,7 +381,7 @@ def _compute_fitness(
 
     depth = tree.depth()
 
-    # Бонус за разнообразие переменных (max +20% при 4 переменных)
+    # Bonus for variable diversity (max +20% with 4 variables)
     var_bonus = 1.0 + 0.05 * n_vars
 
     if mode == 'sigmoid':
@@ -397,17 +397,17 @@ def _compute_fitness(
         return base * var_bonus
 
 
-# ── EML-агент ────────────────────────────────────────────────────────────────
+# ── EML agent ────────────────────────────────────────────────────────────────
 
 class EMLAgent:
-    """Обгортка над EMLNode для гри у FlappyEnv."""
+    """A wrapper over EMLNode for playing in FlappyEnv."""
 
     def __init__(self, tree: EMLNode, name: str = "EML"):
         self.tree = tree
         self.name = name
 
     def get_action(self, state: np.ndarray) -> int:
-        """Бінарна дія: 1 (flap) або 0 (no-flap)."""
+        """Binary action: 1 (flap) or 0 (no-flap)."""
         try:
             val = self.tree.evaluate(state)
             if math.isnan(val) or math.isinf(val):
@@ -423,8 +423,8 @@ class EMLAgent:
 def _ingame_fitness(tree: EMLNode, n_games: int = 3,
                     max_frames: int | None = None) -> float:
     """
-    In-game fitness: запустить формулу в FlappyEnv и посчитать score.
-    fitness = avg_score * 100 + avg_frames (аналогично GA).
+    In-game fitness: run the formula in FlappyEnv and compute the score.
+    fitness = avg_score * 100 + avg_frames (as for the GA).
     """
     if max_frames is None:
         max_frames = config.GA_MAX_FRAMES
@@ -448,7 +448,7 @@ def _ingame_fitness(tree: EMLNode, n_games: int = 3,
     return avg_score * 100.0 + avg_frames
 
 
-# ── Главный цикл эволюции ───────────────────────────────────────────────────
+# ── Main evolution loop ─────────────────────────────────────────────────────
 
 def evolve_eml(
     states: np.ndarray,
@@ -463,19 +463,19 @@ def evolve_eml(
     should_stop=None,
 ) -> dict:
     """
-    GA-эволюция EML-деревьев.
+    GA evolution of EML trees.
 
-    Гиперпараметры: если не переданы — берутся из текущего `config`.
+    Hyperparameters: taken from the current `config` when not passed.
 
-    Двухфазный fitness:
-    - Фаза 1 (первые 30% поколений): dataset fitness (быстрый скрининг).
-    - Фаза 2 (остальные): in-game fitness (реальная оценка).
+    Two-phase fitness:
+    - Phase 1 (the first 30% of generations): dataset fitness (fast screening).
+    - Phase 2 (the rest): in-game fitness (the real evaluation).
 
-    Ключевые механизмы:
-    - Адаптивная интенсивность мутаций.
-    - Турнирная селекция.
-    - Сейв лучшего каждого поколения.
-    - patience > 0: ранний стоп при плато.
+    Key mechanisms:
+    - Adaptive mutation intensity.
+    - Tournament selection.
+    - Saving the best of every generation.
+    - patience > 0: early stop on a plateau.
 
     Returns:
         dict: 'best_tree', 'best_agent', 'history', 'elapsed',
@@ -487,12 +487,13 @@ def evolve_eml(
     if patience is None:        patience = config.EML_PATIENCE
 
     dp = DEPTH_PENALTIES[depth_penalty_name]
-    # 10% генераций на DATA-фазу (быстрое разогревание), остальное — GAME.
-    # При узких таргетах оракула DATA-фитнес = шум и переселяет в вырожденные деревья,
-    # поэтому warm-up держим коротким и реально оцениваем игрой.
+    # 10% of the generations go to the DATA phase (a quick warm-up), the rest to
+    # GAME. With narrow oracle targets the DATA fitness is noise and drives the
+    # population toward degenerate trees, so the warm-up is kept short and the
+    # real evaluation is done by playing.
     phase_switch = max(1, int(generations * 0.1))
 
-    # Инициализация
+    # Initialization
     population = [random_tree(max_depth=3, force_eml=True)
                   for _ in range(population_size)]
     history = []
@@ -515,9 +516,10 @@ def evolve_eml(
         intensity = max(0.1, 1.0 - gen / (generations * 0.7))
         use_ingame = gen >= phase_switch
 
-        # ── Переход DATA -> GAME: разные шкалы фитнеса, сбрасываем baseline ──
-        # DATA фитнес = 1/MSE (десятки), GAME фитнес = score*100+frames (сотни-тысячи).
-        # Без сброса либо GAME-фитнес "не сможет улучшить" DATA-рекорд, либо наоборот.
+        # ── DATA -> GAME switch: different fitness scales, reset the baseline ──
+        # DATA fitness = 1/MSE (tens), GAME fitness = score*100+frames (hundreds
+        # to thousands). Without a reset either the GAME fitness "cannot beat"
+        # the DATA record, or the other way round.
         if use_ingame and gen == phase_switch and phase_switch > 0:
             best_fitness_ever = -float('inf')
             patience_counter = 0
@@ -526,7 +528,7 @@ def evolve_eml(
 
         # ── Fitness ──────────────────────────────────────────────────────
         if use_ingame:
-            # In-game: каждое дерево играет 3 игры
+            # In-game: every tree plays 3 games
             fitness_scores = []
             for tree in population:
                 n_vars = tree.n_unique_vars()
@@ -534,11 +536,11 @@ def evolve_eml(
                     fitness_scores.append(0.0)
                 else:
                     f = _ingame_fitness(tree, n_games=3)
-                    # Штраф за глубину (но мягче чем в dataset mode)
+                    # Depth penalty (milder than in dataset mode)
                     f = max(0.0, f - dp * tree.depth() * 50.0)
                     fitness_scores.append(f)
         else:
-            # Dataset: быстрый скрининг
+            # Dataset: fast screening
             if len(states) > subsample_size:
                 idx = np.random.choice(len(states), subsample_size, replace=False)
                 fit_states = states[idx]
@@ -552,7 +554,7 @@ def evolve_eml(
                 f = _compute_fitness(tree, fit_states, fit_targets, dp, mode)
                 fitness_scores.append(f)
 
-        # Сортировать
+        # Sort
         ranked = sorted(zip(fitness_scores, population),
                         key=lambda x: x[0], reverse=True)
         fitness_scores = [f for f, _ in ranked]
@@ -575,14 +577,14 @@ def evolve_eml(
         }
         history.append(gen_stats)
 
-        # Сейв лучшего
+        # Save the best
         if best_fitness > best_fitness_ever:
             best_fitness_ever = best_fitness
             best_tree_ever = best_tree.clone()
             patience_counter = 0
         else:
-            # Plateau на DATA-фазе — это шум MSE на узких таргетах.
-            # Считаем плато только на GAME-фазе, где сигнал реальный.
+            # A plateau in the DATA phase is MSE noise on narrow targets.
+            # Count the plateau only in the GAME phase, where the signal is real.
             if use_ingame:
                 patience_counter += 1
 
@@ -602,7 +604,7 @@ def evolve_eml(
                 print(f"    -> Early stop: no improvement for {patience} gens.")
             break
 
-        # Новое поколение
+        # New generation
         new_pop = []
         for i in range(elitism):
             new_pop.append(population[i].clone())
@@ -621,7 +623,7 @@ def evolve_eml(
             else:
                 child = random_tree(max_depth=2 + int(intensity * 2),
                                     force_eml=True)
-            # Обрезать если раздулось
+            # Trim if it grew too large
             child = _prune_tree(child)
             new_pop.append(child)
 
@@ -643,13 +645,13 @@ def evolve_eml(
 
 
 def _tournament_select(fitness_scores: list[float], k: int = 5) -> int:
-    """Турнирная селекция: выбрать лучшего из k случайных."""
+    """Tournament selection: pick the best of k random candidates."""
     n = len(fitness_scores)
     candidates = random.sample(range(n), min(k, n))
     return max(candidates, key=lambda i: fitness_scores[i])
 
 
-# ── Полный пайплайн дистилляции ──────────────────────────────────────────────
+# ── Full distillation pipeline ───────────────────────────────────────────────
 
 def distill(
     oracle: GANet,
@@ -658,7 +660,7 @@ def distill(
     verbose: bool = True,
 ) -> dict:
     """
-    Полный пайплайн: сбор датасета → эволюция EML-дерева.
+    Full pipeline: dataset collection -> EML tree evolution.
 
     Returns:
         dict: 'best_agent', 'best_formula', 'dataset_size', + evolve results.

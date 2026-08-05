@@ -1,40 +1,44 @@
 """
-eml_distiller.py — символьная дистилляция оракула-классификатора в EML-формулы.
+eml_distiller.py — symbolic distillation of the classifier oracle into EML
+formulas.
 
-Идея: обучить НЕ одну формулу, а по одной на класс. Каждая формула f_c даёт
-скаляр («насколько это похоже на класс c»), предсказание — argmax по классам:
+The idea: train NOT one formula but one per class. Each formula f_c produces a
+scalar ("how much this looks like class c"), and the prediction is the argmax
+over classes:
 
     class* = argmax_c f_c(inputs)
 
-Это прямой аналог Тетриса, где argmax брался по постановкам фигуры: там
-формула ранжировала ходы, здесь — классы. Абсолютные значения формул не важны,
-важен только порядок, и это определяет обе фазы обучения.
+This is a direct analogue of Tetris, where the argmax was taken over piece
+placements: there the formula ranked moves, here it ranks classes. The absolute
+values of the formulas do not matter, only the order does, and that determines
+both training phases.
 
-EML-оператор:  eml(x, y) = exp(clamp(x, -10, 10)) - ln(|y| + eps).
+EML operator:  eml(x, y) = exp(clamp(x, -10, 10)) - ln(|y| + eps).
 
-Две фазы:
+Two phases:
 
-  1. DATA-фаза — символьная регрессия: f_c(inputs) ~ logit_c оракула.
-     Логиты предварительно z-нормируются ВНУТРИ КАЖДОГО ПРИМЕРА (по 4 классам).
-     Абсолютный масштаб логитов произволен и от примера к примеру разный;
-     нормировка по строке делает таргет безмасштабным и, главное, сохраняет
-     argmax — то есть ровно ту информацию, которая нам нужна.
+  1. DATA phase — symbolic regression: f_c(inputs) ~ oracle logit_c.
+     The logits are z-normalized beforehand WITHIN EACH EXAMPLE (across the 4
+     classes). The absolute scale of the logits is arbitrary and differs from
+     example to example; per-row normalization makes the target scale-free and,
+     crucially, preserves the argmax — exactly the information we need.
 
-  2. ACC-фаза — аналог GAME-фазы Тетриса («формула играет сама»). MSE к логитам
-     и accuracy — разные вещи: формула может точно повторять логиты и всё равно
-     путать argmax на пограничных примерах. Поэтому вторая фаза эволюционирует
-     ВЕСЬ НАБОР из 4 формул целиком, а fitness = реальная сбалансированная
-     accuracy. Она сидируется результатом DATA-фазы, то есть стартует не с
-     нуля, а с осмысленного приближения.
+  2. ACC phase — the analogue of the Tetris GAME phase ("the formula plays by
+     itself"). MSE against the logits and accuracy are different things: a
+     formula can reproduce the logits closely and still get the argmax wrong on
+     borderline examples. The second phase therefore evolves THE WHOLE SET of 4
+     formulas together, with fitness = actual balanced accuracy. It is seeded
+     with the DATA phase result, so it starts from a meaningful approximation
+     rather than from scratch.
 
-Про честность метрики: fitness ACC-фазы считается на ПОДВЫБОРКЕ TRAIN, никогда
-на val/test. Иначе val перестаёт быть независимой оценкой — эволюция по нему
-это такая же подгонка, как обучение градиентом.
+On metric honesty: ACC-phase fitness is computed on a TRAIN SUBSAMPLE, never on
+val/test. Otherwise val stops being an independent estimate — evolving against
+it is the same kind of fitting as gradient training.
 
-AST-движок (EMLNode, random_tree, mutate_tree, crossover) портирован из
-tetris/eml_distiller.py; отличия — набор формул вместо одной, ACC-фаза вместо
-GAME-фазы и настраиваемая размерность входа (32 признака в ветке A,
-CNN_EMBED_DIM координат эмбеддинга в ветке B).
+The AST engine (EMLNode, random_tree, mutate_tree, crossover) is ported from
+tetris/eml_distiller.py; the differences are a set of formulas instead of one,
+the ACC phase instead of the GAME phase, and a configurable input dimension
+(32 features in branch A, CNN_EMBED_DIM embedding coordinates in branch B).
 """
 
 import math
@@ -46,16 +50,16 @@ import numpy as np
 import config
 from config import EML_EPSILON
 
-# ── Пространство входов ───────────────────────────────────────────────────────
-# Ветки A и B подают формуле разные векторы, поэтому размерность и имена входов
-# задаются перед эволюцией, а не берутся из config жёстко.
+# ── Input space ───────────────────────────────────────────────────────────────
+# Branches A and B feed the formula different vectors, so the dimension and the
+# input names are set before evolution rather than taken from config rigidly.
 
 _N_INPUTS = config.N_FEATURES
 _INPUT_NAMES = list(config.FEATURE_NAMES)
 
 
 def configure_inputs(n_inputs: int, names: list[str] | None = None):
-    """Задать размерность и имена входов формул (вызывать до эволюции)."""
+    """Set the dimension and names of the formula inputs (call before evolving)."""
     global _N_INPUTS, _INPUT_NAMES
     _N_INPUTS = int(n_inputs)
     _INPUT_NAMES = list(names) if names else [f'x{i}' for i in range(n_inputs)]
@@ -65,24 +69,24 @@ def input_names() -> list[str]:
     return list(_INPUT_NAMES)
 
 
-# ── EML-оператор ──────────────────────────────────────────────────────────────
+# ── EML operator ──────────────────────────────────────────────────────────────
 
 def eml_op(x: float, y: float) -> float:
-    """eml(x, y) = exp(clamp(x)) - ln(|y| + eps). Скалярная (numpy-free) версия."""
+    """eml(x, y) = exp(clamp(x)) - ln(|y| + eps). Scalar (numpy-free) version."""
     x_clamped = -10.0 if x < -10.0 else (10.0 if x > 10.0 else x)
     return math.exp(x_clamped) - math.log(abs(y) + EML_EPSILON)
 
 
-# ── AST-дерево ────────────────────────────────────────────────────────────────
+# ── AST tree ──────────────────────────────────────────────────────────────────
 
 class EMLNode:
     """
-    Узел AST EML-формулы.
+    A node of the EML formula AST.
 
-    Типы:
+    Kinds:
         'eml'   — eml(left, right)
-        'var'   — входная координата (index 0.._N_INPUTS-1)
-        'const' — числовая константа
+        'var'   — input coordinate (index 0.._N_INPUTS-1)
+        'const' — numeric constant
     """
 
     __slots__ = ('kind', 'left', 'right', 'var_idx', 'value')
@@ -95,9 +99,9 @@ class EMLNode:
         self.var_idx = var_idx
         self.value = value
 
-    # ── Вычисление ────────────────────────────────────────────────────────
+    # ── Evaluation ────────────────────────────────────────────────────────
     def evaluate(self, inputs) -> float:
-        """Скалярное вычисление для одного вектора входов (инференс)."""
+        """Scalar evaluation for a single input vector (inference)."""
         if self.kind == 'const':
             return self.value
         if self.kind == 'var':
@@ -106,10 +110,10 @@ class EMLNode:
 
     def evaluate_batch(self, X: np.ndarray) -> np.ndarray:
         """
-        Векторное вычисление для всего датасета X (N, n_inputs) -> (N,).
+        Vectorized evaluation over the whole dataset X (N, n_inputs) -> (N,).
 
-        Операции замкнуты и численно ограничены (clamp + eps), поэтому
-        результат всегда конечен.
+        The operations are closed and numerically bounded (clamp + eps), so the
+        result is always finite.
         """
         if self.kind == 'const':
             return np.full(X.shape[0], self.value, dtype=np.float64)
@@ -119,7 +123,7 @@ class EMLNode:
         rv = self.right.evaluate_batch(X)
         return np.exp(np.clip(lv, -10.0, 10.0)) - np.log(np.abs(rv) + EML_EPSILON)
 
-    # ── Метрики ───────────────────────────────────────────────────────────
+    # ── Metrics ───────────────────────────────────────────────────────────
     def depth(self) -> int:
         if self.kind in ('const', 'var'):
             return 0
@@ -141,11 +145,11 @@ class EMLNode:
         return bin(self._var_mask()).count('1')
 
     def used_vars(self) -> list[int]:
-        """Индексы входов, реально встречающихся в дереве."""
+        """Indices of the inputs that actually occur in the tree."""
         mask = self._var_mask()
         return [i for i in range(_N_INPUTS) if mask >> i & 1]
 
-    # ── Сериализация / печать ─────────────────────────────────────────────
+    # ── Serialization / printing ──────────────────────────────────────────
     def to_string(self) -> str:
         if self.kind == 'const':
             return f"{self.value:.3f}"
@@ -179,20 +183,20 @@ class EMLNode:
         if kind == 'eml':
             return cls('eml', left=cls.from_dict(d['left']),
                        right=cls.from_dict(d['right']))
-        raise ValueError(f"неизвестный тип узла: {kind}")
+        raise ValueError(f"unknown node kind: {kind}")
 
 
-# ── Генерация случайных деревьев ──────────────────────────────────────────────
+# ── Random tree generation ────────────────────────────────────────────────────
 
 def _random_leaf() -> EMLNode:
-    """Случайный лист: переменная (70%) или константа (30%)."""
+    """Random leaf: a variable (70%) or a constant (30%)."""
     if random.random() < 0.7:
         return EMLNode('var', var_idx=random.randint(0, _N_INPUTS - 1))
     return EMLNode('const', value=random.uniform(-2.0, 2.0))
 
 
 def random_tree(max_depth: int = 3, force_eml: bool = False) -> EMLNode:
-    """Случайное EML-дерево. force_eml -> корень всегда eml (depth >= 1)."""
+    """Random EML tree. force_eml -> the root is always eml (depth >= 1)."""
     if force_eml and max_depth >= 1:
         return EMLNode('eml',
                        left=random_tree(max_depth - 1, force_eml=False),
@@ -203,7 +207,7 @@ def random_tree(max_depth: int = 3, force_eml: bool = False) -> EMLNode:
                    right=random_tree(max_depth - 1))
 
 
-# ── Мутации / кроссовер ───────────────────────────────────────────────────────
+# ── Mutation / crossover ──────────────────────────────────────────────────────
 
 def _collect_nodes(node: EMLNode) -> list[EMLNode]:
     nodes = [node]
@@ -216,10 +220,11 @@ def _collect_nodes(node: EMLNode) -> list[EMLNode]:
 def mutate_tree(root: EMLNode, intensity: float = 1.0,
                 max_depth: int | None = None) -> EMLNode:
     """
-    Мутация с адаптивной интенсивностью (1.0 = дикая, 0.1 = тонкая).
+    Mutation with adaptive intensity (1.0 = wild, 0.1 = fine).
 
-    max_depth=None — предел из config.EML_MAX_DEPTH (ветки A и B). Ветка C
-    держит одно дерево вместо N_CLASSES и передаёт свой, больший предел.
+    max_depth=None — the limit from config.EML_MAX_DEPTH (branches A and B).
+    Branch C keeps one tree instead of N_CLASSES and passes its own, larger
+    limit.
     """
     if max_depth is None:
         max_depth = config.EML_MAX_DEPTH
@@ -264,7 +269,7 @@ def mutate_tree(root: EMLNode, intensity: float = 1.0,
 
 
 def _prune_tree(node: EMLNode, max_depth: int | None = None) -> EMLNode:
-    """Обрезать дерево до max_depth — глубокие поддеревья становятся листами."""
+    """Trim the tree to max_depth — deep subtrees become leaves."""
     if max_depth is None:
         max_depth = config.EML_MAX_DEPTH
     if node.kind in ('const', 'var'):
@@ -278,7 +283,7 @@ def _prune_tree(node: EMLNode, max_depth: int | None = None) -> EMLNode:
 
 def crossover(parent1: EMLNode, parent2: EMLNode,
               max_depth: int | None = None) -> EMLNode:
-    """Заменить случайное поддерево parent1 поддеревом из parent2."""
+    """Replace a random subtree of parent1 with a subtree from parent2."""
     child = parent1.clone()
     target = random.choice(_collect_nodes(child))
     donor = random.choice(_collect_nodes(parent2)).clone()
@@ -294,26 +299,27 @@ def _tournament_select(fitness_scores, k: int = 5) -> int:
     return max(candidates, key=lambda i: fitness_scores[i])
 
 
-# ── Классификатор на формулах ─────────────────────────────────────────────────
+# ── Formula-based classifier ──────────────────────────────────────────────────
 
 class EMLClassifier:
     """
-    Набор из N_CLASSES формул: предсказание = argmax_c (f_c(inputs) - mu_c)/sd_c.
+    A set of N_CLASSES formulas: prediction = argmax_c (f_c(inputs) - mu_c)/sd_c.
 
-    Ровно этот объект и есть конечный продукт дистилляции. Никакого torch
-    внутри — только numpy, а в export.py то же самое переводится в чистый C.
+    This object is the end product of distillation. No torch inside — only
+    numpy, and export.py translates the same thing into plain C.
 
-    ЗАЧЕМ КАЛИБРОВКА (mu_c, sd_c). Это не косметика, а необходимое условие
-    работоспособности. В Тетрисе была одна формула, и argmax брался по разным
-    ВХОДАМ — общий масштаб выхода сокращался и роли не играл. Здесь argmax
-    берётся между ЧЕТЫРЬМЯ РАЗНЫМИ формулами, каждая из которых эволюционировала
-    независимо и имеет свой произвольный масштаб и сдвиг. Без выравнивания
-    побеждает не самая уместная формула, а та, что просто выдаёт числа покрупнее:
-    в первом же прогоне класс MOTO не был предсказан ни разу.
+    WHY CALIBRATION (mu_c, sd_c) IS NEEDED. It is not cosmetic but a condition of
+    the thing working at all. In Tetris there was one formula and the argmax was
+    taken over different INPUTS — the common output scale cancelled and did not
+    matter. Here the argmax is taken between FOUR DIFFERENT formulas, each of
+    which evolved independently and has its own arbitrary scale and offset.
+    Without alignment the winner is not the most appropriate formula but the one
+    that simply emits larger numbers: in the very first run class MOTO was never
+    predicted once.
 
-    Константы берутся как среднее и с.к.о. выхода формулы на TRAIN и дальше
-    заморожены. На микроконтроллере это 4 вычитания и 4 деления — цена, которой
-    можно пренебречь.
+    The constants are taken as the mean and standard deviation of the formula
+    output on TRAIN and then frozen. On a microcontroller this is 4 subtractions
+    and 4 divisions — a negligible cost.
     """
 
     def __init__(self, trees: list[EMLNode], offsets=None, scales=None):
@@ -324,37 +330,38 @@ class EMLClassifier:
         self.scales = (np.ones(n) if scales is None
                        else np.asarray(scales, dtype=np.float64))
 
-    # ── Вычисление ────────────────────────────────────────────────────────
+    # ── Evaluation ────────────────────────────────────────────────────────
     def raw_scores(self, X: np.ndarray) -> np.ndarray:
-        """Некалиброванные выходы формул (N, n_classes)."""
+        """Uncalibrated formula outputs (N, n_classes)."""
         out = np.empty((len(X), len(self.trees)), dtype=np.float64)
         for c, tree in enumerate(self.trees):
             vals = tree.evaluate_batch(X)
-            # Нефинитное значение = формула сломалась на этом примере; такой
-            # класс просто не должен выиграть argmax.
+            # A non-finite value = the formula broke on this example; such a
+            # class simply must not win the argmax.
             out[:, c] = np.where(np.isfinite(vals), vals, -1e18)
         return out
 
     def scores(self, X: np.ndarray) -> np.ndarray:
-        """Калиброванные оценки (N, n_classes) — по ним и берётся argmax."""
+        """Calibrated scores (N, n_classes) — the argmax is taken over these."""
         return (self.raw_scores(X) - self.offsets) / self.scales
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         return np.argmax(self.scores(X), axis=1)
 
     def predict_one(self, inputs) -> int:
-        """Инференс для одного вектора — эталон для проверки C-экспорта."""
+        """Inference for a single vector — the reference for the C export check."""
         vals = np.array([t.evaluate(inputs) for t in self.trees],
                         dtype=np.float64)
         return int(np.argmax((vals - self.offsets) / self.scales))
 
-    # ── Калибровка ────────────────────────────────────────────────────────
+    # ── Calibration ───────────────────────────────────────────────────────
     def fit_calibration(self, X: np.ndarray) -> "EMLClassifier":
         """
-        Подобрать mu_c и sd_c по выборке X (только train!) и заморозить их.
+        Fit mu_c and sd_c on sample X (train only!) and freeze them.
 
-        Вырожденная формула (константа, sd ~ 0) получает sd = 1: делить на ноль
-        нельзя, а её вклад в argmax всё равно постоянный.
+        A degenerate formula (a constant, sd ~ 0) receives sd = 1: division by
+        zero is not allowed, and its contribution to the argmax is constant
+        anyway.
         """
         raw = self.raw_scores(X)
         self.offsets, self.scales = _calibration_from_raw(raw)
@@ -363,7 +370,7 @@ class EMLClassifier:
     def calibration(self) -> dict:
         return {'offsets': self.offsets.tolist(), 'scales': self.scales.tolist()}
 
-    # ── Метрики сложности (для таблицы в отчёте) ──────────────────────────
+    # ── Complexity metrics (for the report table) ─────────────────────────
     def total_nodes(self) -> int:
         return sum(t.size() for t in self.trees)
 
@@ -377,16 +384,16 @@ class EMLClassifier:
         return sorted(used)
 
 
-# ── Метрики ───────────────────────────────────────────────────────────────────
+# ── Metrics ───────────────────────────────────────────────────────────────────
 
 def balanced_accuracy(y_true: np.ndarray, y_pred: np.ndarray,
                       n_classes: int | None = None) -> float:
     """
-    Среднее по классам recall.
+    Recall averaged over classes.
 
-    Обычная accuracy при дисбалансе 3.4:1 награждает вырожденное решение
-    «всё это ROADS» (0.41 из воздуха). Сбалансированная — не награждает,
-    поэтому эволюция ведётся именно по ней.
+    At a 3.4:1 imbalance plain accuracy rewards the degenerate solution
+    "everything is ROADS" (0.41 for free). The balanced one does not, which is
+    why evolution is driven by it.
     """
     n_classes = n_classes or config.N_CLASSES
     recalls = []
@@ -399,45 +406,45 @@ def balanced_accuracy(y_true: np.ndarray, y_pred: np.ndarray,
 
 def _calibration_from_raw(raw: np.ndarray):
     """
-    Смещения и масштабы из матрицы сырых выходов формул (N, n_classes).
+    Offsets and scales from the matrix of raw formula outputs (N, n_classes).
 
-    Считается один раз по train и дальше не меняется — калибровать по val или
-    test значило бы подглядывать в отложенную выборку.
+    Computed once on train and never changed — calibrating on val or test would
+    mean looking into the held-out sample.
     """
     offsets = raw.mean(axis=0)
     scales = raw.std(axis=0)
-    scales = np.where(scales < 1e-9, 1.0, scales)   # вырожденная формула
+    scales = np.where(scales < 1e-9, 1.0, scales)   # degenerate formula
     return offsets, scales
 
 
 def _standardize_rows(logits: np.ndarray) -> np.ndarray:
     """
-    z-score логитов внутри каждого примера (по классам).
+    z-score of the logits within each example (across classes).
 
-    Сохраняет argmax — то есть всю информацию о решении оракула — и убирает
-    произвольный масштаб, из-за которого MSE был бы несопоставим между
-    примерами.
+    Preserves the argmax — i.e. all the information about the oracle's decision
+    — and removes the arbitrary scale that would otherwise make MSE
+    incomparable between examples.
     """
     mean = logits.mean(axis=1, keepdims=True)
     std = logits.std(axis=1, keepdims=True)
     return (logits - mean) / (std + 1e-8)
 
 
-# ── DATA-фаза: регрессия одной формулы к логиту одного класса ─────────────────
+# ── DATA phase: regression of one formula to one class logit ──────────────────
 
 def _regression_fitness(tree: EMLNode, X: np.ndarray, y: np.ndarray,
                         w: np.ndarray, depth_penalty: float) -> float:
     """
-    Fitness = var_bonus / (взвешенный MSE + штраф за сложность).
+    Fitness = var_bonus / (weighted MSE + complexity penalty).
 
-    Штраф считается и по глубине, и по ЧИСЛУ УЗЛОВ. Одной глубины мало: она
-    ограничена сверху EML_MAX_DEPTH, поэтому внутри лимита дерево может расти
-    вширь бесплатно (см. комментарий к EML_SIZE_PENALTY_WEIGHT в config.py —
-    там замер, из-за которого этот член и появился).
+    The penalty accounts for both depth and NODE COUNT. Depth alone is not
+    enough: it is bounded above by EML_MAX_DEPTH, so within the limit the tree
+    can grow in width for free (see the comment on EML_SIZE_PENALTY_WEIGHT in
+    config.py — it records the measurement this term came from).
     """
     n_vars = tree.n_unique_vars()
     if n_vars == 0:
-        return 1e-6                       # дерево-константа бесполезно
+        return 1e-6                       # a constant tree is useless
     try:
         pred = tree.evaluate_batch(X)
     except (OverflowError, ValueError, FloatingPointError):
@@ -457,14 +464,14 @@ def evolve_formula(X, y, w, *, generations: int, population_size: int,
                    label: str = 'CLASS', rng_seed: int = 0,
                    progress_cb=None, should_stop=None) -> dict:
     """
-    GA-эволюция ОДНОЙ формулы под символьную регрессию к таргету y.
+    GA evolution of ONE formula for symbolic regression to the target y.
 
     Args:
-        progress_cb: callable(dict) — вызывается каждое поколение. Через него
-            интерфейс рисует кривую fitness по ходу дела, а не через полчаса.
-        should_stop: callable() -> bool — опрашивается каждое поколение.
-            Прерывание возвращает ЛУЧШЕЕ найденное дерево, а не выбрасывает
-            работу: остановка должна останавливать, а не отменять.
+        progress_cb: callable(dict) — invoked every generation. The GUI uses it
+            to draw the fitness curve as it goes rather than half an hour later.
+        should_stop: callable() -> bool — polled every generation. Interrupting
+            returns the BEST tree found rather than discarding the work: stopping
+            must stop, not cancel.
 
     Returns: {'best_tree', 'best_fitness', 'history', 'stopped'}.
     """
@@ -483,8 +490,8 @@ def evolve_formula(X, y, w, *, generations: int, population_size: int,
     for gen in range(generations):
         intensity = max(0.1, 1.0 - gen / (generations * 0.7))
 
-        # Свежая подвыборка каждое поколение: быстрее и меньше переобучения
-        # под конкретные примеры.
+        # A fresh subsample every generation: faster and less overfitting to
+        # particular examples.
         if len(X) > subsample:
             idx = rng.choice(len(X), subsample, replace=False)
             Xs, ys, ws = X[idx], y[idx], w[idx]
@@ -520,12 +527,12 @@ def evolve_formula(X, y, w, *, generations: int, population_size: int,
         if should_stop is not None and should_stop():
             stopped = True
             if verbose:
-                print(f"      [{label}] остановлено пользователем на gen {gen}")
+                print(f"      [{label}] stopped by the user at gen {gen}")
             break
 
         if patience > 0 and stall >= patience:
             if verbose:
-                print(f"      [{label}] ранняя остановка на gen {gen}")
+                print(f"      [{label}] early stop at gen {gen}")
             break
 
         new_pop = [population[i].clone() for i in range(elitism)]
@@ -551,20 +558,22 @@ def evolve_formula(X, y, w, *, generations: int, population_size: int,
             'stopped': stopped}
 
 
-# ── ACC-фаза: эволюция всего набора формул по реальной accuracy ────────────────
+# ── ACC phase: evolving the whole formula set by actual accuracy ──────────────
 
 def _ensemble_fitness(trees: list[EMLNode], X: np.ndarray, y: np.ndarray,
                       depth_penalty: float) -> float:
     """
-    Fitness набора = сбалансированная accuracy минус штраф за размер.
+    Fitness of a set = balanced accuracy minus a size penalty.
 
-    Калибровка подбирается прямо здесь, на той же подвыборке: набор формул и
-    его константы — единый объект, и оценивать деревья с чужой калибровкой
-    бессмысленно. Считается она из уже вычисленных выходов, то есть даром.
+    The calibration is fitted right here, on the same subsample: a formula set
+    and its constants are one object, and evaluating trees with someone else's
+    calibration is meaningless. It is computed from the already evaluated
+    outputs, i.e. for free.
 
-    Штраф за размер мягкий и нормирован на число узлов: без него эволюция
-    раздувает деревья ради долей процента точности, а нам нужна формула,
-    которая влезает в микроконтроллер и читается человеком.
+    The size penalty is mild and proportional to the node count: without it
+    evolution inflates the trees for fractions of a percent of accuracy, whereas
+    what is needed is a formula that fits into a microcontroller and can be read
+    by a human.
     """
     clf = EMLClassifier(trees)
     raw = clf.raw_scores(X)
@@ -584,13 +593,14 @@ def evolve_ensemble(seed_trees: list[EMLNode], X: np.ndarray, y: np.ndarray, *,
                     verbose: bool = True, rng_seed: int = 0,
                     progress_cb=None, should_stop=None) -> dict:
     """
-    Эволюция НАБОРА формул с fitness = сбалансированная accuracy.
+    Evolution of a SET of formulas with fitness = balanced accuracy.
 
-    Особь = список из N_CLASSES деревьев. Мутация меняет одно случайное дерево
-    набора (менять все сразу — слишком грубый шаг, набор разваливается),
-    кроссовер собирает потомка из формул двух родителей поклассово.
+    An individual = a list of N_CLASSES trees. Mutation changes one random tree
+    of the set (changing all of them at once is too coarse a step and the set
+    falls apart); crossover assembles a child from the formulas of two parents
+    class by class.
 
-    X, y — ТОЛЬКО train-подвыборка (см. пояснение в шапке модуля).
+    X, y — the train subsample ONLY (see the explanation in the module header).
     """
     generations = generations if generations is not None else config.EML_ACC_GENERATIONS
     population_size = population_size if population_size is not None else config.EML_ACC_POPULATION
@@ -615,8 +625,8 @@ def evolve_ensemble(seed_trees: list[EMLNode], X: np.ndarray, y: np.ndarray, *,
     for gen in range(generations):
         intensity = max(0.15, 1.0 - gen / (generations * 0.8))
 
-        # Одна и та же подвыборка на всё поколение — иначе особи сравниваются
-        # на разных данных и отбор превращается в лотерею.
+        # The same subsample for the whole generation — otherwise individuals
+        # are compared on different data and selection becomes a lottery.
         if len(X) > subsample:
             idx = rng.choice(len(X), subsample, replace=False)
             Xs, ys = X[idx], y[idx]
@@ -639,16 +649,17 @@ def evolve_ensemble(seed_trees: list[EMLNode], X: np.ndarray, y: np.ndarray, *,
             stall += 1
 
         if verbose and (gen % 10 == 0 or gen == generations - 1):
-            # Точность считается через ту же калибровку, что и fitness.
-            # В первой версии здесь создавался EMLClassifier БЕЗ калибровки, и
-            # лог показывал 0.25 (вырожденное предсказание) в то время, как
-            # fitness рос — наглядная иллюстрация того, зачем калибровка нужна.
+            # Accuracy is computed through the same calibration as the fitness.
+            # In the first version an EMLClassifier was created here WITHOUT
+            # calibration, and the log showed 0.25 (a degenerate prediction)
+            # while the fitness was growing — a direct illustration of why
+            # calibration is needed.
             top = EMLClassifier(population[0])
             raw = top.raw_scores(Xs)
             off, sc = _calibration_from_raw(raw)
             acc = balanced_accuracy(ys, np.argmax((raw - off) / sc, axis=1))
             print(f"    [ACC] gen {gen:>3} | fit {best:.4f} | bal_acc {acc:.4f} | "
-                  f"узлов {top.total_nodes()}")
+                  f"{top.total_nodes()} nodes")
 
         if progress_cb is not None:
             best_set = best_trees_ever or population[0]
@@ -659,12 +670,12 @@ def evolve_ensemble(seed_trees: list[EMLNode], X: np.ndarray, y: np.ndarray, *,
         if should_stop is not None and should_stop():
             stopped = True
             if verbose:
-                print(f"    [ACC] остановлено пользователем на gen {gen}")
+                print(f"    [ACC] stopped by the user at gen {gen}")
             break
 
         if patience > 0 and stall >= patience:
             if verbose:
-                print(f"    [ACC] ранняя остановка на gen {gen}")
+                print(f"    [ACC] early stop at gen {gen}")
             break
 
         new_pop = [[t.clone() for t in population[i]] for i in range(elitism)]
@@ -693,7 +704,7 @@ def evolve_ensemble(seed_trees: list[EMLNode], X: np.ndarray, y: np.ndarray, *,
             'stopped': stopped}
 
 
-# ── Полный пайплайн дистилляции ───────────────────────────────────────────────
+# ── Full distillation pipeline ────────────────────────────────────────────────
 
 def distill(X_train: np.ndarray, logits_train: np.ndarray, y_train: np.ndarray,
             *, weights: np.ndarray | None = None,
@@ -704,20 +715,23 @@ def distill(X_train: np.ndarray, logits_train: np.ndarray, y_train: np.ndarray,
             verbose: bool = True, rng_seed: int = 0,
             progress_cb=None, should_stop=None) -> dict:
     """
-    DATA-фаза (регрессия к логитам оракула) -> ACC-фаза (эволюция по accuracy).
+    DATA phase (regression to the oracle logits) -> ACC phase (evolution by
+    accuracy).
 
     Args:
-        X_train:      (N, n_inputs) — признаки или эмбеддинги.
-        logits_train: (N, n_classes) — логиты оракула на тех же примерах.
-        y_train:      (N,) — истинные метки (нужны только ACC-фазе).
-        weights:      (N,) веса примеров; None -> веса классов из data.py.
-        progress_cb:  callable(dict) — прогресс обеих фаз для интерфейса.
-        should_stop:  callable() -> bool — мягкая остановка. Результат остаётся
-            согласованным: набор формул полный, калибровка посчитана, метрики
-            честные. Просто эволюции было меньше, и это помечено флагом
-            'stopped' — чтобы такой прогон не выдавали за полноценный.
+        X_train:      (N, n_inputs) — features or embeddings.
+        logits_train: (N, n_classes) — oracle logits on the same examples.
+        y_train:      (N,) — ground truth labels (needed by the ACC phase only).
+        weights:      (N,) example weights; None -> class weights from data.py.
+        progress_cb:  callable(dict) — progress of both phases, for the GUI.
+        should_stop:  callable() -> bool — soft stop. The result stays
+            consistent: the formula set is complete, the calibration is
+            computed, the metrics are honest. There was simply less evolution,
+            and that is recorded in the 'stopped' flag — so that such a run is
+            not passed off as a complete one.
 
-    Returns: dict с 'trees' (итоговый набор), метриками обеих фаз и историей.
+    Returns: dict with 'trees' (the final set), metrics of both phases, and
+    history.
     """
     depth_penalty_name = depth_penalty_name or config.DEPTH_PENALTY_DEFAULT
     data_generations = data_generations if data_generations is not None else config.EML_GENERATIONS
@@ -730,8 +744,8 @@ def distill(X_train: np.ndarray, logits_train: np.ndarray, y_train: np.ndarray,
     n_classes = logits_train.shape[1]
 
     if weights is None:
-        # Веса классов: без них редкий BEACH тонет в MSE и его формула
-        # вырождается в константу.
+        # Class weights: without them the rare BEACH drowns in the MSE and its
+        # formula degenerates into a constant.
         import data as data_mod
         cw = data_mod.class_weights(y_train)
         weights = cw[y_train].astype(np.float64)
@@ -740,16 +754,17 @@ def distill(X_train: np.ndarray, logits_train: np.ndarray, y_train: np.ndarray,
     targets = _standardize_rows(np.asarray(logits_train, dtype=np.float64))
     t0 = time.time()
 
-    # ── DATA-фаза: по формуле на класс ───────────────────────────────────────
+    # ── DATA phase: one formula per class ────────────────────────────────────
     if verbose:
-        print(f"  [DATA] символьная регрессия к логитам оракула "
-              f"({len(X):,} примеров, {_N_INPUTS} входов)")
+        print(f"  [DATA] symbolic regression to the oracle logits "
+              f"({len(X):,} examples, {_N_INPUTS} inputs)")
     data_trees, data_results = [], []
     stopped = False
     for c in range(n_classes):
         name = config.CLASS_NAMES[c] if c < len(config.CLASS_NAMES) else f'C{c}'
-        # Индекс класса подмешивается в payload здесь, а не в evolve_formula:
-        # та ничего не знает про классы, она эволюционирует одну формулу.
+        # The class index is mixed into the payload here rather than in
+        # evolve_formula: that function knows nothing about classes, it evolves
+        # a single formula.
         cb = None
         if progress_cb is not None:
             def cb(payload, _c=c, _name=name):
@@ -771,20 +786,20 @@ def distill(X_train: np.ndarray, logits_train: np.ndarray, y_train: np.ndarray,
                   f"D{tree.depth()} S{tree.size()} V{tree.n_unique_vars()}")
 
     def _fit_and_score(trees: list[EMLNode]) -> tuple[EMLClassifier, float]:
-        """Заморозить калибровку по полному train и померить точность."""
+        """Freeze the calibration on full train and measure the accuracy."""
         clf = EMLClassifier(trees).fit_calibration(X)
         return clf, balanced_accuracy(y_train, clf.predict(X))
 
     data_clf, data_acc = _fit_and_score(data_trees)
     if verbose:
-        print(f"  DATA-фаза: сбалансированная accuracy на train = {data_acc:.4f}")
+        print(f"  DATA phase: balanced accuracy on train = {data_acc:.4f}")
 
-    # ── ACC-фаза ─────────────────────────────────────────────────────────────
+    # ── ACC phase ────────────────────────────────────────────────────────────
     acc_result = None
     final_trees, final_clf, final_acc = data_trees, data_clf, data_acc
     if acc_phase and not stopped:
         if verbose:
-            print("  [ACC] эволюция набора формул по реальной accuracy...")
+            print("  [ACC] evolving the formula set by actual accuracy...")
         acc_result = evolve_ensemble(data_trees, X, y_train,
                                      depth_penalty=dp, verbose=verbose,
                                      rng_seed=rng_seed, progress_cb=progress_cb,
@@ -792,14 +807,15 @@ def distill(X_train: np.ndarray, logits_train: np.ndarray, y_train: np.ndarray,
         stopped = stopped or acc_result.get('stopped', False)
         candidate_trees = acc_result['best_trees']
         candidate_clf, candidate_acc = _fit_and_score(candidate_trees)
-        # ACC-фаза оценивалась на подвыборках; на полном train результат может
-        # оказаться хуже исходного. Тогда откатываемся — ухудшать нельзя.
+        # The ACC phase was evaluated on subsamples; on full train the result may
+        # turn out worse than the original. In that case roll back — making
+        # things worse is not allowed.
         if candidate_acc >= data_acc:
             final_trees, final_clf, final_acc = (candidate_trees, candidate_clf,
                                                  candidate_acc)
         elif verbose:
             print(f"  ACC ({candidate_acc:.4f}) < DATA ({data_acc:.4f}) "
-                  f"-> оставляем набор DATA-фазы")
+                  f"-> keeping the DATA phase set")
 
     clf = final_clf
     return {

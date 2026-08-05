@@ -1,19 +1,19 @@
 """
-Storage — единая точка для сохранения/загрузки моделей, формул и логов.
+Storage — a single point for saving/loading models, formulas and logs.
 
-Соглашение об именах:
+Naming convention:
     {method}_{YYYY-MM-DD}_{HH-MM-SS}_score-{N}.{ext}
 
-    Примеры:
+    Examples:
         ga_2026-05-24_14-30-15_score-42.pt
         eml-medium_2026-05-24_14-31-02_score-37.json
         benchmark_2026-05-24_14-30-15.json
         train_2026-05-24_14-30-15.log
 
-Структура каталогов:
-    models/   — *.pt (GANet) и *.json (EML формулы)
-    results/  — benchmark_*.json (метрики) и benchmark_*.png (графики)
-    logs/     — train_*.log (текстовые логи запусков)
+Directory layout:
+    models/   — *.pt (GANet) and *.json (EML formulas)
+    results/  — benchmark_*.json (metrics) and benchmark_*.png (plots)
+    logs/     — train_*.log (text logs of the runs)
 """
 
 import os
@@ -34,10 +34,10 @@ from ga_net import GANet
 LOGS_DIR = 'logs'
 
 
-# ── Имена файлов ────────────────────────────────────────────────────────────
+# ── File names ──────────────────────────────────────────────────────────────
 
 def make_timestamp(dt: Optional[datetime] = None) -> str:
-    """Текущее время как '2026-05-24_14-30-15'."""
+    """The current time as '2026-05-24_14-30-15'."""
     if dt is None:
         dt = datetime.now()
     return dt.strftime('%Y-%m-%d_%H-%M-%S')
@@ -46,8 +46,8 @@ def make_timestamp(dt: Optional[datetime] = None) -> str:
 def make_run_name(method: str, score: Optional[int] = None,
                   timestamp: Optional[str] = None) -> str:
     """
-    Имя файла без расширения: 'ga_2026-05-24_14-30-15_score-42'.
-    Если score=None, добавляется 'noscore'.
+    File name without an extension: 'ga_2026-05-24_14-30-15_score-42'.
+    If score=None, 'noscore' is appended instead.
     """
     ts = timestamp if timestamp is not None else make_timestamp()
     score_part = f"score-{int(score)}" if score is not None else "noscore"
@@ -63,7 +63,7 @@ _RUN_NAME_RE = re.compile(
 
 
 def parse_run_name(stem: str) -> Optional[dict]:
-    """Распарсить имя файла. Возвращает dict или None."""
+    """Parse a file name. Returns a dict or None."""
     m = _RUN_NAME_RE.match(stem)
     if not m:
         return None
@@ -78,14 +78,14 @@ def parse_run_name(stem: str) -> Optional[dict]:
     }
 
 
-# ── GA модели ───────────────────────────────────────────────────────────────
+# ── GA models ───────────────────────────────────────────────────────────────
 
 def save_ga_model(net: GANet, score: int,
                   metadata: Optional[dict] = None,
                   timestamp: Optional[str] = None) -> str:
     """
-    Сохранить GA сеть как .pt + sidecar .meta.json с метаданными.
-    Возвращает путь к .pt файлу.
+    Save a GA network as .pt plus a sidecar .meta.json with the metadata.
+    Returns the path to the .pt file.
     """
     os.makedirs(MODELS_DIR, exist_ok=True)
     ts = timestamp if timestamp is not None else make_timestamp()
@@ -111,7 +111,7 @@ def save_ga_model(net: GANet, score: int,
 
 
 def load_ga_model(path: str) -> GANet:
-    """Загрузить GA сеть из .pt файла."""
+    """Load a GA network from a .pt file."""
     net = GANet()
     net.load_state_dict(torch.load(path, weights_only=True))
     net.eval()
@@ -119,7 +119,7 @@ def load_ga_model(path: str) -> GANet:
 
 
 def load_ga_meta(pt_path: str) -> dict:
-    """Загрузить метаданные GA модели. Если их нет — вернуть пустой dict."""
+    """Load the GA model metadata. If there is none, return an empty dict."""
     meta_path = pt_path.replace('.pt', '.meta.json')
     if not os.path.exists(meta_path):
         stem = os.path.splitext(os.path.basename(pt_path))[0]
@@ -129,7 +129,7 @@ def load_ga_meta(pt_path: str) -> dict:
         return json.load(f)
 
 
-# ── EML формулы ─────────────────────────────────────────────────────────────
+# ── EML formulas ────────────────────────────────────────────────────────────
 
 def save_eml_formula(
     tree: EMLNode,
@@ -145,20 +145,20 @@ def save_eml_formula(
     timestamp: Optional[str] = None,
 ) -> str:
     """
-    Сохранить EML-формулу как JSON. Возвращает путь к файлу.
+    Save an EML formula as JSON. Returns the path to the file.
 
-    Содержимое:
+    Contents:
         method        — 'eml-{depth_penalty}'
         timestamp, score
         mode          — 'sigmoid' | 'binary'
         depth_penalty — 'weak' | 'medium' | 'strong'
-        formula       — человекочитаемая строка
-        tree          — AST как dict
+        formula       — a human-readable string
+        tree          — the AST as a dict
         depth, size, n_vars
-        test_scores   — список очков на тестовых играх
-        history       — история эволюции (опционально)
-        elapsed       — секунды
-        dataset_size, oracle_ref — для трассируемости
+        test_scores   — list of scores over the test games
+        history       — evolution history (optional)
+        elapsed       — seconds
+        dataset_size, oracle_ref — for traceability
     """
     os.makedirs(MODELS_DIR, exist_ok=True)
     ts = timestamp if timestamp is not None else make_timestamp()
@@ -189,7 +189,7 @@ def save_eml_formula(
 
 
 def load_eml_formula(path: str) -> dict:
-    """Загрузить JSON с EML-формулой и восстановить AST в ключе 'tree_node'."""
+    """Load an EML formula JSON and restore the AST into the 'tree_node' key."""
     with open(path, 'r', encoding='utf-8') as f:
         data = json.load(f)
     data['tree_node'] = EMLNode.from_dict(data['tree'])
@@ -197,13 +197,13 @@ def load_eml_formula(path: str) -> dict:
     return data
 
 
-# ── Список сохранёнок ───────────────────────────────────────────────────────
+# ── Listing of saved runs ───────────────────────────────────────────────────
 
 def list_saved_runs() -> list[dict]:
     """
-    Все сохранённые модели и формулы, отсортированные по времени (новые сверху).
+    All saved models and formulas, sorted by time (newest first).
 
-    Каждая запись:
+    Every entry:
         {
             'kind': 'ga' | 'eml',
             'path': str,
@@ -211,7 +211,7 @@ def list_saved_runs() -> list[dict]:
             'timestamp': str,         # '2026-05-24_14-30-15'
             'date': str, 'time': str,
             'score': int | None,
-            'extra': dict,            # method-специфичные поля
+            'extra': dict,            # method-specific fields
         }
     """
     runs = []
@@ -270,18 +270,18 @@ def list_saved_runs() -> list[dict]:
 
 
 def latest_ga_path() -> Optional[str]:
-    """Путь к последнему GA .pt файлу (None если нет)."""
+    """Path to the latest GA .pt file (None if there is none)."""
     for r in list_saved_runs():
         if r['kind'] == 'ga':
             return r['path']
     return None
 
 
-# ── Бенчмарк (результаты + плот) ─────────────────────────────────────────────
+# ── Benchmark (results + plot) ───────────────────────────────────────────────
 
 def benchmark_path(timestamp: Optional[str] = None) -> tuple[str, str]:
     """
-    Возвращает пару путей: (json_results_path, png_plot_path) с одним ts.
+    Returns a pair of paths: (json_results_path, png_plot_path) with one ts.
     """
     os.makedirs(RESULTS_DIR, exist_ok=True)
     ts = timestamp if timestamp is not None else make_timestamp()
@@ -294,8 +294,8 @@ def benchmark_path(timestamp: Optional[str] = None) -> tuple[str, str]:
 
 def save_benchmark_results(results: dict, path: str) -> str:
     """
-    Сохранить полный результат бенчмарка как JSON.
-    Агенты убираются (несериализуемы); формулы и метаданные сохраняются.
+    Save the full benchmark result as JSON.
+    The agents are dropped (not serializable); formulas and metadata are kept.
     """
     os.makedirs(os.path.dirname(path), exist_ok=True)
     serialisable = {}
@@ -321,18 +321,18 @@ def save_benchmark_results(results: dict, path: str) -> str:
     return path
 
 
-# ── Логи ────────────────────────────────────────────────────────────────────
+# ── Logs ────────────────────────────────────────────────────────────────────
 
 class RunLogger:
     """
-    Простой логер: пишет в файл logs/train_<ts>.log и параллельно в stdout.
+    A simple logger: writes to logs/train_<ts>.log and to stdout in parallel.
 
-    Использование:
+    Usage:
         log = RunLogger(timestamp='...')
         log.write("hello")
         log.close()
 
-    Поддерживает callback (для GUI live-просмотра).
+    Supports a callback (for live viewing in the GUI).
     """
 
     def __init__(self, timestamp: Optional[str] = None,

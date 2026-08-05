@@ -1,25 +1,27 @@
 """
-eml_distiller.py — символьная дистилляция CNN-оракула в ОДНУ EML-формулу.
+eml_distiller.py — symbolic distillation of the CNN oracle into ONE EML formula.
 
-Идея (v2, placement-based): оракул и формула выбирают ПОСТАНОВКУ фигуры.
-Формула — классическая оценочная функция (как у Dellacherie): ей показывают
-признаки доски-после-постановки (afterstate) и она возвращает скаляр.
-На инференсе:
-    placement* = argmax_i f(features(afterstate_i))  по легальным i.
+Idea (v2, placement-based): the oracle and the formula choose a piece
+PLACEMENT. The formula is a classic evaluation function (like Dellacherie's): it
+is shown the features of the board after the placement (afterstate) and returns
+a scalar. At inference:
+    placement* = argmax_i f(features(afterstate_i))  over legal i.
 
-Две фазы:
-  1. DATA-фаза  — символьная регрессия: f(features_i) ≈ logit_i оракула
-     (взвешенный MSE, векторно на numpy). Формула учится ранжировать
-     постановки так же, как оракул.
-  2. GAME-фаза  — популяция формул доводится эволюцией по РЕАЛЬНОМУ score
-     в TetrisEnv: формула играет сама, fitness = линии + выживание.
+Two phases:
+  1. DATA phase — symbolic regression: f(features_i) ~ the oracle's logit_i
+     (weighted MSE, vectorized in numpy). The formula learns to rank placements
+     the same way the oracle does.
+  2. GAME phase — a population of formulas is refined by evolution against the
+     ACTUAL score in TetrisEnv: the formula plays by itself, and
+     fitness = lines + survival.
 
-EML-оператор:  eml(x, y) = exp(clamp(x, -10, 10)) - ln(|y| + ε).
+EML operator:  eml(x, y) = exp(clamp(x, -10, 10)) - ln(|y| + eps).
 
-AST-движок портирован из flappy_bird_with_ai/eml_distiller.py; отличия:
-  - n_vars = 19 (признаки afterstate), имена из config.FEATURE_NAMES;
-  - векторная evaluate_batch() для быстрой оценки на датасете;
-  - одна формула вместо шести — argmax теперь по постановкам, а не действиям.
+The AST engine is ported from flappy_bird_with_ai/eml_distiller.py; differences:
+  - n_vars = 19 (afterstate features), names from config.FEATURE_NAMES;
+  - a vectorized evaluate_batch() for fast evaluation over the dataset;
+  - one formula instead of six — the argmax is now over placements rather than
+    actions.
 """
 
 import math
@@ -33,24 +35,24 @@ from config import EML_EPSILON, DEPTH_PENALTIES, FEATURE_NAMES, N_FEATURES
 from env import TetrisEnv
 
 
-# ── EML-оператор ──────────────────────────────────────────────────────────────
+# ── EML operator ──────────────────────────────────────────────────────────────
 
 def eml_op(x: float, y: float) -> float:
-    """eml(x, y) = exp(clamp(x)) - ln(|y| + ε). Скалярная (numpy-free) версия."""
+    """eml(x, y) = exp(clamp(x)) - ln(|y| + eps). Scalar (numpy-free) version."""
     x_clamped = -10.0 if x < -10.0 else (10.0 if x > 10.0 else x)
     return math.exp(x_clamped) - math.log(abs(y) + EML_EPSILON)
 
 
-# ── AST-дерево ────────────────────────────────────────────────────────────────
+# ── AST tree ──────────────────────────────────────────────────────────────────
 
 class EMLNode:
     """
-    Узел AST EML-формулы.
+    A node of the EML formula AST.
 
-    Типы:
+    Kinds:
         'eml'   — eml(left, right)
-        'var'   — входной признак (index 0..N_FEATURES-1)
-        'const' — числовая константа
+        'var'   — input feature (index 0..N_FEATURES-1)
+        'const' — numeric constant
     """
 
     __slots__ = ('kind', 'left', 'right', 'var_idx', 'value')
@@ -63,9 +65,9 @@ class EMLNode:
         self.var_idx = var_idx
         self.value = value
 
-    # ── Вычисление ────────────────────────────────────────────────────────
+    # ── Evaluation ────────────────────────────────────────────────────────
     def evaluate(self, inputs) -> float:
-        """Скалярное вычисление для одного вектора признаков (инференс)."""
+        """Scalar evaluation for a single feature vector (inference)."""
         if self.kind == 'const':
             return self.value
         if self.kind == 'var':
@@ -77,10 +79,10 @@ class EMLNode:
 
     def evaluate_batch(self, X: np.ndarray) -> np.ndarray:
         """
-        Векторное вычисление для всего датасета X (N, 19) → (N,).
+        Vectorized evaluation over the whole dataset X (N, 19) -> (N,).
 
-        Все операции замкнуты и численно ограничены (clamp + ε), поэтому
-        результат всегда конечен.
+        All operations are closed and numerically bounded (clamp + eps), so the
+        result is always finite.
         """
         if self.kind == 'const':
             return np.full(X.shape[0], self.value, dtype=np.float64)
@@ -90,7 +92,7 @@ class EMLNode:
         rv = self.right.evaluate_batch(X)
         return np.exp(np.clip(lv, -10.0, 10.0)) - np.log(np.abs(rv) + EML_EPSILON)
 
-    # ── Метрики ───────────────────────────────────────────────────────────
+    # ── Metrics ───────────────────────────────────────────────────────────
     def depth(self) -> int:
         if self.kind in ('const', 'var'):
             return 0
@@ -111,7 +113,7 @@ class EMLNode:
     def n_unique_vars(self) -> int:
         return bin(self._var_mask()).count('1')
 
-    # ── Сериализация / печать ─────────────────────────────────────────────
+    # ── Serialization / printing ──────────────────────────────────────────
     def to_string(self) -> str:
         if self.kind == 'const':
             return f"{self.value:.3f}"
@@ -149,17 +151,17 @@ class EMLNode:
         raise ValueError(f"Unknown node kind: {kind}")
 
 
-# ── Генерация случайных деревьев ──────────────────────────────────────────────
+# ── Random tree generation ────────────────────────────────────────────────────
 
 def _random_leaf() -> EMLNode:
-    """Случайный лист: переменная (70%) или константа (30%)."""
+    """Random leaf: a variable (70%) or a constant (30%)."""
     if random.random() < 0.7:
         return EMLNode('var', var_idx=random.randint(0, N_FEATURES - 1))
     return EMLNode('const', value=random.uniform(-2.0, 2.0))
 
 
 def random_tree(max_depth: int = 3, force_eml: bool = False) -> EMLNode:
-    """Случайное EML-дерево. force_eml → корень всегда eml (depth >= 1)."""
+    """Random EML tree. force_eml -> the root is always eml (depth >= 1)."""
     if force_eml and max_depth >= 1:
         return EMLNode('eml',
                        left=random_tree(max_depth - 1, force_eml=False),
@@ -171,7 +173,7 @@ def random_tree(max_depth: int = 3, force_eml: bool = False) -> EMLNode:
                    right=random_tree(max_depth - 1))
 
 
-# ── Мутации / кроссовер ───────────────────────────────────────────────────────
+# ── Mutation / crossover ──────────────────────────────────────────────────────
 
 def _collect_nodes(node: EMLNode) -> list[EMLNode]:
     nodes = [node]
@@ -182,7 +184,7 @@ def _collect_nodes(node: EMLNode) -> list[EMLNode]:
 
 
 def mutate_tree(root: EMLNode, intensity: float = 1.0) -> EMLNode:
-    """Мутация с адаптивной интенсивностью (1.0 = дикая, 0.1 = тонкая)."""
+    """Mutation with adaptive intensity (1.0 = wild, 0.1 = fine)."""
     tree = root.clone()
     n_mutations = 1 + int(intensity * 2 * random.random())
 
@@ -232,7 +234,7 @@ def mutate_tree(root: EMLNode, intensity: float = 1.0) -> EMLNode:
 
 
 def _prune_tree(node: EMLNode, max_depth: int | None = None) -> EMLNode:
-    """Обрезать дерево до max_depth — глубокие поддеревья → листы."""
+    """Trim the tree to max_depth — deep subtrees become leaves."""
     if max_depth is None:
         max_depth = config.EML_MAX_DEPTH
     if node.kind in ('const', 'var'):
@@ -245,7 +247,7 @@ def _prune_tree(node: EMLNode, max_depth: int | None = None) -> EMLNode:
 
 
 def crossover(parent1: EMLNode, parent2: EMLNode) -> EMLNode:
-    """Заменить случайное поддерево parent1 поддеревом из parent2."""
+    """Replace a random subtree of parent1 with a subtree from parent2."""
     child = parent1.clone()
     target = random.choice(_collect_nodes(child))
     donor = random.choice(_collect_nodes(parent2)).clone()
@@ -263,14 +265,14 @@ def _tournament_select(fitness_scores: list[float], k: int = 5) -> int:
     return max(candidates, key=lambda i: fitness_scores[i])
 
 
-# ── DATA-фаза: регрессия формулы к логитам оракула ────────────────────────────
+# ── DATA phase: regression of the formula to the oracle logits ────────────────
 
 def _regression_fitness(tree: EMLNode, X: np.ndarray, y: np.ndarray,
                         w: np.ndarray, depth_penalty: float) -> float:
     """
     Fitness = var_bonus / (weighted_MSE + depth_penalty * depth).
 
-    Дерево-константа (0 переменных) бесполезно → ~0.
+    A constant tree (0 variables) is useless -> ~0.
     """
     n_vars = tree.n_unique_vars()
     if n_vars == 0:
@@ -306,10 +308,10 @@ def evolve_formula(
     on_event=None,
 ) -> dict:
     """
-    GA-эволюция EML-формулы (символьная регрессия к таргету y).
+    GA evolution of an EML formula (symbolic regression to the target y).
 
-    on_event: опциональный колбэк(dict) для прогресса (GUI). Вызывается
-    каждое поколение с {'type':'data_gen', ...}.
+    on_event: an optional callback(dict) for progress (GUI). Invoked every
+    generation with {'type':'data_gen', ...}.
 
     Returns: {'best_tree', 'best_fitness', 'history'}.
     """
@@ -331,7 +333,7 @@ def evolve_formula(
 
         intensity = max(0.1, 1.0 - gen / (generations * 0.7))
 
-        # Подвыборка для скорости (свежая каждое поколение → меньше оверфита).
+        # Subsample for speed (fresh every generation -> less overfitting).
         if len(X) > subsample:
             idx = rng.choice(len(X), subsample, replace=False)
             Xs, ys, ws = X[idx], y[idx], w[idx]
@@ -373,7 +375,7 @@ def evolve_formula(
                       f"(no improve {patience})")
             break
 
-        # Новое поколение.
+        # New generation.
         new_pop = [population[i].clone() for i in range(elitism)]
         while len(new_pop) < population_size:
             r = random.random()
@@ -399,29 +401,31 @@ def evolve_formula(
             'history': history}
 
 
-# ── EML-политика (одна формула, argmax по постановкам) ────────────────────────
+# ── EML policy (one formula, argmax over placements) ──────────────────────────
 
 class EMLPolicy:
     """
-    Обёртка над EML-деревом: placement* = argmax_i f(afterstate_i).
+    A wrapper over an EML tree: placement* = argmax_i f(afterstate_i).
 
-    Принимает и список из одного дерева (формат storage.save_formulas).
+    Also accepts a list containing a single tree (the storage.save_formulas
+    format).
     """
 
     def __init__(self, tree):
         if isinstance(tree, (list, tuple)):
-            assert len(tree) >= 1, "пустой список формул"
+            assert len(tree) >= 1, "empty formula list"
             tree = tree[0]
         self.tree = tree
 
     def choose(self, mask: np.ndarray, afeats: np.ndarray,
                scalars: np.ndarray | None = None) -> int:
         """
-        Лучшая легальная постановка по признакам obs.
+        The best legal placement based on the obs features.
 
-        Вход формулы = afterstate-признаки (19) + one-hot следующей фигуры (7),
-        который берётся из obs['scalars'][7:14]. Если scalars не переданы,
-        next-признаки заполняются нулями (формулы без next_* не пострадают).
+        The formula input = afterstate features (19) + a one-hot of the next
+        piece (7), taken from obs['scalars'][7:14]. If scalars are not passed,
+        the next_* features are filled with zeros (formulas that do not use
+        next_* are unaffected).
         """
         legal = np.flatnonzero(mask > 0)
         if len(legal) == 0:
@@ -435,16 +439,16 @@ class EMLPolicy:
         return int(legal[int(np.argmax(vals))])
 
     def get_action(self, env: TetrisEnv) -> int:
-        """Выбрать лучшую легальную постановку для текущего состояния env."""
+        """Choose the best legal placement for the current env state."""
         obs = env.get_placement_state()
         return self.choose(obs['mask'], obs['afeats'], obs['scalars'])
 
 
-# ── GAME-фаза: in-game эволюция формулы ───────────────────────────────────────
+# ── GAME phase: in-game evolution of the formula ──────────────────────────────
 
 def play_episodes(tree, n_games: int, max_placements: int,
                   seed: int) -> tuple[float, float]:
-    """Сыграть n_games формулой. Возвращает (avg_lines, avg_placements)."""
+    """Play n_games with the formula. Returns (avg_lines, avg_placements)."""
     env = TetrisEnv(seed=seed)
     policy = EMLPolicy(tree)
     total_lines = 0
@@ -464,7 +468,7 @@ def play_episodes(tree, n_games: int, max_placements: int,
 
 
 def _ingame_fitness(tree, n_games, max_placements, seed) -> float:
-    """fitness = avg_lines * 100 + avg_placements (выживание — tie-breaker)."""
+    """fitness = avg_lines * 100 + avg_placements (survival is the tie-breaker)."""
     avg_lines, avg_steps = play_episodes(tree, n_games, max_placements, seed)
     return avg_lines * 100.0 + avg_steps
 
@@ -484,10 +488,11 @@ def evolve_ingame(
     on_event=None,
 ) -> dict:
     """
-    In-game эволюция формулы: fitness = реальный score в TetrisEnv.
-    Сидируется лучшей формулой DATA-фазы.
+    In-game evolution of the formula: fitness = the actual score in TetrisEnv.
+    Seeded with the best formula of the DATA phase.
 
-    on_event: опциональный колбэк(dict), {'type':'joint_gen', ...} каждое поколение.
+    on_event: an optional callback(dict), {'type':'joint_gen', ...} every
+    generation.
 
     Returns: {'best_tree', 'best_fitness', 'best_lines', 'history'}.
     """
@@ -499,7 +504,7 @@ def evolve_ingame(
     if max_placements is None:  max_placements = config.EML_INGAME_MAX_PLACEMENTS
     elitism = max(1, min(elitism, population_size))
 
-    # Популяция: оригинал + мутанты сид-формулы.
+    # Population: the original plus mutants of the seed formula.
     population = [seed_tree.clone()]
     while len(population) < population_size:
         population.append(mutate_tree(seed_tree, intensity=0.7))
@@ -514,7 +519,7 @@ def evolve_ingame(
             break
 
         intensity = max(0.15, 1.0 - gen / (generations * 0.8))
-        # Все формулы оцениваются на ОДНИХ сидах → честное сравнение.
+        # All formulas are evaluated on THE SAME seeds -> a fair comparison.
         fitness_scores = [_ingame_fitness(t, n_games, max_placements, eval_seed)
                           for t in population]
 
@@ -574,7 +579,7 @@ def evolve_ingame(
 
 
 def _standardize_per_group(y: np.ndarray, groups: np.ndarray) -> np.ndarray:
-    """z-score таргета внутри каждой группы (шага): сохраняет argmax."""
+    """z-score of the target within each group (step): preserves the argmax."""
     out = np.empty_like(y)
     boundaries = np.flatnonzero(np.diff(groups)) + 1
     start = 0
@@ -585,7 +590,7 @@ def _standardize_per_group(y: np.ndarray, groups: np.ndarray) -> np.ndarray:
     return out
 
 
-# ── Полный пайплайн дистилляции ───────────────────────────────────────────────
+# ── Full distillation pipeline ────────────────────────────────────────────────
 
 def distill(
     features: np.ndarray,
@@ -602,17 +607,17 @@ def distill(
     on_event=None,
 ) -> dict:
     """
-    DATA-фаза (регрессия к логитам) → GAME-фаза (in-game эволюция).
+    DATA phase (regression to the logits) -> GAME phase (in-game evolution).
 
     Args:
-        features: (N, 19), logits: (N,) — из dataset_collector.
-        weights:  (N,) per-sample веса (None → по группам, если есть, иначе 1).
-        joint:    включить GAME-фазу (можно отключить для отладки).
-        on_event: опциональный колбэк(dict) для прогресса (GUI).
+        features: (N, 19), logits: (N,) — from dataset_collector.
+        weights:  (N,) per-sample weights (None -> by group if available, else 1).
+        joint:    enable the GAME phase (can be turned off for debugging).
+        on_event: an optional callback(dict) for progress (GUI).
 
     Returns:
-        dict с 'trees' ([формула] — список для совместимости со storage),
-        метриками DATA/GAME и историей.
+        dict with 'trees' ([formula] — a list for storage compatibility),
+        the DATA/GAME metrics and the history.
     """
     def _emit(ev):
         if on_event is not None:
@@ -633,16 +638,17 @@ def distill(
     X = np.ascontiguousarray(features, dtype=np.float64)
     y = np.asarray(logits, dtype=np.float64).reshape(-1)
 
-    # Нормализация таргета. Абсолютный масштаб логитов оракула произволен
-    # (mean -46, std 48 на реальном датасете) — важно только РАНЖИРОВАНИЕ
-    # постановок внутри шага. z-score внутри группы делает таргет безмасштабным
-    # (MSE ~ O(1)) и сохраняет argmax; без групп — глобальный z-score.
+    # Target normalization. The absolute scale of the oracle logits is arbitrary
+    # (mean -46, std 48 on a real dataset) — only the RANKING of placements
+    # within a step matters. A z-score within a group makes the target
+    # scale-free (MSE ~ O(1)) and preserves the argmax; without groups a global
+    # z-score is used.
     if groups is not None:
         y = _standardize_per_group(y, np.asarray(groups))
     else:
         y = (y - y.mean()) / (y.std() + 1e-8)
 
-    # ── DATA-фаза: регрессия одной формулы ───────────────────────────────────
+    # ── DATA phase: regression of a single formula ───────────────────────────
     _emit({'type': 'phase', 'phase': 'data', 'n_actions': 1})
     if verbose:
         print(f"  [DATA] evolving placement-value formula "
@@ -670,7 +676,7 @@ def distill(
            'size': data_tree.size(), 'nvars': data_tree.n_unique_vars(),
            'formula': data_tree.to_string()})
 
-    # Базовый in-game score формулы DATA-фазы (до in-game доводки).
+    # Baseline in-game score of the DATA phase formula (before in-game tuning).
     base_lines, _ = play_episodes(
         data_tree, config.EML_INGAME_GAMES,
         config.EML_INGAME_MAX_PLACEMENTS, seed=1000)
@@ -678,7 +684,7 @@ def distill(
         print(f"  DATA-phase in-game score: {base_lines:.2f} lines/game")
     _emit({'type': 'base_score', 'base_lines': base_lines})
 
-    # ── GAME-фаза: in-game доводка ──────────────────────────────────────────
+    # ── GAME phase: in-game tuning ──────────────────────────────────────────
     if joint:
         if verbose:
             print("  [GAME] in-game evolution...")
@@ -687,7 +693,7 @@ def distill(
                              should_stop=should_stop, on_event=on_event)
         final_tree = jres['best_tree']
         joint_lines = jres['best_lines']
-        # Не даём GAME-фазе ухудшить результат относительно DATA.
+        # Do not let the GAME phase make the result worse than DATA.
         if joint_lines < base_lines:
             if verbose:
                 print(f"  GAME ({joint_lines:.2f}) < DATA ({base_lines:.2f}) "

@@ -1,13 +1,13 @@
 """
-ppo_trainer.py — обучение CNN-оракула методом PPO.
+ppo_trainer.py — training the CNN oracle with PPO.
 
-Содержит:
-    VecTetris   — синхронная векторизованная обёртка над N средами
-                  с авто-ресетом и сбором статистики эпизодов.
-    train_ppo() — основной цикл: rollout → GAE → clipped surrogate update.
+Contains:
+    VecTetris   — a synchronous vectorized wrapper over N environments
+                  with auto-reset and episode statistics collection.
+    train_ppo() — the main loop: rollout -> GAE -> clipped surrogate update.
 
-Реализация ванильного PPO (Schulman et al. 2017) с GAE (lambda).
-Device-aware. Гиперпараметры — из config (резолвятся при вызове).
+A vanilla PPO implementation (Schulman et al. 2017) with GAE (lambda).
+Device-aware. Hyperparameters come from config (resolved at call time).
 """
 
 import time
@@ -22,14 +22,14 @@ from env import TetrisEnv
 from cnn_oracle import TetrisCNN, get_device
 
 
-# ── Векторизованная среда ────────────────────────────────────────────────────
+# ── Vectorized environment ───────────────────────────────────────────────────
 
 class VecTetris:
     """
-    Синхронная векторизованная обёртка над N экземплярами TetrisEnv.
+    A synchronous vectorized wrapper over N TetrisEnv instances.
 
-    step() авто-ресетит завершившиеся среды и записывает (return, lines)
-    эпизода в очередь статистики, доступную через pop_episode_stats().
+    step() auto-resets finished environments and records the episode's
+    (return, lines) into a statistics queue available via pop_episode_stats().
     """
 
     def __init__(self, n_envs: int, seed: int = 0):
@@ -61,7 +61,7 @@ class VecTetris:
                 self._stats.append((self.ep_returns[i], self.ep_lines[i]))
                 self.ep_returns[i] = 0
                 self.ep_lines[i] = 0
-                obs = env.reset()            # авто-ресет
+                obs = env.reset()            # auto-reset
             grids.append(obs['grid'])
             scalars.append(obs['scalars'])
             rewards.append(r)
@@ -76,7 +76,7 @@ class VecTetris:
                 np.stack([o['scalars'] for o in obs_list]))
 
     def pop_episode_stats(self):
-        """Вернуть и очистить накопленную статистику эпизодов."""
+        """Return and clear the accumulated episode statistics."""
         stats = list(self._stats)
         self._stats.clear()
         return stats
@@ -90,7 +90,7 @@ def compute_gae(rewards, values, dones, last_value, gamma, lam):
 
     Args:
         rewards, values, dones: (T, N) np.ndarray.
-        last_value: (N,) бутстрап-значение состояния после последнего шага.
+        last_value: (N,) bootstrap value of the state after the last step.
     Returns:
         advantages (T, N), returns (T, N).
     """
@@ -107,7 +107,7 @@ def compute_gae(rewards, values, dones, last_value, gamma, lam):
     return advantages, returns
 
 
-# ── Основной цикл обучения ───────────────────────────────────────────────────
+# ── Main training loop ───────────────────────────────────────────────────────
 
 def train_ppo(
     total_steps: int | None = None,
@@ -131,9 +131,9 @@ def train_ppo(
     overrides=None,
 ) -> dict:
     """
-    Обучить TetrisCNN методом PPO.
+    Train a TetrisCNN with PPO.
 
-    Гиперпараметры: None → берётся из config на момент вызова.
+    Hyperparameters: None -> taken from config at call time.
 
     Returns:
         dict: 'model', 'history', 'elapsed', 'total_steps', 'best_avg_lines',
@@ -189,7 +189,7 @@ def train_ppo(
             if 'batch_size' in overrides: batch_size  = int(overrides['batch_size'])
             if 'target' in overrides:     target_score = float(overrides['target'])
 
-        # ── Сбор rollout ──────────────────────────────────────────────────
+        # ── Rollout collection ────────────────────────────────────────────
         b_grids = np.zeros((rollout, n_envs, 3, config.BOARD_H_TOTAL,
                             config.BOARD_W), dtype=np.float32)
         b_scalars = np.zeros((rollout, n_envs, 19), dtype=np.float32)
@@ -217,7 +217,7 @@ def train_ppo(
             b_dones[t] = dones
             global_step += n_envs
 
-        # Бутстрап значения для последнего состояния
+        # Bootstrap value for the last state
         with torch.no_grad():
             g = torch.from_numpy(grids_np).to(device)
             s = torch.from_numpy(scalars_np).to(device)
@@ -236,11 +236,11 @@ def train_ppo(
         f_returns = returns.reshape(-1)
         f_values = b_values.reshape(-1)
 
-        # Нормализация advantage
+        # Advantage normalization
         f_advantages = (f_advantages - f_advantages.mean()) / \
                        (f_advantages.std() + 1e-8)
 
-        # ── PPO-обновление (K эпох, мини-батчи) ──────────────────────────
+        # ── PPO update (K epochs, mini-batches) ──────────────────────────
         model.train()
         n_samples = f_grids.shape[0]
         idx = np.arange(n_samples)
@@ -277,7 +277,7 @@ def train_ppo(
                 last_pg, last_vf, last_ent = (pg_loss.item(), vf_loss.item(),
                                               ent_loss.item())
 
-        # ── Статистика ────────────────────────────────────────────────────
+        # ── Statistics ────────────────────────────────────────────────────
         for _, lines in vec.pop_episode_stats():
             recent_lines.append(lines)
         avg_lines = float(np.mean(recent_lines)) if recent_lines else 0.0

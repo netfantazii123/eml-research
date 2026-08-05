@@ -1,8 +1,8 @@
 """
-Обёртка (ctypes) для C стек-машины EML.
+A ctypes wrapper for the C EML stack machine.
 
-Предоставляет Python-интерфейс для вычисления байткода,
-скомпилированного eml_compiler.compile_eml().
+Provides a Python interface for evaluating the bytecode compiled by
+eml_compiler.compile_eml().
 """
 
 import ctypes
@@ -10,7 +10,7 @@ import os
 import time
 
 
-# Структура инструкции — должна совпадать с EmlInstruction в eml_c.c
+# The instruction struct — must match EmlInstruction in eml_c.c
 class EmlInstruction(ctypes.Structure):
     _fields_ = [
         ("opcode",     ctypes.c_int),
@@ -20,13 +20,13 @@ class EmlInstruction(ctypes.Structure):
 
 
 class EmlVM:
-    """Обёртка для C-реализации стек-машины EML."""
+    """A wrapper for the C implementation of the EML stack machine."""
     
     def __init__(self, dll_path=None):
         if dll_path is None:
             dll_path = os.path.join(os.path.dirname(__file__), 'eml_c.dll')
         
-        # На Windows с MinGW-сборкой DLL может зависеть от libgcc и т.д.
+        # On Windows a MinGW-built DLL may depend on libgcc and so on.
         mingw_bin = os.path.join(
             os.environ.get('MSYSTEM_PREFIX', r'C:\dev\mingw64'), 'bin'
         )
@@ -48,7 +48,7 @@ class EmlVM:
         self._lib.eml_vm_eval.restype = ctypes.c_int
     
     def _to_c_program(self, bytecode):
-        """Конвертирует список кортежей [(op, real, imag), ...] в C-массив."""
+        """Converts a list of tuples [(op, real, imag), ...] into a C array."""
         n = len(bytecode)
         arr = (EmlInstruction * n)()
         for i, (op, r, im) in enumerate(bytecode):
@@ -59,17 +59,17 @@ class EmlVM:
     
     def eval(self, bytecode, x_val):
         """
-        Вычислить байткод при заданном x.
-        
-        Параметры:
-            bytecode — список кортежей из compile_eml()
-            x_val    — значение x (float или complex)
-        
-        Возвращает:
-            complex — результат вычисления
-        
+        Evaluate the bytecode at the given x.
+
+        Parameters:
+            bytecode — the list of tuples from compile_eml()
+            x_val    — the value of x (float or complex)
+
+        Returns:
+            complex — the evaluation result
+
         Raises:
-            RuntimeError при ошибке VM (переполнение стека и т.д.)
+            RuntimeError on a VM error (stack overflow and so on)
         """
         arr, n = self._to_c_program(bytecode)
         cx = complex(x_val)
@@ -84,17 +84,17 @@ class EmlVM:
         
         if rc != 0:
             raise RuntimeError(
-                f"VM error (code {rc}): переполнение/недобор стека "
-                f"или неизвестный opcode. Длина программы: {n}"
+                f"VM error (code {rc}): stack overflow/underflow "
+                f"or an unknown opcode. Program length: {n}"
             )
         
         return complex(out_r.value, out_i.value)
     
     def eval_timed(self, bytecode, x_val, iterations=1):
         """
-        Вычислить байткод с замером времени.
-        
-        Возвращает:
+        Evaluate the bytecode while measuring the time.
+
+        Returns:
             (result: complex, time_sec: float)
         """
         arr, n = self._to_c_program(bytecode)
@@ -102,13 +102,13 @@ class EmlVM:
         out_r = ctypes.c_double()
         out_i = ctypes.c_double()
         
-        # Прогрев
+        # Warm-up
         self._lib.eml_vm_eval(
             arr, n, cx.real, cx.imag,
             ctypes.byref(out_r), ctypes.byref(out_i)
         )
         
-        # Замер
+        # Measurement
         t0 = time.perf_counter()
         for _ in range(iterations):
             self._lib.eml_vm_eval(

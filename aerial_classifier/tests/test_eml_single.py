@@ -1,19 +1,20 @@
 """
-Тесты ветки C: одна формула на все классы плюс подобранная под неё таблица
-порогов.
+Tests of branch C: one formula for all classes plus a threshold table fitted to
+it.
 
-Проверяется то, что при поломке не падает, а тихо портит результат:
+What is checked is what, when broken, does not fail but quietly corrupts the
+result:
 
-  * ДП декодера — сердце fitness. Приближённый или сбитый подбор порогов не
-    даёт ошибки, он просто занижает fitness, и эволюция читает это как
-    «дерево стало хуже». Поэтому оптимальность разбиения проверяется на
-    случаях, где ответ известен заранее.
-  * Совпадение обещанной метрики с реальной. fit_decoder возвращает score;
-    если он разойдётся с настоящей сбалансированной accuracy того же
-    декодера, весь отбор поедет, и заметить это будет не по чему.
-  * Различимость порогов во float32. Выход дерева доходит до 2.2e4, шаг
-    float32 там ~0.002; схлопнувшийся порог означает исчезнувший класс на
-    микроконтроллере при исправном экспорте.
+  * The decoder DP is the heart of the fitness. An approximate or broken
+    threshold fit produces no error, it merely understates the fitness, and
+    evolution reads that as "the tree got worse". Optimality of the partition is
+    therefore checked on cases where the answer is known in advance.
+  * Agreement of the promised metric with the real one. fit_decoder returns a
+    score; if it diverges from the actual balanced accuracy of the same decoder,
+    the whole selection goes astray with nothing to notice it by.
+  * Threshold distinguishability in float32. The tree output reaches 2.2e4,
+    where the float32 step is ~0.002; a collapsed threshold means a class
+    disappearing on the microcontroller with a correct export.
 """
 
 import numpy as np
@@ -26,20 +27,20 @@ import eml_single as es
 
 @pytest.fixture(autouse=True)
 def four_inputs():
-    """Формулы ветки C индексируют входы — задаём их размерность явно."""
+    """Branch C formulas index their inputs — set the dimension explicitly."""
     ed.configure_inputs(4, ['a', 'b', 'c', 'd'])
     yield
     ed.configure_inputs(config.N_FEATURES, list(config.FEATURE_NAMES))
 
 
-# ── Веса примеров ─────────────────────────────────────────────────────────────
+# ── Example weights ───────────────────────────────────────────────────────────
 
 def test_weights_turn_accuracy_into_balanced_accuracy():
     """
-    Сумма весов угаданных примеров = сбалансированная accuracy.
+    The sum of weights of correctly guessed examples = balanced accuracy.
 
-    На этом равенстве стоит вся оптимизация декодера: ДП не знает про классы
-    ничего, кроме «набрать побольше веса».
+    The whole decoder optimization rests on this equality: the DP knows nothing
+    about classes beyond "collect as much weight as possible".
     """
     rng = np.random.default_rng(0)
     y = rng.choice(4, 500, p=[0.1, 0.2, 0.3, 0.4])
@@ -51,16 +52,16 @@ def test_weights_turn_accuracy_into_balanced_accuracy():
 
 
 def test_weights_ignore_absent_classes():
-    """Класс, которого нет в подвыборке, не тянет метрику вниз."""
+    """A class absent from the subsample does not drag the metric down."""
     y = np.array([0, 0, 1, 1])
     weights = es.sample_weights(y, 4)
     assert weights.sum() == pytest.approx(1.0)
 
 
-# ── Декодер ───────────────────────────────────────────────────────────────────
+# ── Decoder ───────────────────────────────────────────────────────────────────
 
 def test_decoder_finds_perfect_split():
-    """Разделимые по оси классы разделяются полностью и ровно N-1 порогом."""
+    """Classes separable on the axis are separated fully by exactly N-1 thresholds."""
     y = np.repeat([0, 1, 2, 3], 50)
     values = y * 10.0 + np.linspace(0, 1, 200)
     decoder = es.fit_decoder(values, y, 4, bins=200)
@@ -72,13 +73,14 @@ def test_decoder_finds_perfect_split():
 
 def test_grid_resolution_limits_the_decoder():
     """
-    Порог встаёт только на границу бина — сетка задаёт достижимую точность.
+    A threshold falls only on a bin boundary — the grid sets the achievable
+    precision.
 
-    Это не дефект, а цена скорости: во время эволюции сетка грубая (промах
-    одинаков для всех деревьев, сравнению между собой он не мешает), а
-    итоговая таблица считается один раз по сетке в разы мельче. Тест
-    закрепляет обе половины утверждения — иначе однажды кто-нибудь «оптимизирует»
-    финальный подбор до эволюционной сетки и потеряет процент из ниоткуда.
+    This is not a defect but the price of speed: during evolution the grid is
+    coarse (the miss is the same for all trees and does not hamper comparing
+    them), while the final table is computed once on a far finer grid. The test
+    pins both halves of the claim — otherwise someone will one day "optimize"
+    the final fit down to the evolution grid and lose a percent for nothing.
     """
     y = np.repeat([0, 1, 2, 3], 50)
     values = y * 10.0 + np.linspace(0, 1, 200)
@@ -91,12 +93,12 @@ def test_grid_resolution_limits_the_decoder():
 
 def test_decoder_gives_a_class_several_zones():
     """
-    Класс имеет право занимать несколько участков оси.
+    A class is allowed to occupy several axis intervals.
 
-    Это главная причина, по которой декодер не сводится к «N-1 порогу»:
-    четыре класса не упорядочены, и требование расположить их на прямой в один
-    ряд было бы ограничением, взятым с потолка. Здесь класс 0 сидит по краям, а
-    класс 1 в середине — линейным порядком такое не решается вовсе.
+    This is the main reason the decoder does not reduce to "N-1 thresholds": the
+    four classes are not ordered, and requiring them to line up on a line in one
+    row would be an arbitrary constraint. Here class 0 sits at both edges and
+    class 1 in the middle — a linear order cannot express that at all.
     """
     y = np.array([0] * 60 + [1] * 60 + [0] * 60)
     values = np.concatenate([np.linspace(-3, -2, 60),
@@ -111,15 +113,15 @@ def test_decoder_gives_a_class_several_zones():
 
 def test_decoder_score_matches_its_own_predictions():
     """
-    Обещанный score равен настоящей сбалансированной accuracy этого декодера.
+    The promised score equals the actual balanced accuracy of this decoder.
 
-    Расхождение здесь не упало бы: fitness просто перестал бы соответствовать
-    метрике, и эволюция улучшала бы не то, что мы меряем.
+    A divergence here would not fail: the fitness would simply stop matching the
+    metric, and evolution would improve something other than what we measure.
     """
     for seed in range(5):
         rng = np.random.default_rng(seed)
-        # Масштаб выхода формулы гуляет на порядки — декодер обязан работать
-        # и на долях единицы, и на тысячах.
+        # The formula output scale varies by orders of magnitude — the decoder
+        # must work both on fractions of a unit and on thousands.
         values = rng.normal(size=800) * 10.0 ** rng.integers(-2, 4)
         y = rng.choice(4, 800)
         decoder = es.fit_decoder(values, y, 4)
@@ -129,18 +131,18 @@ def test_decoder_score_matches_its_own_predictions():
 
 def test_decoder_beats_any_hand_made_split():
     """
-    ДП находит оптимум, а не просто что-то приличное.
+    The DP finds the optimum rather than merely something decent.
 
-    Сравнение с перебором всех разбиений на маленькой задаче: если бы подбор
-    был жадным, он бы здесь проиграл — распределение специально сделано так,
-    что лучший первый порог не входит в лучшую пару порогов.
+    Compared against exhaustive search over all partitions on a small problem:
+    a greedy fit would lose here — the distribution is constructed so that the
+    best first threshold is not part of the best pair of thresholds.
     """
     y = np.array([0, 1, 0, 1, 2, 2, 0, 0])
     values = np.arange(8, dtype=float)
     decoder = es.fit_decoder(values, y, 3, max_intervals=3, interval_penalty=0.0)
 
     best = -1.0
-    for i in range(1, 8):                     # перебор двух порогов
+    for i in range(1, 8):                     # enumerate two thresholds
         for j in range(i + 1, 8):
             for labels in np.ndindex(3, 3, 3):
                 pred = np.array(labels)[np.searchsorted([i - 0.5, j - 0.5],
@@ -150,7 +152,7 @@ def test_decoder_beats_any_hand_made_split():
 
 
 def test_max_intervals_is_respected():
-    """Потолок числа участков — жёсткий: на устройстве это длина таблицы."""
+    """The interval count cap is hard: on the device it is the table length."""
     rng = np.random.default_rng(2)
     y = rng.choice(4, 600)
     values = rng.normal(size=600)
@@ -161,10 +163,10 @@ def test_max_intervals_is_respected():
 
 def test_interval_penalty_shortens_the_table():
     """
-    Штраф за участок реально сокращает таблицу.
+    The per-interval penalty really does shorten the table.
 
-    Без него K всегда упирается в потолок: лишний участок никогда не ухудшает
-    обучающую метрику, он только переобучается на шум.
+    Without it K always hits the ceiling: an extra interval never worsens the
+    training metric, it only overfits noise.
     """
     rng = np.random.default_rng(3)
     y = rng.choice(3, 900)
@@ -175,7 +177,7 @@ def test_interval_penalty_shortens_the_table():
 
 
 def test_constant_output_degrades_to_one_class():
-    """Формула-константа получает ровно 1/n_classes, а не случайное число."""
+    """A constant formula gets exactly 1/n_classes, not a random number."""
     y = np.repeat([0, 1, 2, 3], 25)
     decoder = es.fit_decoder(np.full(100, 3.5), y, 4)
     assert decoder.n_intervals == 1
@@ -184,12 +186,12 @@ def test_constant_output_degrades_to_one_class():
 
 def test_thresholds_survive_float32():
     """
-    Пороги остаются строго возрастающими во float32.
+    The thresholds stay strictly increasing in float32.
 
-    Выход EML-дерева доходит до 2.2e4 — там шаг float32 около 0.002, и два
-    близких порога схлопываются в одно число. На микроконтроллере участок
-    между ними исчезает вместе со своим классом, а сверка C с Python начинает
-    краснеть при исправном экспорте.
+    The EML tree output reaches 2.2e4 — there the float32 step is about 0.002,
+    and two nearby thresholds collapse into one number. On a microcontroller the
+    interval between them disappears along with its class, and the C/Python
+    comparison starts failing on a correct export.
     """
     rng = np.random.default_rng(4)
     base = 22000.0
@@ -205,7 +207,7 @@ def test_thresholds_survive_float32():
 
 
 def test_decode_one_matches_batch():
-    """Скалярный инференс = векторному. По нему сверяется C-экспорт."""
+    """Scalar inference = vectorized. The C export is checked against it."""
     rng = np.random.default_rng(5)
     y = rng.choice(4, 300)
     values = rng.normal(size=300) * 100
@@ -215,7 +217,7 @@ def test_decode_one_matches_batch():
 
 
 def test_decoder_roundtrip():
-    """JSON-сериализация без потерь: таблица порогов — часть артефакта."""
+    """Lossless JSON serialization: the threshold table is part of the artifact."""
     decoder = es.IntervalDecoder([-1.5, 2.0, 7.25], [2, 0, 2, 1], 3, score=0.7)
     back = es.IntervalDecoder.from_dict(decoder.to_dict())
     assert np.array_equal(back.thresholds, decoder.thresholds)
@@ -224,19 +226,19 @@ def test_decoder_roundtrip():
 
 
 def test_decoder_rejects_inconsistent_table():
-    """Меток должно быть ровно на одну больше, чем порогов."""
+    """There must be exactly one more label than thresholds."""
     with pytest.raises(ValueError):
         es.IntervalDecoder([0.0, 1.0], [0, 1], 2)
 
 
 def test_non_finite_values_still_get_a_class():
     """
-    NaN не роняет предсказание, а бесконечности идут по своим местам.
+    NaN does not break the prediction, and infinities go to their proper places.
 
-    Формула может сломаться на отдельном примере; предсказание при этом
-    обязано остаться определённым, иначе метрика посчитается по битому
-    массиву. У NaN места на оси нет — он уходит в левый участок; у +inf и -inf
-    место есть, и загонять их туда же значило бы терять информацию.
+    A formula may break on an individual example; the prediction must stay
+    defined regardless, otherwise the metric would be computed over a corrupted
+    array. NaN has no place on the axis — it goes to the left interval; +inf and
+    -inf do have a place, and sending them there too would lose information.
     """
     decoder = es.IntervalDecoder([0.0], [0, 1], 2)
     got = decoder.decode(np.array([np.nan, np.inf, -np.inf, 5.0]))
@@ -245,7 +247,7 @@ def test_non_finite_values_still_get_a_class():
     assert decoder.decode_one(float('inf')) == 1
 
 
-# ── Модель ────────────────────────────────────────────────────────────────────
+# ── Model ─────────────────────────────────────────────────────────────────────
 
 def make_tree() -> ed.EMLNode:
     return ed.EMLNode('eml', left=ed.EMLNode('var', var_idx=0),
@@ -253,7 +255,7 @@ def make_tree() -> ed.EMLNode:
 
 
 def test_model_predict_matches_predict_one():
-    """Векторный и скалярный путь дают один класс на каждом примере."""
+    """The vectorized and scalar paths give one class on every example."""
     rng = np.random.default_rng(6)
     X = rng.normal(size=(200, 4))
     y = rng.choice(3, 200)
@@ -263,7 +265,7 @@ def test_model_predict_matches_predict_one():
 
 
 def test_model_roundtrip():
-    """Дерево вместе с таблицей порогов переживает сериализацию."""
+    """The tree together with its threshold table survives serialization."""
     model = es.EMLSingle(make_tree(), es.IntervalDecoder([0.5], [1, 0], 2))
     back = es.EMLSingle.from_dict(model.to_dict())
     assert back.tree.to_string() == model.tree.to_string()
@@ -271,7 +273,7 @@ def test_model_roundtrip():
 
 
 def test_class_scores_agree_with_prediction():
-    """Оценка классов во вкладке теста не должна спорить с самим ответом."""
+    """The class scores in the test tab must not contradict the answer itself."""
     rng = np.random.default_rng(7)
     X = rng.normal(size=(100, 4))
     model = es.EMLSingle(make_tree(),
@@ -279,15 +281,15 @@ def test_class_scores_agree_with_prediction():
     assert np.array_equal(model.class_scores(X).argmax(axis=1), model.predict(X))
 
 
-# ── Fitness и эволюция ────────────────────────────────────────────────────────
+# ── Fitness and evolution ─────────────────────────────────────────────────────
 
 def test_constant_tree_is_rejected_by_fitness():
     """
-    Дерево без переменных получает отрицательный fitness.
+    A tree without variables receives a negative fitness.
 
-    Формально оно даёт 1/n_classes (декодер вынужден отдать всю ось одному
-    классу) и при этом стоит один узел — то есть без явного штрафа оказалось бы
-    выгодным и заполнило бы популяцию.
+    Formally it yields 1/n_classes (the decoder is forced to give the whole axis
+    to one class) while costing a single node — i.e. without an explicit penalty
+    it would be advantageous and would fill the population.
     """
     rng = np.random.default_rng(8)
     X = rng.normal(size=(200, 4))
@@ -299,7 +301,7 @@ def test_constant_tree_is_rejected_by_fitness():
 
 
 def test_size_penalty_prefers_small_trees():
-    """При равном качестве побеждает дерево поменьше."""
+    """At equal quality the smaller tree wins."""
     rng = np.random.default_rng(9)
     X = rng.normal(size=(300, 4))
     y = (X[:, 0] > 0).astype(np.int64)
@@ -314,7 +316,7 @@ def test_size_penalty_prefers_small_trees():
 
 
 def make_learnable(n: int = 400, seed: int = 0):
-    """Задача, решаемая одной формулой: класс определяется первым входом."""
+    """A task solvable by one formula: the class is set by the first input."""
     rng = np.random.default_rng(seed)
     X = rng.uniform(-1, 1, size=(n, 4))
     y = np.digitize(X[:, 0], [-0.3, 0.3]).astype(np.int64)
@@ -322,7 +324,7 @@ def make_learnable(n: int = 400, seed: int = 0):
 
 
 def test_island_improves_fitness():
-    """Эволюция острова действительно улучшает fitness, а не топчется."""
+    """Island evolution really improves the fitness rather than treading water."""
     X, y = make_learnable()
     out = es.run_island([ed.random_tree(max_depth=3, force_eml=True)
                          for _ in range(30)],
@@ -334,11 +336,11 @@ def test_island_improves_fitness():
 
 def test_evolve_single_learns_and_freezes_decoder():
     """
-    Полный прогон возвращает работоспособную модель.
+    A full run returns a working model.
 
-    Таблица порогов в ней подобрана по ПОЛНОЙ обучающей выборке и заморожена —
-    ровно как калибровка ветки A. Подбирать её потом по val значило бы
-    подглядывать в отложенную выборку.
+    Its threshold table is fitted on the FULL training sample and frozen —
+    exactly like the branch A calibration. Fitting it afterwards on val would
+    mean looking into the held-out sample.
     """
     X, y = make_learnable(500, seed=1)
     out = es.evolve_single(X, y, n_classes=3, generations=30, population=40,
@@ -353,7 +355,7 @@ def test_evolve_single_learns_and_freezes_decoder():
 
 
 def test_stop_request_returns_usable_model():
-    """Прерванный прогон отдаёт согласованную модель и помечается флагом."""
+    """An interrupted run yields a consistent model and is marked with a flag."""
     X, y = make_learnable(300, seed=2)
     out = es.evolve_single(X, y, n_classes=3, generations=200, population=20,
                            islands=1, workers=1, migrate_every=5, subsample=300,
@@ -366,10 +368,10 @@ def test_stop_request_returns_usable_model():
 
 def test_checkpoint_resumes_where_it_stopped(tmp_path):
     """
-    Продолжение подхватывает поколение, лучшего и все острова.
+    Resumption picks up the generation, the best individual and all islands.
 
-    Многочасовой прогон без этого теряется целиком при любой перезагрузке —
-    а именно многочасовые прогоны тут и планируются.
+    Without it a multi-hour run is lost entirely on any reboot — and multi-hour
+    runs are exactly what is planned here.
     """
     X, y = make_learnable(300, seed=3)
     path = str(tmp_path / 'ckpt.json')
@@ -386,16 +388,16 @@ def test_checkpoint_resumes_where_it_stopped(tmp_path):
     second = es.evolve_single(X, y, generations=20, resume=True, rng_seed=0,
                               **common)
     assert second['generation'] == 20
-    # Продолжение не имеет права оказаться хуже: лучший переносится как есть.
+    # The resumed run must not come out worse: the best is carried over as is.
     assert second['best_fitness'] >= first['best_fitness']
 
 
 def test_migration_keeps_donor_elite():
     """
-    Миграция отправляет КОПИИ лучших, а не переносит их.
+    Migration sends COPIES of the best rather than transferring them.
 
-    Иначе остров теряет свою элиту, обмен превращается в перемешивание, и
-    разнообразие, ради которого острова и заведены, исчезает за пару обменов.
+    Otherwise an island loses its elite, the exchange turns into shuffling, and
+    the diversity the islands exist for disappears within a couple of exchanges.
     """
     pops = [[ed.random_tree(max_depth=2, force_eml=True) for _ in range(6)]
             for _ in range(3)]

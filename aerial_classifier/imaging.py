@@ -1,28 +1,29 @@
 """
-imaging.py — чтение картинок и приведение их к входу модели.
+imaging.py — reading images and converting them to the model input.
 
-Датасет проекта — 24-битные несжатые BMP 64x64, и парсер для них написан здесь
-вручную (30 строк на numpy). Но выбирать папку с классами теперь может сам
-пользователь, а в чужой папке лежит что угодно: png, jpg, другой размер,
-чёрно-белое. Поэтому модуль устроен в три слоя:
+The project dataset consists of 24-bit uncompressed 64x64 BMP files, and the
+parser for them is written here by hand (30 lines of numpy). But the user can
+now select the class folder, and a foreign folder may hold anything: png, jpg, a
+different size, grayscale. The module is therefore organized in three layers:
 
-  1. BMP — всегда свой парсер. Это формат датасета, на нём стоят тесты, и
-     зависеть от сторонней библиотеки в основном пути загрузки не хочется.
-  2. PNG — свой декодер на zlib из стандартной библиотеки (симметричен
-     кодировщику в vision.py). Медленнее OpenCV, но работает всегда.
-  3. JPEG — только через OpenCV или Pillow, если они есть. Декодер JPEG с нуля
-     это тысячи строк, и писать его ради удобства выбора папки бессмысленно;
-     вместо этого — внятное сообщение, чего не хватает.
+  1. BMP — always the own parser. This is the dataset format, the tests rely on
+     it, and depending on a third-party library on the main loading path is
+     undesirable.
+  2. PNG — an own decoder over zlib from the standard library (symmetric to the
+     encoder in vision.py). Slower than OpenCV, but always available.
+  3. JPEG — only through OpenCV or Pillow, if present. A JPEG decoder from
+     scratch is thousands of lines; instead there is a clear message about what
+     is missing.
 
-Если OpenCV или Pillow установлены, они используются и для PNG тоже: на
-больших картинках разница в скорости на порядки, а результат тот же.
+If OpenCV or Pillow is installed, it is used for PNG as well: on large images
+the speed difference is orders of magnitude, and the result is the same.
 
-Приведение к входу модели (`fit_to_size`) — это ЦЕНТРАЛЬНЫЙ КРОП плюс
-масштабирование, а не растяжение. Растяжение изменило бы соотношение сторон, а
-вместе с ним и масштаб текстуры, на который опираются coherence, block_std и
-другие признаки; уменьшение усреднением по площади (а не выбором каждого
-n-го пикселя) нужно ровно затем же — прореживание превратило бы мелкую
-текстуру в шум муара, и признаки текстуры стали бы измерять артефакт.
+Conversion to the model input (`fit_to_size`) is a CENTER CROP plus scaling, not
+a stretch. Stretching would change the aspect ratio and with it the texture
+scale that coherence, block_std and other features rely on; downscaling by area
+averaging (rather than taking every n-th pixel) serves exactly the same purpose
+— decimation would turn fine texture into moiré noise, and the texture features
+would start measuring the artifact.
 """
 
 import os
@@ -30,20 +31,20 @@ import struct
 
 import numpy as np
 
-# Расширения, которые загрузчик датасета считает картинками.
+# Extensions the dataset loader treats as images.
 IMAGE_EXTS = ('.bmp', '.png', '.jpg', '.jpeg')
 
-_BACKEND = None          # None = ещё не искали; False = нет ни одного
+_BACKEND = None          # None = not looked up yet; False = none available
 
 
-# ── Необязательные быстрые декодеры ───────────────────────────────────────────
+# ── Optional fast decoders ────────────────────────────────────────────────────
 
 def _backend():
     """
-    Первый доступный сторонний декодер: ('cv2'|'pil', модуль) или None.
+    The first available third-party decoder: ('cv2'|'pil', module) or None.
 
-    Ищется один раз и запоминается: попытка импорта отсутствующего модуля
-    стоит обращения к файловой системе, а вызывается это на каждую картинку.
+    Looked up once and remembered: attempting to import a missing module costs a
+    file system access, and this is called for every image.
     """
     global _BACKEND
     if _BACKEND is None:
@@ -61,9 +62,9 @@ def _backend():
 
 
 def backend_name() -> str:
-    """Имя доступного стороннего декодера или 'нет' — для сообщений в интерфейсе."""
+    """Name of the available third-party decoder or 'none' — for GUI messages."""
     backend = _backend()
-    return backend[0] if backend else 'нет'
+    return backend[0] if backend else 'none'
 
 
 def _read_via_backend(path: str) -> np.ndarray | None:
@@ -84,17 +85,17 @@ def _read_via_backend(path: str) -> np.ndarray | None:
 
 def read_bmp(path: str) -> np.ndarray:
     """
-    Прочитать 24-битный несжатый BMP в массив (H, W, 3) uint8 в порядке RGB.
+    Read a 24-bit uncompressed BMP into an (H, W, 3) uint8 array in RGB order.
 
-    Поддерживается ровно тот подформат, в котором лежит датасет:
-    сигнатура 'BM', bpp=24, compression=0 (BI_RGB). Всё остальное — ошибка,
-    молча портить данные хуже, чем упасть.
+    Exactly the sub-format the dataset uses is supported: signature 'BM',
+    bpp=24, compression=0 (BI_RGB). Anything else is an error — silently
+    corrupting the data is worse than failing.
     """
     with open(path, 'rb') as f:
         raw = f.read()
 
     if raw[:2] != b'BM':
-        raise ValueError(f"{path}: не BMP (сигнатура {raw[:2]!r})")
+        raise ValueError(f"{path}: not a BMP (signature {raw[:2]!r})")
 
     pixel_offset, = struct.unpack('<I', raw[10:14])
     width, height = struct.unpack('<ii', raw[18:26])
@@ -102,14 +103,14 @@ def read_bmp(path: str) -> np.ndarray:
     compression, = struct.unpack('<I', raw[30:34])
 
     if bpp != 24 or compression != 0:
-        raise ValueError(f"{path}: ожидался 24bpp BI_RGB, получено "
+        raise ValueError(f"{path}: expected 24bpp BI_RGB, got "
                          f"bpp={bpp} compression={compression}")
 
-    # Отрицательная высота = строки сверху вниз; положительная = снизу вверх.
+    # Negative height = rows top-down; positive = bottom-up.
     top_down = height < 0
     height = abs(height)
 
-    # Каждая строка выровнена до кратности 4 байтам.
+    # Every row is padded to a multiple of 4 bytes.
     row_bytes = width * 3
     padded_row = (row_bytes + 3) & ~3
 
@@ -118,37 +119,37 @@ def read_bmp(path: str) -> np.ndarray:
     img = buf.reshape(height, padded_row)[:, :row_bytes].reshape(height, width, 3)
 
     if not top_down:
-        img = img[::-1]              # BMP хранит строки снизу вверх
+        img = img[::-1]              # BMP stores rows bottom-up
     return img[:, :, ::-1].copy()    # BGR -> RGB
 
 
 # ── PNG ───────────────────────────────────────────────────────────────────────
 
-_PNG_CHANNELS = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}     # тип цвета -> каналов
+_PNG_CHANNELS = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}     # color type -> channels
 
 
 def read_png(path: str) -> np.ndarray:
     """
-    Прочитать PNG (8/16 бит, без интерлейса) в (H, W, 3) uint8 RGB.
+    Read a PNG (8/16 bit, non-interlaced) into (H, W, 3) uint8 RGB.
 
-    Реализация на zlib из стандартной библиотеки — симметрично кодировщику в
-    vision.py. Интерлейс Adam7 не поддержан сознательно: он требует семи
-    отдельных проходов ради формата, который почти не встречается, и
-    непонятая картинка должна падать, а не читаться наполовину.
+    Implemented over zlib from the standard library — symmetric to the encoder
+    in vision.py. Adam7 interlacing is deliberately unsupported: it requires
+    seven separate passes for a format that is almost never encountered, and an
+    image that is not understood must fail rather than be read halfway.
     """
     import zlib
 
     with open(path, 'rb') as f:
         raw = f.read()
     if raw[:8] != b'\x89PNG\r\n\x1a\n':
-        raise ValueError(f"{path}: не PNG (сигнатура {raw[:8]!r})")
+        raise ValueError(f"{path}: not a PNG (signature {raw[:8]!r})")
 
     pos, idat, header, palette, trns = 8, [], None, None, None
     while pos + 8 <= len(raw):
         length, = struct.unpack('>I', raw[pos:pos + 4])
         ctype = raw[pos + 4:pos + 8]
         body = raw[pos + 8:pos + 8 + length]
-        pos += 12 + length                       # 4 длина + 4 тип + данные + 4 CRC
+        pos += 12 + length                       # 4 length + 4 type + data + 4 CRC
         if ctype == b'IHDR':
             header = struct.unpack('>IIBBBBB', body)
         elif ctype == b'PLTE':
@@ -161,38 +162,39 @@ def read_png(path: str) -> np.ndarray:
             break
 
     if header is None:
-        raise ValueError(f"{path}: нет заголовка IHDR")
+        raise ValueError(f"{path}: no IHDR header")
     width, height, bit_depth, color_type, _, _, interlace = header
     if interlace:
-        raise ValueError(f"{path}: интерлейс Adam7 не поддерживается "
-                         f"(поставьте opencv-python или Pillow)")
+        raise ValueError(f"{path}: Adam7 interlacing is not supported "
+                         f"(install opencv-python or Pillow)")
     if color_type not in _PNG_CHANNELS or bit_depth not in (8, 16):
-        raise ValueError(f"{path}: PNG тип {color_type} глубина {bit_depth} "
-                         f"не поддерживается (поставьте opencv-python или Pillow)")
+        raise ValueError(f"{path}: PNG type {color_type} depth {bit_depth} "
+                         f"is not supported (install opencv-python or Pillow)")
 
     channels = _PNG_CHANNELS[color_type]
     sample_bytes = bit_depth // 8
-    bpp = channels * sample_bytes                # байт на пиксель (шаг фильтра)
+    bpp = channels * sample_bytes                # bytes per pixel (filter step)
     stride = width * bpp
 
     data = zlib.decompress(b''.join(idat))
     expected = (stride + 1) * height
     if len(data) < expected:
-        raise ValueError(f"{path}: данных {len(data)} байт, ожидалось {expected}")
+        raise ValueError(f"{path}: {len(data)} bytes of data, expected {expected}")
 
     flat = _png_unfilter(np.frombuffer(data, dtype=np.uint8, count=expected),
                          height, stride, bpp)
 
     if bit_depth == 16:
-        # Старший байт каждого сэмпла: 16 бит на канал модель всё равно не ест.
+        # High byte of each sample: the model does not consume 16 bits per
+        # channel anyway.
         pixels = flat.reshape(height, width, channels, 2)[:, :, :, 0]
     else:
         pixels = flat.reshape(height, width, channels)
 
-    if color_type == 3:                          # палитра
+    if color_type == 3:                          # palette
         if palette is None:
-            raise ValueError(f"{path}: тип 3 (палитра) без чанка PLTE")
-        _ = trns                                 # прозрачность не нужна: RGB
+            raise ValueError(f"{path}: type 3 (palette) without a PLTE chunk")
+        _ = trns                                 # transparency not needed: RGB
         return palette[pixels[:, :, 0].astype(np.int32)].astype(np.uint8)
     return to_rgb(pixels)
 
@@ -200,12 +202,13 @@ def read_png(path: str) -> np.ndarray:
 def _png_unfilter(data: np.ndarray, height: int, stride: int,
                   bpp: int) -> np.ndarray:
     """
-    Снять построчные фильтры PNG. Возвращает плоский массив height*stride.
+    Undo the PNG per-row filters. Returns a flat array of height*stride.
 
-    Фильтры None/Sub/Up векторизованы; Average и Paeth опираются и на левый, и
-    на верхний пиксель одновременно, поэтому считаются побайтно. На картинках
-    датасета (64x64) это доли миллисекунды; на многомегапиксельных фотографиях
-    заметно, и ровно поэтому при наличии OpenCV/Pillow сюда не заходят вовсе.
+    Filters None/Sub/Up are vectorized; Average and Paeth depend on the left and
+    the upper pixel simultaneously and are therefore computed byte by byte. On
+    dataset images (64x64) this takes fractions of a millisecond; on
+    multi-megapixel photographs it is noticeable, which is exactly why this path
+    is not taken at all when OpenCV/Pillow is available.
     """
     out = np.zeros((height, stride), dtype=np.uint8)
     prev = np.zeros(stride, dtype=np.uint8)
@@ -216,12 +219,12 @@ def _png_unfilter(data: np.ndarray, height: int, stride: int,
 
         if ftype == 0:
             cur = row
-        elif ftype == 1:                          # Sub: слева
+        elif ftype == 1:                          # Sub: from the left
             cur = row.copy()
-            # По каждой из bpp «дорожек» это накопительная сумма по модулю 256.
+            # Along each of the bpp "lanes" this is a cumulative sum mod 256.
             for k in range(bpp):
                 cur[k::bpp] = np.cumsum(cur[k::bpp]) & 0xFF
-        elif ftype == 2:                          # Up: сверху
+        elif ftype == 2:                          # Up: from above
             cur = (row + prev) & 0xFF
         elif ftype in (3, 4):
             cur = row
@@ -238,23 +241,23 @@ def _png_unfilter(data: np.ndarray, height: int, stride: int,
                     pred = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
                     cur[i] = (cur[i] + pred) & 0xFF
         else:
-            raise ValueError(f"неизвестный фильтр строки PNG: {ftype}")
+            raise ValueError(f"unknown PNG row filter: {ftype}")
 
         prev = cur.astype(np.uint8)
         out[y] = prev
     return out.reshape(-1)
 
 
-# ── Общий вход ────────────────────────────────────────────────────────────────
+# ── Common entry point ────────────────────────────────────────────────────────
 
 def to_rgb(img: np.ndarray) -> np.ndarray:
-    """(H, W), (H, W, 1|2|3|4) -> (H, W, 3) uint8. Альфа отбрасывается."""
+    """(H, W), (H, W, 1|2|3|4) -> (H, W, 3) uint8. Alpha is discarded."""
     img = np.asarray(img)
     if img.ndim == 2:
         img = img[:, :, None]
     if img.shape[2] == 1:
         img = np.repeat(img, 3, axis=2)
-    elif img.shape[2] == 2:                       # серый + альфа
+    elif img.shape[2] == 2:                       # gray + alpha
         img = np.repeat(img[:, :, :1], 3, axis=2)
     elif img.shape[2] >= 4:
         img = img[:, :, :3]
@@ -263,10 +266,11 @@ def to_rgb(img: np.ndarray) -> np.ndarray:
 
 def read_image(path: str) -> np.ndarray:
     """
-    Прочитать картинку любого поддерживаемого формата в (H, W, 3) uint8 RGB.
+    Read an image of any supported format into (H, W, 3) uint8 RGB.
 
-    BMP всегда идёт через свой парсер: это формат датасета, и подменять его
-    сторонним декодером значит терять контроль над самым горячим путём.
+    BMP always goes through the own parser: it is the dataset format, and
+    replacing it with a third-party decoder would mean losing control of the
+    hottest path.
     """
     ext = os.path.splitext(path)[1].lower()
     if ext == '.bmp':
@@ -278,13 +282,13 @@ def read_image(path: str) -> np.ndarray:
     if ext == '.png':
         return read_png(path)
     raise RuntimeError(
-        f"{os.path.basename(path)}: для формата {ext or '?'} нужен OpenCV или "
-        f"Pillow (pip install opencv-python). Без них читаются только .bmp и "
-        f".png")
+        f"{os.path.basename(path)}: format {ext or '?'} requires OpenCV or "
+        f"Pillow (pip install opencv-python). Without them only .bmp and .png "
+        f"are readable")
 
 
 def center_crop_square(img: np.ndarray) -> np.ndarray:
-    """Наибольший центральный квадрат. Крадёт края, но не искажает пропорции."""
+    """Largest central square. Loses the edges but does not distort proportions."""
     height, width = img.shape[:2]
     side = min(height, width)
     top = (height - side) // 2
@@ -294,12 +298,12 @@ def center_crop_square(img: np.ndarray) -> np.ndarray:
 
 def resize(img: np.ndarray, size: int) -> np.ndarray:
     """
-    Масштабировать квадратную картинку к size x size.
+    Scale a square image to size x size.
 
-    Уменьшение — усреднением по площади: прореживание («каждый n-й пиксель»)
-    на аэроснимке превращает регулярную текстуру в муар, а признаки текстуры
-    начинают мерить артефакт масштабирования вместо самой текстуры.
-    Увеличение — билинейно.
+    Downscaling uses area averaging: decimation ("every n-th pixel") turns the
+    regular texture of an aerial frame into moiré, and the texture features start
+    measuring the scaling artifact instead of the texture itself.
+    Upscaling is bilinear.
     """
     src = img.shape[0]
     if src == size:
@@ -309,8 +313,8 @@ def resize(img: np.ndarray, size: int) -> np.ndarray:
     if src > size:
         edges = np.linspace(0, src, size + 1).astype(np.int64)
         edges[-1] = src
-        # Границы могут схлопнуться при почти равных размерах — тогда бин
-        # шириной ноль дал бы деление на ноль.
+        # The boundaries can collapse at nearly equal sizes — a zero-width bin
+        # would then cause a division by zero.
         edges[1:] = np.maximum(edges[1:], edges[:-1] + 1)
         edges[-1] = src
         counts = np.diff(edges).astype(np.float32)
@@ -329,5 +333,5 @@ def resize(img: np.ndarray, size: int) -> np.ndarray:
 
 
 def fit_to_size(img: np.ndarray, size: int) -> np.ndarray:
-    """Картинка любого размера -> (size, size, 3) uint8: кроп по центру + масштаб."""
+    """Image of any size -> (size, size, 3) uint8: center crop + scaling."""
     return resize(center_crop_square(to_rgb(img)), size)

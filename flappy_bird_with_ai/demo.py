@@ -1,11 +1,11 @@
 """
-Pygame демо — все агенты играют одновременно.
-GA (красный), EML-weak (жёлтый), EML-medium (зелёный), EML-strong (синий).
+Pygame demo — all agents play simultaneously.
+GA (red), EML-weak (yellow), EML-medium (green), EML-strong (blue).
 
-Может принимать:
-    - dict {name: agent} (как раньше)
-    - список путей к .pt / .json (см. load_agents_from_paths)
-    - None — автозагрузит последнюю GA модель из models/
+Accepts:
+    - a dict {name: agent}
+    - a list of paths to .pt / .json (see load_agents_from_paths)
+    - None — auto-loads the latest GA model from models/
 """
 
 import os
@@ -42,8 +42,8 @@ def _color_for(name: str) -> tuple[int, int, int]:
 
 def load_agents_from_paths(paths: list[str]) -> dict:
     """
-    Загрузить агенты из списка путей. Имя в dict — basename без расширения.
-    Распознаёт .pt (GA) и .json (EML).
+    Load agents from a list of paths. The dict key is the basename without the
+    extension. Recognizes .pt (GA) and .json (EML).
     """
     agents = {}
     for path in paths:
@@ -63,7 +63,7 @@ def load_agents_from_paths(paths: list[str]) -> dict:
 
 
 def load_latest_per_method() -> dict:
-    """Последняя сохранённая модель каждого метода (GA + 3 EML)."""
+    """The latest saved model of each method (GA + 3 EML)."""
     by_method: dict[str, str] = {}
     for r in list_saved_runs():
         m = r['method']
@@ -74,11 +74,11 @@ def load_latest_per_method() -> dict:
 
 def run_demo(agents: dict | None = None, fps: int = 60):
     """
-    Запустить pygame-демо: все агенты играют одновременно.
+    Run the pygame demo: all agents play simultaneously.
 
     Args:
-        agents: dict {name: agent}. Если None — последняя GA модель.
-        fps: кадров в секунду.
+        agents: dict {name: agent}. If None — the latest GA model.
+        fps: frames per second.
     """
     import pygame
 
@@ -103,7 +103,7 @@ def run_demo(agents: dict | None = None, fps: int = 60):
     PIPE_COLOR = (69, 123, 78)
 
     def reset_all():
-        # Изолируем глобальный RNG от наших манипуляций с сидом.
+        # Isolate the global RNG from our seed manipulation.
         rng_state = np.random.get_state()
         seed = int(np.random.randint(0, 100000))
         envs = {}
@@ -152,7 +152,7 @@ def run_demo(agents: dict | None = None, fps: int = 60):
             pygame.time.wait(1500)
             envs, alive, scores = reset_all()
 
-        # ── Отрисовка ────────────────────────────────────────────────────
+        # ── Rendering ────────────────────────────────────────────────────
         screen.fill(BG_COLOR)
 
         ref_env = None

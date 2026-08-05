@@ -1,21 +1,23 @@
 """
-dataset_collector.py — сбор датасета для EML-дистилляции (placement-based).
+dataset_collector.py — dataset collection for EML distillation
+(placement-based).
 
-Прогоняет обученный оракул в TetrisEnv. На каждом шаге для КАЖДОЙ легальной
-постановки i сохраняется тройка:
-    (19 признаков afterstate_i, логит оракула z_i, group_id шага)
+Runs the trained oracle in TetrisEnv. At every step, for EVERY legal placement
+i, a triple is stored:
+    (19 afterstate_i features, oracle logit z_i, step group_id)
 
-EML-формула затем учится воспроизводить оценку оракула как функцию признаков
-доски-после-постановки: f(features(afterstate_i)) ≈ z_i. На инференсе
-placement* = argmax_i f — ранжирование внутри группы, как у оракула.
+The EML formula then learns to reproduce the oracle's score as a function of the
+board-after-placement features: f(features(afterstate_i)) ~ z_i. At inference
+placement* = argmax_i f — ranking within a group, as the oracle does.
 
-group_id нужен для весов: важнее всего точность на постановках, которые
-оракул считает хорошими (softmax внутри группы), а не на заведомо плохих.
+group_id is needed for the weights: what matters most is accuracy on the
+placements the oracle considers good (softmax within a group), not on obviously
+bad ones.
 
-Интерфейс:
+Interface:
     collect_dataset(oracle, ...) -> (features, logits, groups)
     compute_sample_weights(logits, groups) -> weights
-    save_dataset / load_dataset   -> .npz в results/
+    save_dataset / load_dataset   -> .npz in results/
 """
 
 import os
@@ -41,23 +43,24 @@ def collect_dataset(
     progress_cb=None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Прогнать оракул и собрать (features, logits, groups).
+    Run the oracle and collect (features, logits, groups).
 
     Args:
-        oracle: обученная TetrisCNN.
-        n_episodes: эпизодов (None → config.EML_DATASET_EPISODES).
-        epsilon_explore: доля случайных постановок для покрытия пространства
-            состояний (None → config.EML_DATA_EPSILON_EXPLORE).
-        max_placements: лимит постановок на эпизод
-            (None → config.EML_DATA_MAX_PLACEMENTS).
-        device: torch-устройство (None → авто).
-        seed: сид среды/исследования.
+        oracle: a trained TetrisCNN.
+        n_episodes: episodes (None -> config.EML_DATASET_EPISODES).
+        epsilon_explore: fraction of random placements for state space coverage
+            (None -> config.EML_DATA_EPSILON_EXPLORE).
+        max_placements: placement limit per episode
+            (None -> config.EML_DATA_MAX_PLACEMENTS).
+        device: torch device (None -> automatic).
+        seed: environment/exploration seed.
 
     Returns:
-        features: (N, 26) float32 — afterstate-признаки постановки + one-hot
-                  следующей фигуры (вход EML-формулы, см. config.FEATURE_NAMES).
-        logits:   (N,)   float32 — логит оракула для этой постановки.
-        groups:   (N,)   int64   — id шага (группы argmax-конкурентов).
+        features: (N, 26) float32 — the placement's afterstate features plus a
+                  one-hot of the next piece (the EML formula input, see
+                  config.FEATURE_NAMES).
+        logits:   (N,)   float32 — the oracle logit for this placement.
+        groups:   (N,)   int64   — step id (groups of argmax competitors).
     """
     if n_episodes is None:
         n_episodes = config.EML_DATASET_EPISODES
@@ -94,8 +97,8 @@ def collect_dataset(
                 logits = oracle.get_logits(grid, scalars, afeats,
                                            m)[0].cpu().numpy()
 
-            # Строка датасета = afterstate-признаки постановки + one-hot
-            # СЛЕДУЮЩЕЙ фигуры (scalars[7:14]) → 26-мерный вход формулы.
+            # A dataset row = the placement's afterstate features + a one-hot of
+            # the NEXT piece (scalars[7:14]) -> the 26-dim formula input.
             next_onehot = obs['scalars'][7:14]
             for a in legal:
                 feats_buf.append(
@@ -104,7 +107,7 @@ def collect_dataset(
                 groups_buf.append(group_id)
             group_id += 1
 
-            # Действие для траектории: argmax оракула + ε-исследование.
+            # Trajectory action: the oracle's argmax + epsilon exploration.
             if rng.random() < epsilon_explore:
                 action = int(rng.choice(legal))
             else:
@@ -133,19 +136,20 @@ def compute_sample_weights(
     groups: np.ndarray,
 ) -> np.ndarray:
     """
-    Per-sample веса: базовый 1 + бонус за вероятность постановки у оракула.
+    Per-sample weights: a base of 1 plus a bonus for the oracle's placement
+    probability.
 
-    Внутри каждой группы (одного шага) считается softmax логитов; постановки,
-    которые оракул реально выбирает, получают больший вес — формула должна
-    точнее всего ранжировать верхушку, а не хвост заведомо плохих ходов.
-    Веса нормированы к среднему 1 (масштаб MSE не меняется).
+    Within every group (a single step) a softmax of the logits is computed; the
+    placements the oracle actually chooses receive a larger weight — the formula
+    must rank the top most accurately, not the tail of obviously bad moves. The
+    weights are normalized to a mean of 1 (the MSE scale does not change).
 
     Returns:
         weights: (N,) float64.
     """
     weights = np.ones(len(logits), dtype=np.float64)
     top_w = config.EML_DATA_TOP_WEIGHT
-    # Группы идут подряд — обходим отрезками.
+    # The groups are contiguous — walk them segment by segment.
     boundaries = np.flatnonzero(np.diff(groups)) + 1
     start = 0
     for end in list(boundaries) + [len(groups)]:
@@ -153,7 +157,7 @@ def compute_sample_weights(
         z = z - z.max()
         p = np.exp(z)
         p /= p.sum()
-        # p*K: при равномерном распределении бонус одинаков для всех.
+        # p*K: under a uniform distribution the bonus is the same for everyone.
         weights[start:end] = 1.0 + top_w * p * p.size
         start = end
     mean_w = weights.mean()
@@ -162,11 +166,11 @@ def compute_sample_weights(
     return weights
 
 
-# ── Сохранение / загрузка ────────────────────────────────────────────────────
+# ── Saving / loading ─────────────────────────────────────────────────────────
 
 def save_dataset(features: np.ndarray, logits: np.ndarray,
                  groups: np.ndarray, path: str | None = None) -> str:
-    """Сохранить датасет в .npz (по умолчанию results/eml_dataset.npz)."""
+    """Save the dataset to .npz (default results/eml_dataset.npz)."""
     if path is None:
         path = os.path.join(config.RESULTS_DIR, 'eml_dataset.npz')
     os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
@@ -176,7 +180,7 @@ def save_dataset(features: np.ndarray, logits: np.ndarray,
 
 def load_dataset(path: str | None = None
                  ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Загрузить датасет из .npz. Возвращает (features, logits, groups)."""
+    """Load the dataset from .npz. Returns (features, logits, groups)."""
     if path is None:
         path = os.path.join(config.RESULTS_DIR, 'eml_dataset.npz')
     data = np.load(path)
@@ -185,7 +189,7 @@ def load_dataset(path: str | None = None
 
 def summarize(features: np.ndarray, logits: np.ndarray,
               groups: np.ndarray) -> str:
-    """Короткая сводка по датасету (для логов)."""
+    """Short dataset summary (for the logs)."""
     n_groups = len(np.unique(groups))
     per_group = len(features) / max(1, n_groups)
     return (f"samples={len(features):,}  groups={n_groups:,} "

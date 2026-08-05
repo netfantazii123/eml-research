@@ -1,10 +1,11 @@
 """
-Тесты AST EML, классификатора на формулах и метрик.
+Tests of the EML AST, the formula-based classifier and the metrics.
 
-Формулы — конечный артефакт проекта: их сохраняют в JSON, переводят в C и
-увозят на микроконтроллер. Поэтому проверяется именно то, что при поломке
-даёт не ошибку, а тихо неверный ответ: сериализация туда-обратно, совпадение
-скалярного и векторного вычислений, калибровка и сбалансированная accuracy.
+The formulas are the final artifact of the project: they are saved to JSON,
+translated to C, and taken to a microcontroller. What is checked is therefore
+exactly what, when broken, gives not an error but a quietly wrong answer:
+round-trip serialization, agreement of the scalar and vectorized evaluations,
+calibration, and balanced accuracy.
 """
 
 import math
@@ -19,7 +20,7 @@ import eml_distiller as dist
 
 @pytest.fixture(autouse=True)
 def inputs_configured():
-    """Все тесты работают в пространстве входов ветки A (32 признака)."""
+    """All tests work in the branch A input space (32 features)."""
     dist.configure_inputs(config.N_FEATURES, list(config.FEATURE_NAMES))
     yield
     dist.configure_inputs(config.N_FEATURES, list(config.FEATURE_NAMES))
@@ -32,12 +33,12 @@ def random_trees(n: int, seed: int = 0, max_depth: int = 4):
 
 
 def random_X(n: int = 64, seed: int = 0) -> np.ndarray:
-    """Входы в том же диапазоне, что настоящие признаки: [-1, 1]."""
+    """Inputs in the same range as the real features: [-1, 1]."""
     rng = np.random.default_rng(seed)
     return rng.uniform(-1.0, 1.0, (n, config.N_FEATURES))
 
 
-# ── Оператор ──────────────────────────────────────────────────────────────────
+# ── Operator ──────────────────────────────────────────────────────────────────
 
 def test_eml_op_matches_definition():
     assert dist.eml_op(0.5, 2.0) == pytest.approx(
@@ -46,8 +47,8 @@ def test_eml_op_matches_definition():
 
 def test_eml_op_clamps_before_exp():
     """
-    Без clamp перед exp() формула улетает в inf на первом же выбросе —
-    правило из update.md. Проверяем, что предел действительно стоит.
+    Without the clamp before exp() the formula overflows to inf on the very
+    first outlier — the rule from update.md. Check that the limit is in place.
     """
     assert math.isfinite(dist.eml_op(1e9, 1.0))
     assert dist.eml_op(1e9, 1.0) == pytest.approx(dist.eml_op(10.0, 1.0))
@@ -55,19 +56,20 @@ def test_eml_op_clamps_before_exp():
 
 
 def test_eml_op_survives_zero():
-    """ln(0) защищён эпсилоном, иначе ноль в правой ветви ронял бы формулу."""
+    """ln(0) is guarded by epsilon, otherwise a zero on the right would break it."""
     assert math.isfinite(dist.eml_op(0.0, 0.0))
 
 
-# ── Сериализация ──────────────────────────────────────────────────────────────
+# ── Serialization ─────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize('seed', range(5))
 def test_tree_dict_roundtrip(seed):
     """
-    to_dict/from_dict возвращают ТО ЖЕ дерево.
+    to_dict/from_dict return THE SAME tree.
 
-    Это формат хранения конечного артефакта: если он теряет узел или путает
-    ветви, сохранённые формулы будут считать не то, что показывал отчёт.
+    This is the storage format of the final artifact: if it loses a node or
+    swaps branches, the saved formulas will compute something other than what
+    the report showed.
     """
     X = random_X(seed=seed)
     for tree in random_trees(6, seed=seed):
@@ -85,7 +87,7 @@ def test_from_dict_rejects_unknown_node():
 
 
 def test_clone_is_deep():
-    """Мутация клона не должна задевать оригинал — на этом стоит вся эволюция."""
+    """Mutating a clone must not touch the original — all evolution rests on this."""
     tree = dist.EMLNode('eml',
                         left=dist.EMLNode('var', var_idx=3),
                         right=dist.EMLNode('const', value=1.0))
@@ -96,14 +98,15 @@ def test_clone_is_deep():
     assert tree.right.value == 1.0
 
 
-# ── Скалярное против векторного ───────────────────────────────────────────────
+# ── Scalar against vectorized ─────────────────────────────────────────────────
 
 @pytest.mark.parametrize('seed', range(5))
 def test_evaluate_matches_evaluate_batch(seed):
     """
-    evaluate (по одному вектору) и evaluate_batch (по массиву) обязаны
-    совпадать: первым проверяется C-экспорт, вторым считаются все метрики.
-    Разъедутся — отчёт и артефакт будут говорить разное.
+    evaluate (over one vector) and evaluate_batch (over an array) must agree:
+    the first is what the C export is checked against, the second is what all
+    the metrics are computed with. If they diverge, the report and the artifact
+    will say different things.
     """
     X = random_X(seed=seed)
     for tree in random_trees(6, seed=seed):
@@ -113,14 +116,14 @@ def test_evaluate_matches_evaluate_batch(seed):
 
 
 def test_evaluate_batch_is_finite_on_extremes():
-    """Даже на входах вне [-1, 1] результат конечен: клипы стоят на каждом узле."""
+    """Even on inputs outside [-1, 1] the result is finite: clamps at every node."""
     X = np.full((4, config.N_FEATURES), 1e6)
     X[1] = -1e6
     for tree in random_trees(10, seed=3):
         assert np.all(np.isfinite(tree.evaluate_batch(X)))
 
 
-# ── Метрики дерева ────────────────────────────────────────────────────────────
+# ── Tree metrics ──────────────────────────────────────────────────────────────
 
 def test_size_depth_and_vars():
     tree = dist.EMLNode(
@@ -131,7 +134,7 @@ def test_size_depth_and_vars():
                            right=dist.EMLNode('const', value=0.5)))
     assert tree.size() == 5
     assert tree.depth() == 2
-    assert tree.n_unique_vars() == 1          # var_idx=2 дважды, но переменная одна
+    assert tree.n_unique_vars() == 1          # var_idx=2 twice, but one variable
     assert tree.used_vars() == [2]
 
 
@@ -141,14 +144,15 @@ def test_prune_respects_max_depth():
     assert pruned.depth() <= 3
 
 
-# ── Классификатор и калибровка ────────────────────────────────────────────────
+# ── Classifier and calibration ────────────────────────────────────────────────
 
 def test_degenerate_calibration_gets_unit_scale():
     """
-    Формула-константа имеет нулевой разброс; делить на ноль нельзя.
+    A constant formula has zero spread; dividing by zero is not allowed.
 
-    Такая формула получает масштаб 1 и просто не влияет на argmax — это
-    корректное поведение, а не заглушка: её вклад постоянен для всех примеров.
+    Such a formula receives scale 1 and simply does not affect the argmax — this
+    is correct behavior rather than a stub: its contribution is constant across
+    all examples.
     """
     trees = [dist.EMLNode('const', value=float(c))
              for c in range(config.N_CLASSES)]
@@ -160,11 +164,12 @@ def test_degenerate_calibration_gets_unit_scale():
 
 def test_calibration_equalises_scales():
     """
-    Ради чего калибровка и заведена: формула с крупными числами не должна
-    выигрывать argmax просто из-за масштаба.
+    What the calibration exists for: a formula with large numbers must not win
+    the argmax purely because of its scale.
 
-    Здесь у первой формулы выход в сто раз крупнее остальных. Без калибровки
-    argmax всегда отдаёт класс 0; после — распределение уже не вырождено.
+    Here the first formula's output is a hundred times larger than the rest.
+    Without calibration the argmax always gives class 0; after it the
+    distribution is no longer degenerate.
     """
     X = random_X(n=256, seed=1)
     trees = [dist.EMLNode('var', var_idx=i) for i in range(config.N_CLASSES)]
@@ -173,14 +178,15 @@ def test_calibration_equalises_scales():
     trees[0] = huge
 
     raw_pred = np.argmax(dist.EMLClassifier(trees).raw_scores(X), axis=1)
-    assert set(raw_pred.tolist()) == {0}, "подготовка теста: без калибровки ждём вырождение"
+    assert set(raw_pred.tolist()) == {0}, \
+        "test setup: without calibration we expect degeneration"
 
     clf = dist.EMLClassifier(trees).fit_calibration(X)
     assert len(set(clf.predict(X).tolist())) > 1
 
 
 def test_predict_one_matches_predict():
-    """Поштучный инференс (эталон для C) совпадает с батчевым."""
+    """Per-item inference (the reference for C) agrees with the batched one."""
     X = random_X(n=32, seed=5)
     clf = dist.EMLClassifier(random_trees(config.N_CLASSES, seed=5))
     clf.fit_calibration(X)
@@ -190,7 +196,7 @@ def test_predict_one_matches_predict():
 
 
 def test_non_finite_formula_never_wins_argmax():
-    """Сломавшаяся на примере формула не должна выигрывать класс."""
+    """A formula that broke on an example must not win its class."""
     class Broken(dist.EMLNode):
         def evaluate_batch(self, X):
             return np.full(len(X), np.nan)
@@ -214,17 +220,17 @@ def test_classifier_complexity_metrics():
     assert clf.used_inputs() == [1, 5]
 
 
-# ── Метрики качества ──────────────────────────────────────────────────────────
+# ── Quality metrics ───────────────────────────────────────────────────────────
 
 def test_balanced_accuracy_on_handmade_confusion():
     """
-    Считается вручную. Классы 2:2:2:6, угадано 2, 1, 0 и 5 примеров:
+    Computed by hand. Classes 2:2:2:6, with 2, 1, 0 and 5 examples guessed:
 
-        recall = 1.0, 0.5, 0.0, 5/6  ->  сбалансированная 0.5833
-        обычная = (2 + 1 + 0 + 5) / 12 = 0.6667
+        recall = 1.0, 0.5, 0.0, 5/6  ->  balanced 0.5833
+        plain  = (2 + 1 + 0 + 5) / 12 = 0.6667
 
-    Две метрики на одних и тех же данных дают разные числа — ради этого
-    различия сбалансированная и выбрана главной.
+    Two metrics on the same data give different numbers — that difference is why
+    the balanced one was chosen as primary.
     """
     y_true = np.array([0, 0, 1, 1, 2, 2, 3, 3, 3, 3, 3, 3])
     y_pred = np.array([0, 0, 1, 0, 0, 0, 3, 3, 3, 3, 3, 0])
@@ -235,9 +241,9 @@ def test_balanced_accuracy_on_handmade_confusion():
 
 def test_balanced_accuracy_punishes_majority_guessing():
     """
-    Ради этого свойства метрика и выбрана главной: «всё это ROADS» на
-    несбалансированном датасете даёт высокую обычную accuracy и ровно 1/K
-    сбалансированной.
+    This property is why the metric was chosen as primary: "everything is ROADS"
+    on an imbalanced dataset gives a high plain accuracy and exactly 1/K
+    balanced.
     """
     y_true = np.concatenate([np.zeros(10), np.ones(10),
                              np.full(10, 2), np.full(70, 3)]).astype(int)
@@ -247,7 +253,7 @@ def test_balanced_accuracy_punishes_majority_guessing():
 
 
 def test_balanced_accuracy_skips_absent_classes():
-    """Класс, которого нет в выборке, не тянет метрику вниз нулевым recall."""
+    """A class absent from the sample does not drag the metric down with zero recall."""
     y_true = np.array([0, 0, 1, 1])
     y_pred = np.array([0, 0, 1, 1])
     assert dist.balanced_accuracy(y_true, y_pred) == pytest.approx(1.0)
@@ -255,8 +261,9 @@ def test_balanced_accuracy_skips_absent_classes():
 
 def test_standardize_rows_preserves_argmax():
     """
-    z-нормировка логитов внутри примера обязана сохранять решение оракула —
-    иначе DATA-фаза училась бы регрессии не к тому.
+    Per-example z-normalization of the logits must preserve the oracle's
+    decision — otherwise the DATA phase would learn regression to the wrong
+    thing.
     """
     rng = np.random.default_rng(0)
     logits = rng.normal(size=(200, config.N_CLASSES)) * rng.uniform(
@@ -266,12 +273,12 @@ def test_standardize_rows_preserves_argmax():
     assert np.allclose(normalized.mean(axis=1), 0.0, atol=1e-6)
 
 
-# ── Эволюция (короткий прогон) ────────────────────────────────────────────────
+# ── Evolution (short run) ─────────────────────────────────────────────────────
 
 def test_evolve_formula_reports_progress_and_stops():
     """
-    progress_cb вызывается каждое поколение, should_stop прерывает эволюцию,
-    и результат при этом остаётся годным деревом, а не None.
+    progress_cb is called every generation, should_stop interrupts the
+    evolution, and the result is still a usable tree rather than None.
     """
     X = random_X(n=200, seed=0)
     y = X[:, 0] * 2.0
@@ -283,7 +290,7 @@ def test_evolve_formula_reports_progress_and_stops():
         depth_penalty=0.05, subsample=100, label='T', rng_seed=0,
         progress_cb=seen.append, should_stop=lambda: len(seen) >= 3)
 
-    assert len(seen) == 3, "остановка должна срабатывать сразу после поколения"
+    assert len(seen) == 3, "the stop must fire right after a generation"
     assert result['stopped'] is True
     assert isinstance(result['best_tree'], dist.EMLNode)
     assert len(result['history']) == 3
@@ -291,7 +298,7 @@ def test_evolve_formula_reports_progress_and_stops():
 
 
 def test_evolve_formula_improves_fitness():
-    """Эволюция должна улучшать fitness, иначе она бесполезна."""
+    """Evolution must improve the fitness, otherwise it is useless."""
     X = random_X(n=300, seed=1)
     y = X[:, 3] - X[:, 7]
     w = np.ones(len(X))
@@ -303,7 +310,7 @@ def test_evolve_formula_improves_fitness():
 
 
 def test_evolve_ensemble_stops_and_keeps_full_set():
-    """Прерванная ACC-фаза возвращает полный набор формул, а не огрызок."""
+    """An interrupted ACC phase returns the full formula set, not a fragment."""
     X = random_X(n=200, seed=2)
     y = (X[:, 0] > 0).astype(int) + 2 * (X[:, 1] > 0).astype(int)
     seed_trees = random_trees(config.N_CLASSES, seed=2)

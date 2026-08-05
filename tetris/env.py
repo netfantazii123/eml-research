@@ -1,24 +1,26 @@
 """
-TetrisEnv — headless-среда Tetris с gym-like интерфейсом.
+TetrisEnv — a headless Tetris environment with a gym-like interface.
 
-Два режима управления:
+Two control modes:
 
-1. PLACEMENT (основной, для оракула и EML) — действие = постановка фигуры:
+1. PLACEMENT (the main one, for the oracle and EML) — an action is a piece
+   placement:
        action = rot * BOARD_W + xi
-   где rot — поворот, xi — колонка самой левой занятой ячейки фигуры.
-   Один step_placement() = поворот+сдвиг+hard drop+лок+клир. Награда плотная,
-   выдаётся на каждом шаге. Нелегальные действия закрываются маской.
+   where rot is the rotation and xi is the column of the piece's leftmost
+   occupied cell. One step_placement() = rotate + shift + hard drop + lock +
+   clear. The reward is dense and issued on every step. Illegal actions are
+   closed off by a mask.
 
-       reset()                   -> obs (placement, см. get_placement_state)
+       reset()                   -> obs (placement, see get_placement_state)
        step_placement(a)         -> (obs, reward, done, info)
-       placement_mask()          -> (N_PLACEMENTS,) float32 (1 = легально)
-       afterstate(rot, xi)       -> (board_after, cleared, landing_h) без мутации
+       placement_mask()          -> (N_PLACEMENTS,) float32 (1 = legal)
+       afterstate(rot, xi)       -> (board_after, cleared, landing_h), no mutation
 
-2. FRAME (legacy, для визуального демо) — 6 покадровых действий:
+2. FRAME (legacy, for the visual demo) — 6 per-frame actions:
        step(action) — 0 NO-OP, 1 left, 2 right, 3 rotate CW, 4 soft, 5 hard
-       get_state()  — obs для покадрового просмотра
+       get_state()  — obs for frame-by-frame viewing
 
-Bag-7 рандомизация, line-clear. Без отрисовки — чистая логика на NumPy.
+Bag-7 randomization, line clears. No rendering — pure NumPy logic.
 """
 
 import numpy as np
@@ -28,14 +30,15 @@ from config import (
     BOARD_W, BOARD_H, BOARD_BUFFER, BOARD_H_TOTAL,
     GRAVITY_TICKS, MAX_EPISODE_FRAMES, N_PIECES, N_PLACEMENTS,
 )
-# Reward-константы НЕ импортируются по имени, а читаются через config.* в step():
-# так GUI может менять их вживую (config.REWARD_W_HOLES = ... во время обучения).
+# The reward constants are NOT imported by name but read through config.* in
+# step(): this lets the GUI change them live (config.REWARD_W_HOLES = ... during
+# training).
 from pieces import piece_cells, SPAWN_X, SPAWN_Y, DISTINCT_ROTATIONS, SHAPES
 import features as features_mod
 
 
-# Предвычисленная геометрия: _GEOM[ptype][rot] = (cells, c_min, span, r_max),
-# где span = c_max - c_min (ширина фигуры в занятых колонках минус 1).
+# Precomputed geometry: _GEOM[ptype][rot] = (cells, c_min, span, r_max),
+# where span = c_max - c_min (piece width in occupied columns minus 1).
 _GEOM: list[list[tuple[tuple[tuple[int, int], ...], int, int, int]]] = []
 for _pt in range(N_PIECES):
     _rots = []
@@ -48,15 +51,15 @@ for _pt in range(N_PIECES):
 
 
 class TetrisEnv:
-    """Headless Tetris. Доска (24×10): строки 0..3 — буфер спавна, 4..23 — видимые."""
+    """Headless Tetris. Board (24x10): rows 0..3 are the spawn buffer, 4..23 visible."""
 
     def __init__(self, seed: int | None = None,
                  max_placements: int | None = None):
         """
         Args:
-            seed: сид bag-рандомизации.
-            max_placements: лимит постановок за эпизод; None → из config,
-                0 → без лимита (Play-режим: игра до реального game over).
+            seed: bag randomization seed.
+            max_placements: placement limit per episode; None -> from config,
+                0 -> no limit (Play mode: play until a real game over).
         """
         self._max_placements = max_placements
         self.rng = np.random.default_rng(seed)
@@ -68,19 +71,19 @@ class TetrisEnv:
         self.cur_y = SPAWN_Y
         self.next_type = 0
         self.gravity_counter = 0
-        self.score = 0          # суммарно очищенных линий за эпизод
-        self.frame = 0          # кадров (frame-режим)
-        self.placements = 0     # поставленных фигур (placement-режим)
+        self.score = 0          # total lines cleared in the episode
+        self.frame = 0          # frames (frame mode)
+        self.placements = 0     # pieces placed (placement mode)
         self.done = False
-        self._lock_dholes = 0   # дельты метрик последнего лока (reward shaping)
+        self._lock_dholes = 0   # metric deltas of the last lock (reward shaping)
         self._lock_dbump = 0
         self._lock_dagg = 0
         self.reset()
 
-    # ── Публичный интерфейс ──────────────────────────────────────────────
+    # ── Public interface ─────────────────────────────────────────────────
 
     def reset(self) -> dict:
-        """Сброс среды. Возвращает первый placement-obs."""
+        """Reset the environment. Returns the first placement obs."""
         self.board[:] = 0
         self._bag = []
         self.score = 0
@@ -89,17 +92,17 @@ class TetrisEnv:
         self.gravity_counter = 0
         self.done = False
         self.next_type = self._draw_from_bag()
-        self._spawn()   # на чистой доске спавн не может зайти в game over
+        self._spawn()   # on a clean board the spawn cannot hit game over
         return self.get_placement_state()
 
-    # ── PLACEMENT-режим ──────────────────────────────────────────────────
+    # ── PLACEMENT mode ───────────────────────────────────────────────────
 
     def placement_mask(self) -> np.ndarray:
         """
-        Маска легальных постановок текущей фигуры, (N_PLACEMENTS,) float32.
+        Mask of legal placements of the current piece, (N_PLACEMENTS,) float32.
 
-        Легально: поворот геометрически уникален для фигуры, фигура помещается
-        в доску по ширине и не коллизирует на спавн-высоте.
+        Legal means: the rotation is geometrically unique for the piece, the
+        piece fits the board by width, and it does not collide at spawn height.
         """
         mask = np.zeros(N_PLACEMENTS, dtype=np.float32)
         for rot in range(DISTINCT_ROTATIONS[self.cur_type]):
@@ -112,11 +115,11 @@ class TetrisEnv:
 
     def afterstate(self, rot: int, xi: int) -> tuple[np.ndarray, int, int] | None:
         """
-        Пробная постановка БЕЗ мутации среды.
+        A trial placement WITHOUT mutating the environment.
 
         Returns:
-            (board_after, cleared, landing_h) или None, если постановка нелегальна.
-            board_after — копия доски после лока и клира.
+            (board_after, cleared, landing_h), or None if the placement is
+            illegal. board_after is a copy of the board after lock and clear.
         """
         cells, c_min, span, r_max = _GEOM[self.cur_type][rot]
         x = xi - c_min
@@ -136,7 +139,7 @@ class TetrisEnv:
         return board, cleared, landing_h
 
     def afterstate_features(self, rot: int, xi: int) -> np.ndarray | None:
-        """19 признаков afterstate для EML (None, если постановка нелегальна)."""
+        """19 afterstate features for EML (None if the placement is illegal)."""
         result = self.afterstate(rot, xi)
         if result is None:
             return None
@@ -146,11 +149,11 @@ class TetrisEnv:
     def all_afterstate_features(self,
                                 mask: np.ndarray | None = None) -> np.ndarray:
         """
-        Признаки afterstate ВСЕХ легальных постановок, (N_PLACEMENTS, 19).
+        Afterstate features of ALL legal placements, (N_PLACEMENTS, 19).
 
-        Нелегальные строки — нули. Используется оракулом: голова политики
-        оценивает каждую постановку по признакам её afterstate.
-        Извлечение признаков векторизовано по кандидатам (extract_afterstate_batch).
+        Illegal rows are zeros. Used by the oracle: the policy head scores every
+        placement from its afterstate features. Feature extraction is vectorized
+        over the candidates (extract_afterstate_batch).
         """
         if mask is None:
             mask = self.placement_mask()
@@ -171,10 +174,10 @@ class TetrisEnv:
 
     def step_placement(self, action: int) -> tuple[dict, float, bool, dict]:
         """
-        Поставить фигуру: action = rot * BOARD_W + xi. Один шаг = один лок.
+        Place a piece: action = rot * BOARD_W + xi. One step = one lock.
 
-        Нелегальное действие (при корректной маске не встречается) трактуется
-        как проигрыш — сеть обязана уважать маску.
+        An illegal action (which does not occur with a correct mask) is treated
+        as a loss — the network is required to respect the mask.
         """
         if self.done:
             return self.get_placement_state(), 0.0, True, {'score': self.score}
@@ -216,13 +219,13 @@ class TetrisEnv:
 
     def get_placement_state(self) -> dict:
         """
-        Observation для placement-оракула.
+        Observation for the placement oracle.
 
-        'grid':    (1, 24, 10) float32 — зафиксированные ячейки.
+        'grid':    (1, 24, 10) float32 — locked cells.
         'scalars': (14,) float32 — one-hot(cur 7) + one-hot(next 7).
-        'mask':    (N_PLACEMENTS,) float32 — легальные постановки.
-        'afeats':  (N_PLACEMENTS, 19) float32 — признаки afterstate каждой
-                   легальной постановки (нелегальные — нули).
+        'mask':    (N_PLACEMENTS,) float32 — legal placements.
+        'afeats':  (N_PLACEMENTS, 19) float32 — afterstate features of every
+                   legal placement (illegal ones are zeros).
         """
         grid = np.zeros((1, BOARD_H_TOTAL, BOARD_W), dtype=np.float32)
         grid[0] = self.board
@@ -233,18 +236,18 @@ class TetrisEnv:
         return {'grid': grid, 'scalars': scalars, 'mask': mask,
                 'afeats': self.all_afterstate_features(mask)}
 
-    # ── FRAME-режим (legacy, для визуального демо) ───────────────────────
+    # ── FRAME mode (legacy, for the visual demo) ─────────────────────────
 
     def step(self, action: int) -> tuple[dict, float, bool, dict]:
-        """Один кадр симуляции (6 действий, gravity). Для демо/визуализации."""
+        """One simulation frame (6 actions, gravity). For the demo/visualization."""
         if self.done:
             return self.get_state(), 0.0, True, {'score': self.score}
 
-        reward = config.REWARD_SURVIVE   # обычно 0.0 — выживание награждается событийно
+        reward = config.REWARD_SURVIVE   # usually 0.0 — survival is rewarded per event
         locked = False
         n_cleared = 0
 
-        # ── Применить действие ──────────────────────────────────────────
+        # ── Apply the action ────────────────────────────────────────────
         if action == 1:                              # left
             self._try_move(dx=-1, dy=0)
         elif action == 2:                            # right
@@ -253,14 +256,14 @@ class TetrisEnv:
             self._try_rotate()
         elif action == 4:                            # soft drop
             if self._try_move(dx=0, dy=1):
-                self.gravity_counter = 0             # soft drop сбрасывает таймер
+                self.gravity_counter = 0             # a soft drop resets the timer
         elif action == 5:                            # hard drop
             while self._try_move(dx=0, dy=1):
                 pass
             n_cleared = self._lock_piece()
             locked = True
 
-        # ── Gravity (если ещё не залочились хард-дропом) ─────────────────
+        # ── Gravity (unless already locked by a hard drop) ───────────────
         if not locked:
             self.gravity_counter += 1
             if self.gravity_counter >= GRAVITY_TICKS:
@@ -269,9 +272,9 @@ class TetrisEnv:
                     n_cleared = self._lock_piece()
                     locked = True
 
-        # ── Награда за лок: плотный shaping + линии + спавн новой фигуры ──
+        # ── Lock reward: dense shaping + lines + spawning a new piece ────
         if locked:
-            reward += config.REWARD_PIECE                # положил фигуру, не умер
+            reward += config.REWARD_PIECE                # placed a piece and survived
             if n_cleared > 0:
                 reward += config.REWARD_LINE_BASE * (n_cleared ** 2)
                 self.score += n_cleared
@@ -292,7 +295,7 @@ class TetrisEnv:
 
     def get_state(self) -> dict:
         """
-        Observation frame-режима (legacy).
+        Frame mode observation (legacy).
 
         'grid':    (3, 24, 10) float32 — locked / current piece / ghost.
         'scalars': (19,) float32 — one-hot(cur 7) + one-hot(next 7)
@@ -316,10 +319,10 @@ class TetrisEnv:
 
         return {'grid': grid, 'scalars': scalars}
 
-    # ── Bag-7 рандомизация ───────────────────────────────────────────────
+    # ── Bag-7 randomization ──────────────────────────────────────────────
 
     def _draw_from_bag(self) -> int:
-        """Достать следующую фигуру из bag-7."""
+        """Draw the next piece from the bag of 7."""
         if not self._bag:
             self._bag = list(range(N_PIECES))
             self.rng.shuffle(self._bag)
@@ -327,8 +330,8 @@ class TetrisEnv:
 
     def _spawn(self) -> bool:
         """
-        Заспавнить текущую фигуру из next_type на стартовой позиции.
-        Возвращает False, если спавн коллизирует (→ game over).
+        Spawn the current piece from next_type at the start position.
+        Returns False if the spawn collides (-> game over).
         """
         self.cur_type = self.next_type
         self.cur_rot = 0
@@ -339,10 +342,10 @@ class TetrisEnv:
         return not self._collides(self.cur_type, self.cur_rot,
                                   self.cur_x, self.cur_y)
 
-    # ── Движение / повороты ──────────────────────────────────────────────
+    # ── Movement / rotation ──────────────────────────────────────────────
 
     def _collides(self, ptype: int, rot: int, x: int, y: int) -> bool:
-        """Коллизия фигуры (тип, поворот) в позиции (x, y) со стенами/полом/блоками."""
+        """Collision of a piece (type, rotation) at (x, y) with walls/floor/blocks."""
         for (r, c) in piece_cells(ptype, rot):
             br, bc = y + r, x + c
             if bc < 0 or bc >= BOARD_W or br >= BOARD_H_TOTAL or br < 0:
@@ -352,14 +355,14 @@ class TetrisEnv:
         return False
 
     def _drop_y(self, ptype: int, rot: int, x: int, from_y: int) -> int:
-        """Y, на котором фигура останавливается при падении из from_y."""
+        """The Y at which the piece stops when dropped from from_y."""
         y = from_y
         while not self._collides(ptype, rot, x, y + 1):
             y += 1
         return y
 
     def _try_move(self, dx: int, dy: int) -> bool:
-        """Попробовать сдвинуть фигуру. True, если удалось."""
+        """Try to move the piece. True if it succeeded."""
         nx, ny = self.cur_x + dx, self.cur_y + dy
         if not self._collides(self.cur_type, self.cur_rot, nx, ny):
             self.cur_x, self.cur_y = nx, ny
@@ -367,7 +370,7 @@ class TetrisEnv:
         return False
 
     def _try_rotate(self) -> bool:
-        """Поворот по часовой (без wall-kicks). True, если удалось."""
+        """Clockwise rotation (without wall kicks). True if it succeeded."""
         nrot = (self.cur_rot + 1) % 4
         if not self._collides(self.cur_type, nrot, self.cur_x, self.cur_y):
             self.cur_rot = nrot
@@ -375,17 +378,17 @@ class TetrisEnv:
         return False
 
     def _ghost_y(self) -> int:
-        """Y, на котором фигура зафиксируется при hard drop."""
+        """The Y at which the piece will lock on a hard drop."""
         return self._drop_y(self.cur_type, self.cur_rot, self.cur_x, self.cur_y)
 
-    # ── Лок и очистка линий ──────────────────────────────────────────────
+    # ── Lock and line clearing ───────────────────────────────────────────
 
     def _lock_piece(self) -> int:
         """
-        Зафиксировать текущую фигуру на доске и очистить полные линии.
+        Lock the current piece onto the board and clear full lines.
 
-        Побочно вычисляет дельты метрик доски (до постановки → после клира)
-        и сохраняет их в self._lock_d* для reward shaping.
+        As a side effect it computes the board metric deltas (before placement
+        -> after clear) and stores them in self._lock_d* for reward shaping.
         """
         before = self._board_metrics()
         for (r, c) in piece_cells(self.cur_type, self.cur_rot):
@@ -398,7 +401,7 @@ class TetrisEnv:
         return n
 
     def _board_metrics(self) -> tuple[int, int, int]:
-        """(holes, bumpiness, agg_h) текущей доски — для shaping (см. features.py)."""
+        """(holes, bumpiness, agg_h) of the current board — for shaping (features.py)."""
         heights = features_mod.column_heights(self.board)
         holes = features_mod.count_holes(self.board, heights)
         bumpiness = int(np.abs(np.diff(heights)).sum())
@@ -406,13 +409,13 @@ class TetrisEnv:
         return holes, bumpiness, agg_h
 
     def _clear_lines(self) -> int:
-        """Удалить заполненные строки, сдвинуть остальное вниз. Возвращает кол-во."""
+        """Remove full rows and shift the rest down. Returns the count."""
         full = np.all(self.board == 1, axis=1)
         n = int(np.count_nonzero(full))
         if n == 0:
             return 0
         kept = self.board[~full]
         new_board = np.zeros_like(self.board)
-        new_board[n:] = kept     # сохранённые строки опускаются вниз
+        new_board[n:] = kept     # the surviving rows drop down
         self.board = new_board
         return n

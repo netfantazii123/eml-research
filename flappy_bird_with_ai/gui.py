@@ -1,10 +1,10 @@
 """
-Flappy Bird AI — графический интерфейс на PySide6.
+Flappy Bird AI — a PySide6 graphical interface.
 
-Три вкладки:
-    1. Тренировка   — гиперпараметры, запуск train/test, live-лог, прогресс.
-    2. Демо         — выбор сохранённых моделей/формул, запуск pygame-демо.
-    3. Библиотека   — список всех сохранённых артефактов с деталями.
+Three tabs:
+    1. Training  — hyperparameters, train/test launch, live log, progress.
+    2. Demo      — selection of saved models/formulas, pygame demo launch.
+    3. Library   — a list of all saved artifacts with details.
 """
 
 import os
@@ -35,7 +35,7 @@ from storage import (
 # ── Captura stdout → Qt signal ──────────────────────────────────────────────
 
 class _StreamToSignal:
-    """Подменяет sys.stdout: каждая строка эмитится через Qt-сигнал."""
+    """Replaces sys.stdout: every line is emitted through a Qt signal."""
 
     def __init__(self, signal: Signal):
         self.signal = signal
@@ -61,20 +61,20 @@ class _StreamToSignal:
             self._buf = ''
 
 
-# ── Worker (тренировка в отдельном потоке) ──────────────────────────────────
+# ── Worker (training in a separate thread) ──────────────────────────────────
 
 class _WorkerSignals(QObject):
     log = Signal(str)
     finished = Signal(object)   # results dict | None
     error = Signal(str)
-    progress = Signal(str)      # текущий шаг (строка для статус-бара)
+    progress = Signal(str)      # current step (a line for the status bar)
 
 
 class TrainingWorker:
     """
-    Запускает run_benchmark или smoke-тест в фоновом потоке.
+    Runs run_benchmark or the smoke test in a background thread.
 
-    Лог идёт через перехват stdout → signal.log.
+    The log goes through an stdout intercept -> signal.log.
     """
 
     def __init__(self, mode: str, overrides: dict | None = None):
@@ -99,16 +99,16 @@ class TrainingWorker:
             sys.stdout = _StreamToSignal(self.signals.log)
             try:
                 if self.overrides:
-                    print("Применённые параметры:")
+                    print("Applied parameters:")
                     for k, v in self.overrides.items():
                         print(f"  config.{k} = {v}")
                 if self.mode == 'benchmark':
-                    self.signals.progress.emit("Бенчмарк запущен...")
+                    self.signals.progress.emit("Benchmark started...")
                     from benchmark import run_benchmark
                     results = run_benchmark(verbose=True)
                     self.signals.finished.emit(results)
                 elif self.mode == 'test':
-                    self.signals.progress.emit("Smoke-тест запущен...")
+                    self.signals.progress.emit("Smoke test started...")
                     from main import cmd_test
                     cmd_test()
                     self.signals.finished.emit(None)
@@ -122,10 +122,10 @@ class TrainingWorker:
             self.signals.error.emit(traceback.format_exc())
 
 
-# ── Вкладка: Тренировка ─────────────────────────────────────────────────────
+# ── Tab: Training ───────────────────────────────────────────────────────────
 
 class TrainTab(QWidget):
-    """Гиперпараметры + кнопки запуска + live-лог."""
+    """Hyperparameters + launch buttons + live log."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -135,10 +135,10 @@ class TrainTab(QWidget):
     def _build(self):
         root = QHBoxLayout(self)
 
-        # ── Левая колонка: гиперпараметры ────────────────────────────────
+        # ── Left column: hyperparameters ─────────────────────────────────
         left = QVBoxLayout()
 
-        ga_box = QGroupBox("Генетический алгоритм (GA)")
+        ga_box = QGroupBox("Genetic algorithm (GA)")
         ga_form = QFormLayout(ga_box)
         self.ga_pop = QSpinBox(); self.ga_pop.setRange(10, 100000); self.ga_pop.setValue(config.GA_POPULATION)
         self.ga_gen = QSpinBox(); self.ga_gen.setRange(1, 100000); self.ga_gen.setValue(config.GA_GENERATIONS)
@@ -148,17 +148,17 @@ class TrainTab(QWidget):
         self.ga_max_frames = QSpinBox(); self.ga_max_frames.setRange(100, 1000000); self.ga_max_frames.setValue(config.GA_MAX_FRAMES)
         self.ga_patience = QSpinBox(); self.ga_patience.setRange(0, 100000); self.ga_patience.setValue(getattr(config, 'GA_PATIENCE', 15))
         self.ga_target = QSpinBox(); self.ga_target.setRange(0, 100000); self.ga_target.setValue(getattr(config, 'GA_TARGET_SCORE', 0))
-        ga_form.addRow("Популяция", self.ga_pop)
-        ga_form.addRow("Поколений (max)", self.ga_gen)
+        ga_form.addRow("Population", self.ga_pop)
+        ga_form.addRow("Generations (max)", self.ga_gen)
         ga_form.addRow("Mutation rate", self.ga_mut_rate)
         ga_form.addRow("Mutation std", self.ga_mut_std)
-        ga_form.addRow("Элитизм", self.ga_elite)
+        ga_form.addRow("Elitism", self.ga_elite)
         ga_form.addRow("Max frames/game", self.ga_max_frames)
         ga_form.addRow("Patience (autostop)", self.ga_patience)
         ga_form.addRow("Target score (0=off)", self.ga_target)
         left.addWidget(ga_box)
 
-        eml_box = QGroupBox("EML дистилляция")
+        eml_box = QGroupBox("EML distillation")
         eml_form = QFormLayout(eml_box)
         self.eml_pop = QSpinBox(); self.eml_pop.setRange(10, 100000); self.eml_pop.setValue(config.EML_POPULATION)
         self.eml_gen = QSpinBox(); self.eml_gen.setRange(1, 100000); self.eml_gen.setValue(config.EML_GENERATIONS)
@@ -166,23 +166,23 @@ class TrainTab(QWidget):
         self.eml_depth = QSpinBox(); self.eml_depth.setRange(1, 15); self.eml_depth.setValue(config.EML_MAX_DEPTH)
         self.eml_patience = QSpinBox(); self.eml_patience.setRange(1, 100000); self.eml_patience.setValue(config.EML_PATIENCE)
         self.eml_dataset = QSpinBox(); self.eml_dataset.setRange(1, 100000); self.eml_dataset.setValue(config.EML_DATASET_EPISODES)
-        eml_form.addRow("Популяция", self.eml_pop)
-        eml_form.addRow("Поколений", self.eml_gen)
-        eml_form.addRow("Элитизм", self.eml_elite)
-        eml_form.addRow("Макс. глубина", self.eml_depth)
+        eml_form.addRow("Population", self.eml_pop)
+        eml_form.addRow("Generations", self.eml_gen)
+        eml_form.addRow("Elitism", self.eml_elite)
+        eml_form.addRow("Max depth", self.eml_depth)
         eml_form.addRow("Patience", self.eml_patience)
-        eml_form.addRow("Episodes для датасета", self.eml_dataset)
+        eml_form.addRow("Episodes for the dataset", self.eml_dataset)
         left.addWidget(eml_box)
 
-        # Кнопки запуска
-        btn_box = QGroupBox("Запуск")
+        # Launch buttons
+        btn_box = QGroupBox("Launch")
         btn_v = QVBoxLayout(btn_box)
-        self.btn_train = QPushButton("▶  Полный бенчмарк (GA + 3 EML)")
+        self.btn_train = QPushButton("▶  Full benchmark (GA + 3 EML)")
         self.btn_train.setMinimumHeight(36)
         self.btn_train.clicked.connect(self._on_train_clicked)
-        self.btn_test = QPushButton("▶  Smoke-тест (быстрая проверка)")
+        self.btn_test = QPushButton("▶  Smoke test (a quick check)")
         self.btn_test.clicked.connect(self._on_test_clicked)
-        self.btn_reset = QPushButton("⟲  Сбросить параметры к дефолтным")
+        self.btn_reset = QPushButton("⟲  Reset parameters to defaults")
         self.btn_reset.clicked.connect(self._reset_defaults)
         btn_v.addWidget(self.btn_train)
         btn_v.addWidget(self.btn_test)
@@ -191,9 +191,9 @@ class TrainTab(QWidget):
 
         left.addStretch(1)
 
-        # ── Правая колонка: лог ──────────────────────────────────────────
+        # ── Right column: the log ────────────────────────────────────────
         right = QVBoxLayout()
-        log_label = QLabel("Live лог тренировки")
+        log_label = QLabel("Live training log")
         log_label.setStyleSheet("font-weight: bold;")
         right.addWidget(log_label)
 
@@ -208,9 +208,9 @@ class TrainTab(QWidget):
         right.addWidget(self.log_view, 1)
 
         log_btn_row = QHBoxLayout()
-        self.btn_clear_log = QPushButton("Очистить лог")
+        self.btn_clear_log = QPushButton("Clear log")
         self.btn_clear_log.clicked.connect(self.log_view.clear)
-        self.btn_save_log = QPushButton("Сохранить лог в файл...")
+        self.btn_save_log = QPushButton("Save log to a file...")
         self.btn_save_log.clicked.connect(self._save_log)
         log_btn_row.addWidget(self.btn_clear_log)
         log_btn_row.addWidget(self.btn_save_log)
@@ -228,7 +228,7 @@ class TrainTab(QWidget):
         splitter.setSizes([380, 700])
         root.addWidget(splitter)
 
-    # ── Действия ─────────────────────────────────────────────────────────
+    # ── Actions ──────────────────────────────────────────────────────────
 
     def _collect_overrides(self) -> dict:
         return {
@@ -279,10 +279,10 @@ class TrainTab(QWidget):
 
     def _start_worker(self, mode: str, overrides: dict):
         if self._worker is not None and self._worker._thread and self._worker._thread.is_alive():
-            QMessageBox.warning(self, "Занято", "Уже идёт тренировка. Дождитесь окончания.")
+            QMessageBox.warning(self, "Busy", "Training is already running. Wait for it to finish.")
             return
         self._set_buttons_enabled(False)
-        self.log_view.appendPlainText(f"\n>>> Запуск: {mode}  ({datetime.now():%H:%M:%S})\n")
+        self.log_view.appendPlainText(f"\n>>> Start: {mode}  ({datetime.now():%H:%M:%S})\n")
         self._worker = TrainingWorker(mode, overrides)
         self._worker.signals.log.connect(self._on_log)
         self._worker.signals.finished.connect(self._on_finished)
@@ -301,40 +301,40 @@ class TrainTab(QWidget):
     @Slot(object)
     def _on_finished(self, results):
         self._set_buttons_enabled(True)
-        self.log_view.appendPlainText("\n<<< Завершено\n")
+        self.log_view.appendPlainText("\n<<< Finished\n")
         main = self.window()
         if isinstance(main, MainWindow):
-            main.set_status("Готово")
+            main.set_status("Ready")
             main.library_tab.refresh()
 
     @Slot(str)
     def _on_error(self, tb_text: str):
         self._set_buttons_enabled(True)
-        self.log_view.appendPlainText("\n!!! ОШИБКА:\n" + tb_text + "\n")
+        self.log_view.appendPlainText("\n!!! ERROR:\n" + tb_text + "\n")
         main = self.window()
         if isinstance(main, MainWindow):
-            main.set_status("Ошибка")
+            main.set_status("Error")
 
     def _save_log(self):
         text = self.log_view.toPlainText()
         if not text.strip():
-            QMessageBox.information(self, "Лог пуст", "Нечего сохранять.")
+            QMessageBox.information(self, "Log is empty", "Nothing to save.")
             return
         ts = storage.make_timestamp()
         default = os.path.join(storage.LOGS_DIR, f"gui_log_{ts}.log")
-        path, _ = QFileDialog.getSaveFileName(self, "Сохранить лог", default, "Log (*.log *.txt)")
+        path, _ = QFileDialog.getSaveFileName(self, "Save log", default, "Log (*.log *.txt)")
         if not path:
             return
         os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
         with open(path, 'w', encoding='utf-8') as f:
             f.write(text)
-        QMessageBox.information(self, "Сохранено", f"Лог сохранён:\n{path}")
+        QMessageBox.information(self, "Saved", f"Log saved:\n{path}")
 
 
-# ── Вкладка: Демо ───────────────────────────────────────────────────────────
+# ── Tab: Demo ───────────────────────────────────────────────────────────────
 
 class DemoTab(QWidget):
-    """Выбор моделей и запуск pygame-демо."""
+    """Model selection and pygame demo launch."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -345,8 +345,8 @@ class DemoTab(QWidget):
         root = QVBoxLayout(self)
 
         info = QLabel(
-            "Выберите модели/формулы для одновременной демонстрации. "
-            "Pygame откроется в отдельном окне."
+            "Select models/formulas to demonstrate simultaneously. "
+            "Pygame will open in a separate window."
         )
         info.setWordWrap(True)
         root.addWidget(info)
@@ -356,11 +356,11 @@ class DemoTab(QWidget):
         root.addWidget(self.list_widget, 1)
 
         btn_row = QHBoxLayout()
-        self.btn_refresh = QPushButton("Обновить список")
+        self.btn_refresh = QPushButton("Refresh list")
         self.btn_refresh.clicked.connect(self.refresh)
-        self.btn_select_latest = QPushButton("Выбрать последнее каждого метода")
+        self.btn_select_latest = QPushButton("Select the latest of each method")
         self.btn_select_latest.clicked.connect(self._select_latest_per_method)
-        self.btn_run = QPushButton("▶  Запустить демо")
+        self.btn_run = QPushButton("▶  Run demo")
         self.btn_run.setMinimumHeight(34)
         self.btn_run.clicked.connect(self._run_demo)
         btn_row.addWidget(self.btn_refresh)
@@ -369,7 +369,7 @@ class DemoTab(QWidget):
         btn_row.addWidget(self.btn_run)
         root.addLayout(btn_row)
 
-        hint = QLabel("В окне демо: R = рестарт, SPACE = пауза, ESC = выйти.")
+        hint = QLabel("In the demo window: R = restart, SPACE = pause, ESC = quit.")
         hint.setStyleSheet("color: gray;")
         root.addWidget(hint)
 
@@ -377,7 +377,7 @@ class DemoTab(QWidget):
         self.list_widget.clear()
         runs = list_saved_runs()
         if not runs:
-            item = QListWidgetItem("(пусто) — сначала запустите тренировку")
+            item = QListWidgetItem("(empty) — run the training first")
             item.setFlags(Qt.NoItemFlags)
             self.list_widget.addItem(item)
             return
@@ -413,40 +413,40 @@ class DemoTab(QWidget):
                     if self.list_widget.item(i).isSelected()
                     and self.list_widget.item(i).data(Qt.UserRole)]
         if not selected:
-            QMessageBox.warning(self, "Не выбрано", "Выберите хотя бы одну модель.")
+            QMessageBox.warning(self, "Nothing selected", "Select at least one model.")
             return
 
-        # Загрузка агентов
+        # Loading the agents
         from demo import load_agents_from_paths
         paths = [r['path'] for r in selected]
         try:
             agents = load_agents_from_paths(paths)
         except Exception as e:
-            QMessageBox.critical(self, "Ошибка загрузки", str(e))
+            QMessageBox.critical(self, "Load error", str(e))
             return
         if not agents:
-            QMessageBox.warning(self, "Пусто", "Не удалось загрузить ни одного агента.")
+            QMessageBox.warning(self, "Empty", "Could not load a single agent.")
             return
 
-        # pygame нужно запускать в главном потоке. Это блокирует GUI пока окно открыто.
-        # Делаем красивый дисклеймер.
+        # pygame must run in the main thread. This blocks the GUI while the
+        # window is open, so the status bar says so explicitly.
         main = self.window()
         if isinstance(main, MainWindow):
-            main.set_status("Демо запущено (окно pygame)...")
+            main.set_status("Demo running (pygame window)...")
         try:
             from demo import run_demo as _run
             _run(agents=agents)
         except Exception as e:
-            QMessageBox.critical(self, "Ошибка демо", traceback.format_exc())
+            QMessageBox.critical(self, "Demo error", traceback.format_exc())
         finally:
             if isinstance(main, MainWindow):
-                main.set_status("Готово")
+                main.set_status("Ready")
 
 
-# ── Вкладка: Библиотека ─────────────────────────────────────────────────────
+# ── Tab: Library ────────────────────────────────────────────────────────────
 
 class LibraryTab(QWidget):
-    """Полный список сохранённого + детали + удаление."""
+    """Full list of saved artifacts + details + deletion."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -458,21 +458,21 @@ class LibraryTab(QWidget):
 
         top_row = QHBoxLayout()
         self.filter_combo = QComboBox()
-        self.filter_combo.addItem("Все методы", None)
-        self.filter_combo.addItem("Только GA", "GA")
+        self.filter_combo.addItem("All methods", None)
+        self.filter_combo.addItem("GA only", "GA")
         self.filter_combo.addItem("EML-weak", "eml-weak")
         self.filter_combo.addItem("EML-medium", "eml-medium")
         self.filter_combo.addItem("EML-strong", "eml-strong")
         self.filter_combo.currentIndexChanged.connect(self.refresh)
-        self.btn_refresh = QPushButton("Обновить")
+        self.btn_refresh = QPushButton("Refresh")
         self.btn_refresh.clicked.connect(self.refresh)
-        self.btn_logs_dir = QPushButton("Открыть logs/")
+        self.btn_logs_dir = QPushButton("Open logs/")
         self.btn_logs_dir.clicked.connect(lambda: self._open_dir(storage.LOGS_DIR))
-        self.btn_models_dir = QPushButton("Открыть models/")
+        self.btn_models_dir = QPushButton("Open models/")
         self.btn_models_dir.clicked.connect(lambda: self._open_dir(config.MODELS_DIR))
-        self.btn_results_dir = QPushButton("Открыть results/")
+        self.btn_results_dir = QPushButton("Open results/")
         self.btn_results_dir.clicked.connect(lambda: self._open_dir(config.RESULTS_DIR))
-        top_row.addWidget(QLabel("Фильтр:"))
+        top_row.addWidget(QLabel("Filter:"))
         top_row.addWidget(self.filter_combo)
         top_row.addWidget(self.btn_refresh)
         top_row.addStretch(1)
@@ -484,7 +484,7 @@ class LibraryTab(QWidget):
         splitter = QSplitter()
 
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Метод", "Дата", "Время", "Score", "Файл"])
+        self.tree.setHeaderLabels(["Method", "Date", "Time", "Score", "File"])
         self.tree.setRootIsDecorated(False)
         self.tree.setAlternatingRowColors(True)
         self.tree.setSortingEnabled(True)
@@ -507,7 +507,7 @@ class LibraryTab(QWidget):
         root.addWidget(splitter, 1)
 
         bottom = QHBoxLayout()
-        self.btn_delete = QPushButton("🗑  Удалить выбранное")
+        self.btn_delete = QPushButton("🗑  Delete selected")
         self.btn_delete.clicked.connect(self._delete_selected)
         bottom.addWidget(self.btn_delete)
         bottom.addStretch(1)
@@ -539,10 +539,10 @@ class LibraryTab(QWidget):
         if not r:
             return
         lines = [
-            f"Метод:     {r['method']}",
-            f"Дата:      {r['date']} {r['time']}",
+            f"Method:    {r['method']}",
+            f"Date:      {r['date']} {r['time']}",
             f"Score:     {r['score']}",
-            f"Файл:      {r['path']}",
+            f"File:      {r['path']}",
             "",
         ]
         ex = r.get('extra', {}) or {}
@@ -556,8 +556,8 @@ class LibraryTab(QWidget):
                 f"Elapsed:       {self._fmt_elapsed(ex.get('elapsed'))}",
                 f"Test scores:   {ex.get('test_scores')}",
                 "",
-                "ФОРМУЛА:",
-                ex.get('formula', '') or '(нет)',
+                "FORMULA:",
+                ex.get('formula', '') or '(none)',
             ]
         else:
             lines += [
@@ -586,8 +586,8 @@ class LibraryTab(QWidget):
         if not items:
             return
         names = [it.text(4) for it in items]
-        msg = "Удалить файлы?\n\n" + "\n".join(names)
-        if QMessageBox.question(self, "Подтверждение", msg) != QMessageBox.Yes:
+        msg = "Delete the files?\n\n" + "\n".join(names)
+        if QMessageBox.question(self, "Confirmation", msg) != QMessageBox.Yes:
             return
         for it in items:
             r = it.data(0, Qt.UserRole)
@@ -596,13 +596,13 @@ class LibraryTab(QWidget):
             path = r['path']
             try:
                 os.remove(path)
-                # Удалить sidecar .meta.json у .pt
+                # Delete the sidecar .meta.json of a .pt
                 if path.endswith('.pt'):
                     meta = path[:-3] + '.meta.json'
                     if os.path.exists(meta):
                         os.remove(meta)
             except OSError as e:
-                QMessageBox.warning(self, "Ошибка", f"Не удалось удалить {path}:\n{e}")
+                QMessageBox.warning(self, "Error", f"Could not delete {path}:\n{e}")
         self.refresh()
         main = self.window()
         if isinstance(main, MainWindow):
@@ -619,7 +619,7 @@ class LibraryTab(QWidget):
             os.system(f'xdg-open "{os.path.abspath(path)}"')  # noqa: S605
 
 
-# ── Главное окно ────────────────────────────────────────────────────────────
+# ── Main window ─────────────────────────────────────────────────────────────
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -631,13 +631,13 @@ class MainWindow(QMainWindow):
         self.train_tab = TrainTab()
         self.demo_tab = DemoTab()
         self.library_tab = LibraryTab()
-        tabs.addTab(self.train_tab, "Тренировка")
-        tabs.addTab(self.demo_tab, "Демо")
-        tabs.addTab(self.library_tab, "Библиотека")
+        tabs.addTab(self.train_tab, "Training")
+        tabs.addTab(self.demo_tab, "Demo")
+        tabs.addTab(self.library_tab, "Library")
         self.setCentralWidget(tabs)
 
         self.setStatusBar(QStatusBar())
-        self.set_status("Готово")
+        self.set_status("Ready")
 
     def set_status(self, text: str):
         self.statusBar().showMessage(text)

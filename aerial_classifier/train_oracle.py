@@ -1,26 +1,27 @@
 """
-train_oracle.py — обучение оракула (ветка A: MLP на признаках, ветка B: CNN).
+train_oracle.py — oracle training (branch A: MLP over features, branch B: CNN).
 
-Общий цикл на обе ветки: взвешенный по классам CrossEntropy, Adam с weight
-decay, затухание LR на плато, ранняя остановка по СБАЛАНСИРОВАННОЙ val
-accuracy. Лучший по валидации чекпоинт сохраняется — не последний: последняя
-эпоха почти всегда переобучена сильнее лучшей.
+A common loop for both branches: class-weighted CrossEntropy, Adam with weight
+decay, LR decay on a plateau, early stopping on BALANCED val accuracy. The best
+checkpoint by validation is saved — not the last one: the final epoch is almost
+always more overfitted than the best.
 
-Почему отбор именно по сбалансированной. Датасет перекошен 3.4 : 1, лосс уже
-взвешен по классам, и заявленная главная метрика проекта — тоже
-сбалансированная. Если при этом отбирать чекпоинт по обычной accuracy, отбор
-тянет модель ровно туда, откуда её уводит взвешенный лосс: эпоха, лучше
-угадывающая многочисленный ROADS ценой редкого BEACH, выигрывает по обычной
-accuracy и проигрывает по сбалансированной. Обе кривые пишутся в history —
-разрыв между ними и есть мера перекоса.
+Why selection uses the balanced metric. The dataset is skewed 3.4 : 1, the loss
+is already class-weighted, and the project's stated primary metric is balanced
+as well. Selecting the checkpoint by plain accuracy would pull the model exactly
+where the weighted loss moves it away from: an epoch that predicts the frequent
+ROADS better at the cost of the rare BEACH wins on plain accuracy and loses on
+balanced. Both curves are written to history — the gap between them measures the
+skew.
 
-Аугментация применяется только к ветке B (у ветки A вход — уже свёрнутые в
-скаляры статистики, и вертеть их бессмысленно) и только к train.
+Augmentation is applied only to branch B (branch A input is already a set of
+statistics reduced to scalars, and rotating them is meaningless) and only to
+train.
 
-Замечание про исходные TF-скрипты, из которых пришёл датасет: там
-data_augmentation подключалась к inputs, но backbone получал те же самые
-inputs в обход неё, так что аугментация фактически не работала. Здесь она
-применяется к тензору батча явно.
+Note on the original TF scripts the dataset came from: there data_augmentation
+was attached to inputs, but the backbone received the same inputs bypassing it,
+so the augmentation had no effect. Here it is applied to the batch tensor
+explicitly.
 """
 
 import time
@@ -37,17 +38,17 @@ import oracle as oracle_mod
 import storage
 
 
-# ── Аугментация (только ветка B) ──────────────────────────────────────────────
+# ── Augmentation (branch B only) ──────────────────────────────────────────────
 
 def augment(batch: torch.Tensor) -> torch.Tensor:
     """
-    Геометрия + яркость для пачки картинок (B, 3, 64, 64).
+    Geometry + brightness for a batch of images (B, 3, 64, 64).
 
-    Повороты и отражения выбираются на весь батч, а не на каждый семпл: у
-    аэроснимка нет верха и низа, поэтому все 8 ориентаций равноправны, а
-    батчи всё равно перемешиваются каждую эпоху — за сотню эпох каждая
-    картинка увидит все варианты. Так аугментация стоит один вызов вместо
-    поэлементной индексации.
+    Rotations and reflections are chosen per batch rather than per sample: an
+    aerial frame has no top or bottom, so all 8 orientations are equivalent, and
+    batches are reshuffled every epoch anyway — over a hundred epochs each image
+    sees every variant. This way augmentation costs one call instead of
+    per-element indexing.
     """
     if config.AUG_ROT90:
         k = int(torch.randint(0, 4, (1,)).item())
@@ -56,42 +57,42 @@ def augment(batch: torch.Tensor) -> torch.Tensor:
     if config.AUG_FLIP and torch.rand(1).item() < 0.5:
         batch = torch.flip(batch, dims=(3,))
     if config.AUG_BRIGHTNESS > 0:
-        # Яркость — поштучно: это дешёвое поэлементное умножение.
+        # Brightness is per-sample: a cheap element-wise multiplication.
         scale = 1.0 + (torch.rand(batch.shape[0], 1, 1, 1, device=batch.device)
                        * 2.0 - 1.0) * config.AUG_BRIGHTNESS
         batch = torch.clamp(batch * scale, 0.0, 1.0)
     return batch
 
 
-# ── Обучение ──────────────────────────────────────────────────────────────────
+# ── Training ──────────────────────────────────────────────────────────────────
 
 def train(branch: str = 'A', epochs: int | None = None, verbose: bool = True,
           seed: int = 0, lr: float | None = None, batch_size: int | None = None,
           progress_cb=None, should_stop=None, name: str | None = None) -> dict:
     """
-    Обучить оракула выбранной ветки.
+    Train the oracle of the selected branch.
 
     Args:
-        branch: 'A' — FeatureMLP на 32 признаках, 'B' — PixelCNN на пикселях.
-        lr, batch_size: переопределяют config для ЭТОГО прогона. Именно
-            параметрами, а не записью в config: интерфейс раньше писал введённые
-            значения в config.TRAIN_LR, и они протекали во все последующие
-            запуски сессии, включая соседние вкладки.
-        progress_cb: callable(dict) — вызывается после каждой эпохи с текущими
-            кривыми. Через него интерфейс рисует обучение вживую.
-        should_stop: callable() -> bool — опрашивается между эпохами. True =
-            прекратить и вернуть ЛУЧШИЙ на этот момент чекпоинт, а не мусор:
-            кнопка «Стоп» должна останавливать обучение, а не выбрасывать его.
-        name: имя копии в библиотеке моделей (models/library/). Без него имя
-            собирается из времени и метрики. Активный слот models/oracle_X.pt
-            обновляется в любом случае.
+        branch: 'A' — FeatureMLP over 32 features, 'B' — PixelCNN over pixels.
+        lr, batch_size: override config for THIS run. Passed as parameters
+            rather than written into config: the GUI used to write the entered
+            values into config.TRAIN_LR, and they leaked into every subsequent
+            run of the session, including neighboring tabs.
+        progress_cb: callable(dict) — invoked after every epoch with the current
+            curves. The GUI uses it to draw training live.
+        should_stop: callable() -> bool — polled between epochs. True = stop and
+            return the BEST checkpoint so far rather than garbage: the "Stop"
+            button must stop training, not discard it.
+        name: name of the copy in the model library (models/library/). Without
+            it the name is assembled from the time and the metric. The active
+            slot models/oracle_X.pt is updated in any case.
 
     Returns:
-        dict с моделью, метриками и историей обучения.
+        dict with the model, metrics, and training history.
     """
     branch = branch.upper()
     if branch not in ('A', 'B'):
-        raise ValueError(f"ветка должна быть 'A' или 'B', получено {branch!r}")
+        raise ValueError(f"branch must be 'A' or 'B', got {branch!r}")
 
     epochs = epochs if epochs is not None else config.TRAIN_EPOCHS
     lr = lr if lr is not None else config.TRAIN_LR
@@ -112,8 +113,8 @@ def train(branch: str = 'A', epochs: int | None = None, verbose: bool = True,
     model = model.to(device)
 
     if verbose:
-        print(f"\n[train] ветка {branch}: {type(model).__name__}, "
-              f"{oracle_mod.count_params(model):,} параметров, device={device}")
+        print(f"\n[train] branch {branch}: {type(model).__name__}, "
+              f"{oracle_mod.count_params(model):,} parameters, device={device}")
         print(f"[train] {data.describe(labels[train_idx], 'train')}")
         print(f"[train] {data.describe(labels[val_idx], 'val')}")
 
@@ -159,8 +160,8 @@ def train(branch: str = 'A', epochs: int | None = None, verbose: bool = True,
         history['val_bal_acc'].append(val_bal_acc)
         history['lr'].append(lr)
 
-        # Отбор, плато и ранняя остановка — все три по СБАЛАНСИРОВАННОЙ
-        # accuracy (см. шапку модуля).
+        # Selection, plateau detection and early stopping all use BALANCED
+        # accuracy (see the module header).
         if val_bal_acc > best_val_bal_acc:
             best_val_bal_acc, best_val_acc = val_bal_acc, val_acc
             best_state = {k: v.detach().cpu().clone()
@@ -185,26 +186,26 @@ def train(branch: str = 'A', epochs: int | None = None, verbose: bool = True,
                          'best_epoch': best_epoch,
                          'history': {k: list(v) for k, v in history.items()}})
 
-        # Плато -> затухание LR. Отдельный счётчик, чтобы одно затухание не
-        # срабатывало каждую эпоху подряд после первого выхода на плато.
+        # Plateau -> LR decay. A separate counter, so that one decay does not
+        # fire every epoch in a row after the first plateau is reached.
         if epochs_since_lr_drop >= config.TRAIN_LR_PATIENCE:
             lr *= config.TRAIN_LR_DECAY
             for group in optimizer.param_groups:
                 group['lr'] = lr
             epochs_since_lr_drop = 0
             if verbose:
-                print(f"    плато -> LR {lr:.2e}")
+                print(f"    plateau -> LR {lr:.2e}")
 
         if should_stop is not None and should_stop():
             stopped_early = True
             if verbose:
-                print(f"  остановлено пользователем на эпохе {epoch}")
+                print(f"  stopped by the user at epoch {epoch}")
             break
 
         if epochs_since_best >= config.TRAIN_PATIENCE:
             if verbose:
-                print(f"  ранняя остановка на эпохе {epoch} "
-                      f"(нет улучшения {config.TRAIN_PATIENCE} эпох)")
+                print(f"  early stop at epoch {epoch} "
+                      f"(no improvement for {config.TRAIN_PATIENCE} epochs)")
             break
 
     if best_state is not None:
@@ -218,8 +219,8 @@ def train(branch: str = 'A', epochs: int | None = None, verbose: bool = True,
         'model': type(model).__name__,
         'params': oracle_mod.count_params(model),
         'best_epoch': best_epoch,
-        # Обе метрики в meta и обе подписаны: в таблицах отчёта они разные,
-        # и «0.88» без указания, какая именно, читателя обманывает.
+        # Both metrics go into meta and both are labeled: they differ in the
+        # report tables, and "0.88" without saying which one misleads the reader.
         'val_acc': best_val_acc,
         'val_bal_acc': best_val_bal_acc,
         'test_acc': test_acc,
@@ -232,23 +233,23 @@ def train(branch: str = 'A', epochs: int | None = None, verbose: bool = True,
         'seconds': elapsed,
         'class_names': config.CLASS_NAMES,
         'feature_names': config.FEATURE_NAMES if branch == 'A' else None,
-        # Кривые обучения кладутся в чекпоинт, чтобы GUI мог нарисовать их для
-        # уже обученной модели, не переобучая её заново.
+        # The training curves go into the checkpoint so the GUI can draw them
+        # for an already trained model without retraining it.
         'history': history,
     }
-    # Имя библиотечной копии пишется в meta ДО сохранения: по нему потом
-    # опознаётся, какая именно модель лежит в активном слоте.
+    # The library copy name is written into meta BEFORE saving: it is what later
+    # identifies which model sits in the active slot.
     meta['library_name'] = storage.reserve_name('oracle', branch, name, meta)
     path = storage.save_oracle(model, branch=branch, meta=meta)
     entry = storage.add_to_library('oracle', branch, meta['library_name'], meta,
                                    source_path=path, overwrite=True)
 
     if verbose:
-        print(f"\n[train] лучшая эпоха {best_epoch}: "
+        print(f"\n[train] best epoch {best_epoch}: "
               f"val bal {best_val_bal_acc:.4f} (acc {best_val_acc:.4f}), "
-              f"test bal {test_bal_acc:.4f} (acc {test_acc:.4f})  ({elapsed:.0f} c)")
-        print(f"[train] активная модель -> {path}")
-        print(f"[train] в библиотеку как «{entry.name}» -> {entry.path}")
+              f"test bal {test_bal_acc:.4f} (acc {test_acc:.4f})  ({elapsed:.0f} s)")
+        print(f"[train] active model -> {path}")
+        print(f"[train] into the library as \"{entry.name}\" -> {entry.path}")
         _warn_if_not_best(entry, verbose=True)
 
     return {'model': model, 'meta': meta, 'history': history, 'entry': entry,
@@ -258,14 +259,14 @@ def train(branch: str = 'A', epochs: int | None = None, verbose: bool = True,
 
 def _warn_if_not_best(entry, verbose: bool = True) -> dict | None:
     """
-    Предупредить, если только что обученная модель хуже лучшей в библиотеке.
+    Warn if the model just trained is worse than the best one in the library.
 
-    Обучение, в отличие от дистилляции, всегда занимает активный слот: после
-    `train` там должна лежать именно та модель, которую только что обучили —
-    иначе команда врала бы о своём действии. Но тихо заменить хорошего оракула
-    неудачным прогоном на двадцать эпох тоже нельзя, поэтому регресс
-    проговаривается вслух, а прежняя модель никуда не девается: она осталась в
-    библиотеке, и вернуть её — одна команда.
+    Training, unlike distillation, always occupies the active slot: after
+    `train` the slot must hold the model that was just trained, otherwise the
+    command would misreport its action. But silently replacing a good oracle
+    with an unlucky twenty-epoch run is not acceptable either, so the regression
+    is stated out loud, and the previous model is not lost: it stays in the
+    library and one command brings it back.
     """
     best = next((e for e in storage.list_models('oracle', entry.branch)
                  if e.is_best), None)
@@ -274,11 +275,11 @@ def _warn_if_not_best(entry, verbose: bool = True) -> dict | None:
             or entry.val_score >= best.val_score):
         return None
     if verbose:
-        print(f"\n[train] ВНИМАНИЕ: активной стала модель ХУЖЕ лучшей "
-              f"сохранённой")
-        print(f"        сейчас активна «{entry.name}» — val {entry.val_score:.4f}")
-        print(f"        лучшая  «{best.name}» — val {best.val_score:.4f}")
-        print(f"        вернуть: python main.py models --activate {best.name}")
+        print(f"\n[train] WARNING: the active model is WORSE than the best "
+              f"saved one")
+        print(f"        now active \"{entry.name}\" — val {entry.val_score:.4f}")
+        print(f"        best       \"{best.name}\" — val {best.val_score:.4f}")
+        print(f"        revert: python main.py models --activate {best.name}")
     return {'best_name': best.name, 'best_val': best.val_score,
             'current_val': entry.val_score}
 
@@ -286,7 +287,7 @@ def _warn_if_not_best(entry, verbose: bool = True) -> dict | None:
 @torch.no_grad()
 def predict_labels(model: nn.Module, X: np.ndarray, device=None,
                    batch_size: int = 512) -> np.ndarray:
-    """Предсказанные классы модели для массива X — без градиентов и в eval."""
+    """Predicted classes of the model for array X — no gradients, in eval mode."""
     device = device or oracle_mod.get_device()
     was_training = model.training
     model.eval()
@@ -301,14 +302,14 @@ def predict_labels(model: nn.Module, X: np.ndarray, device=None,
 
 def evaluate(model: nn.Module, X: np.ndarray, y: np.ndarray, device=None,
              batch_size: int = 512) -> tuple[float, float]:
-    """(обычная accuracy, сбалансированная accuracy) одним проходом по данным."""
+    """(plain accuracy, balanced accuracy) in a single pass over the data."""
     pred = predict_labels(model, X, device, batch_size)
     return float((pred == y).mean()), dist.balanced_accuracy(y, pred)
 
 
 def accuracy(model: nn.Module, X: np.ndarray, y: np.ndarray, device=None,
              batch_size: int = 512) -> float:
-    """Доля правильных ответов модели на (X, y)."""
+    """Fraction of correct model answers on (X, y)."""
     return evaluate(model, X, y, device, batch_size)[0]
 
 

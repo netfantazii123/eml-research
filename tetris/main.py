@@ -1,12 +1,12 @@
 """
-Tetris AI — Нейро-символьное управление через EML-дистилляцию.
+Tetris AI — neuro-symbolic control through EML distillation.
 
-Точка входа:
-    python main.py test    — smoke-test среды и признаков
-    python main.py train   — обучение CNN-оракула (PPO, placement-based)
-    python main.py distill — EML-дистилляция оракула
-    python main.py bench   — сравнение CNN vs EML
-    python main.py gui     — GUI (обучение + дистилляция)
+Entry point:
+    python main.py test    — smoke test of the environment and the features
+    python main.py train   — CNN oracle training (PPO, placement-based)
+    python main.py distill — EML distillation of the oracle
+    python main.py bench   — CNN vs EML comparison
+    python main.py gui     — GUI (training + distillation)
 """
 
 import sys
@@ -15,7 +15,7 @@ import numpy as np
 
 
 def cmd_test():
-    """Smoke-test среды и экстрактора признаков."""
+    """Smoke test of the environment and the feature extractor."""
     from env import TetrisEnv
     from features import extract_afterstate, column_heights, count_holes
     import config
@@ -24,7 +24,7 @@ def cmd_test():
         if not cond:
             raise AssertionError(msg)
 
-    # ── 1. TetrisEnv: интерфейс и placement-obs ──────────────────────────
+    # ── 1. TetrisEnv: the interface and the placement obs ────────────────
     print("=" * 56)
     print("   TetrisEnv Smoke Test (placement mode)")
     print("=" * 56)
@@ -51,7 +51,7 @@ def cmd_test():
     print(f"  obs.afeats:  {obs['afeats'].shape}")
     print("  [OK] Interface passed.")
 
-    # ── 2. Placement-эпизод со случайной политикой ───────────────────────
+    # ── 2. A placement episode with a random policy ──────────────────────
     print("\n" + "=" * 56)
     print("   Episode dynamics (random placements)")
     print("=" * 56)
@@ -71,7 +71,7 @@ def cmd_test():
     _check(env.done, "episode did not terminate")
     print("  [OK] Episode terminates.")
 
-    # ── 3. afterstate == реальная постановка ─────────────────────────────
+    # ── 3. afterstate == the actual placement ────────────────────────────
     print("\n" + "=" * 56)
     print("   Afterstate consistency")
     print("=" * 56)
@@ -84,11 +84,11 @@ def cmd_test():
     board_pred, cleared_pred, landing = env.afterstate(rot, xi)
     env.step_placement(a)
     _check(np.array_equal(board_pred, env.board),
-           "afterstate board != реальная доска после step_placement")
+           "afterstate board != the actual board after step_placement")
     print(f"  placement a={a} (rot={rot}, xi={xi}), landing_h={landing}")
     print("  [OK] afterstate == step_placement.")
 
-    # ── 4. Features: размерность, диапазон, эталоны ──────────────────────
+    # ── 4. Features: dimensionality, range, reference values ─────────────
     print("\n" + "=" * 56)
     print("   Feature extractor (afterstate)")
     print("=" * 56)
@@ -102,8 +102,8 @@ def cmd_test():
     _check(np.allclose(f_empty[:10], -1.0), "empty heights != -1")
 
     test_board = np.zeros((config.BOARD_H_TOTAL, config.BOARD_W), dtype=np.int8)
-    test_board[-1, 1:] = 1            # нижняя строка занята кроме колонки 0
-    test_board[-3, 0] = 1             # навес над колонкой 0 → дыры
+    test_board[-1, 1:] = 1            # bottom row filled except column 0
+    test_board[-3, 0] = 1             # an overhang above column 0 -> holes
     h = column_heights(test_board)
     holes = count_holes(test_board, h)
     print(f"  Test board heights: {h.tolist()}")
@@ -111,7 +111,7 @@ def cmd_test():
     _check(holes >= 2, f"expected holes under overhang, got {holes}")
     print("  [OK] Features passed.")
 
-    # ── 5. Бенчмарк скорости placement-шагов ─────────────────────────────
+    # ── 5. Speed benchmark of placement steps ────────────────────────────
     print("\n" + "=" * 56)
     print("   Placement throughput (random policy)")
     print("=" * 56)
@@ -131,7 +131,7 @@ def cmd_test():
     print(f"  Placements:  {total_steps:,}")
     print(f"  Rate:        {total_steps / elapsed:,.0f} placements/s")
 
-    # ── 6. Скорость afterstate_features (нагрузка EML-инференса) ─────────
+    # ── 6. Speed of afterstate_features (the EML inference load) ─────────
     env = TetrisEnv(seed=0)
     obs = env.reset()
     n = 0
@@ -154,7 +154,7 @@ def cmd_test():
 
 
 def cmd_train():
-    """Полноценное обучение CNN-оракула (PPO)."""
+    """Full CNN oracle training (PPO)."""
     from ppo_trainer import train_ppo
     from cnn_oracle import describe_device
     import storage
@@ -170,7 +170,7 @@ def cmd_train():
     print(f"  Run dir: {run_dir}")
     print(f"  Budget: {config.PPO_TOTAL_STEPS:,} placements, "
           f"{config.PPO_N_ENVS} envs, target {config.PPO_TARGET_SCORE} lines")
-    print("  (Ctrl+C прервёт; модель сохраняется автопилотом)\n")
+    print("  (Ctrl+C interrupts; the model is saved by the autopilot)\n")
 
     result = train_ppo(verbose=True, log_every=1, autopilot=True)
 
@@ -184,7 +184,7 @@ def cmd_train():
     print(f"\n  Saved oracle -> {path}")
     hist_path = reports.save_ppo_history(result['history'], meta=meta)
     png_path = reports.plot_ppo_history(result['history'])
-    # Полный слепок запуска в run-папку.
+    # A full snapshot of the run into the run directory.
     runs_mod.copy_into(run_dir, path, hist_path, png_path,
                        config.AUTOPILOT_SAVE_PATH)
     runs_mod.save_summary(run_dir, meta)
@@ -196,7 +196,7 @@ def cmd_train():
 
 
 def cmd_test_cnn():
-    """Smoke-test CNN-оракула: forward pass, размерности, save/load."""
+    """Smoke test of the CNN oracle: forward pass, shapes, save/load."""
     import torch
     from env import TetrisEnv
     from cnn_oracle import (
@@ -220,14 +220,14 @@ def cmd_test_cnn():
     n_params = count_params(model)
     print(f"  Params: {n_params:,}")
 
-    # ── Forward на одном obs ─────────────────────────────────────────────
+    # ── Forward on a single obs ──────────────────────────────────────────
     env = TetrisEnv(seed=1)
     obs = env.reset()
     grid, scalars, afeats, mask = obs_to_tensors(obs, device)
     logits, value = model(grid, scalars, afeats, mask)
     _check(logits.shape == (1, config.N_PLACEMENTS), f"logits: {logits.shape}")
     _check(value.shape == (1,), f"value: {value.shape}")
-    # нелегальные постановки должны быть замаскированы
+    # illegal placements must be masked out
     illegal = mask[0] <= 0
     _check(bool((logits[0][illegal] < -1e8).all()), "mask not applied")
     print(f"  logits: {logits.shape}, value: {value.shape}, mask applied OK")
@@ -241,7 +241,7 @@ def cmd_test_cnn():
     print(f"  act -> a={action.item()}, logp={log_prob.item():.3f}, "
           f"entropy={ent.item():.3f}")
 
-    # ── Батч ─────────────────────────────────────────────────────────────
+    # ── Batch ────────────────────────────────────────────────────────────
     obs_list = [env.reset() for _ in range(8)]
     g, s, af, m = batch_obs_to_tensors(obs_list, device)
     logits_b, value_b = model(g, s, af, m)
@@ -261,7 +261,7 @@ def cmd_test_cnn():
     _check(torch.allclose(l1, l2), "save/load mismatch")
     print(f"  save/load roundtrip OK ({path})")
 
-    # ── Тайминг forward (для оценки latency vs EML позже) ────────────────
+    # ── Forward timing (for the latency comparison against EML later) ────
     model.eval()
     with torch.no_grad():
         t0 = time.perf_counter()
@@ -276,7 +276,7 @@ def cmd_test_cnn():
 
 
 def cmd_test_ppo():
-    """Smoke-test PPO: крохотный прогон end-to-end (что не падает)."""
+    """Smoke test of PPO: a tiny end-to-end run (that it does not crash)."""
     from ppo_trainer import train_ppo, VecTetris, compute_gae
     import numpy as np
 
@@ -284,7 +284,7 @@ def cmd_test_ppo():
     print("   PPO Smoke Test (tiny run)")
     print("=" * 56)
 
-    # ── GAE юнит-проверка на простом случае ──────────────────────────────
+    # ── GAE unit check on a simple case ──────────────────────────────────
     rewards = np.ones((4, 1), dtype=np.float32)
     values = np.zeros((4, 1), dtype=np.float32)
     dones = np.zeros((4, 1), dtype=np.float32)
@@ -300,17 +300,17 @@ def cmd_test_ppo():
     assert g.shape == (4, 1, 24, 10), f"vec grid: {g.shape}"
     assert af.shape == (4, 40, 19), f"vec afeats: {af.shape}"
     assert m.shape == (4, 40), f"vec mask: {m.shape}"
-    # шаг легальными действиями
+    # a step with legal actions
     acts = np.array([int(np.flatnonzero(m[i] > 0)[0]) for i in range(4)])
     g, s, af, m, r, d = vec.step(acts)
     assert r.shape == (4,), f"vec rewards: {r.shape}"
     print(f"  VecTetris(4) OK: grid {g.shape}, afeats {af.shape}, "
           f"rewards {r.shape}")
 
-    # ── Мини train_ppo: 2 update'а на 4 средах ───────────────────────────
+    # ── Mini train_ppo: 2 updates over 4 environments ────────────────────
     print("  Running 2 PPO updates (n_envs=4, rollout=32)...")
     result = train_ppo(
-        total_steps=4 * 32 * 2,   # ровно 2 update'а
+        total_steps=4 * 32 * 2,   # exactly 2 updates
         n_envs=4, rollout=32, epochs=2, batch_size=64,
         target_score=0, seed=0, verbose=True, log_every=1,
     )
@@ -325,7 +325,7 @@ def cmd_test_ppo():
 
 
 def cmd_test_distill():
-    """Smoke-test дистилляции: крохотный end-to-end прогон (что не падает)."""
+    """Smoke test of distillation: a tiny end-to-end run (that it does not crash)."""
     import os
     import tempfile
     import numpy as np
@@ -418,13 +418,13 @@ def cmd_test_distill():
 
 
 def cmd_distill():
-    """EML-дистилляция: оракул → формула/пачка формул."""
+    """EML distillation: oracle -> formula / batch of formulas."""
     from cnn_oracle import get_device
     from pipeline import full_distill, batch_distill
     import config
 
-    # Флаги: --reuse-data (кэш датасета), --no-joint (без GAME-фазы),
-    #        --batch [N] (пачка формул), --spread X (разброс параметров).
+    # Flags: --reuse-data (dataset cache), --no-joint (without the GAME phase),
+    #        --batch [N] (a batch of formulas), --spread X (parameter spread).
     args = [a.lower() for a in sys.argv[2:]]
     reuse_data = '--reuse-data' in args
     do_joint = '--no-joint' not in args
@@ -448,7 +448,7 @@ def cmd_distill():
                 pass
 
     print("=" * 56)
-    print("   EML Distillation — TetrisCNN -> формула")
+    print("   EML Distillation — TetrisCNN -> formula")
     print("=" * 56)
     mode = f"batch x{batch_n} (spread ±{spread:.0%})" if batch_n else "single"
     print(f"  Device: {get_device()}  | {mode}  reuse_data={reuse_data}  "
@@ -486,7 +486,7 @@ def cmd_distill():
 
 
 def cmd_bench():
-    """Сравнение CNN-оракул vs EML-формула на одних сидах."""
+    """CNN oracle vs EML formula comparison on identical seeds."""
     import time
     import numpy as np
     import torch
@@ -521,7 +521,7 @@ def cmd_bench():
     orc_lat, eml_lat = [], []
 
     for g in range(n_games):
-        # Оракул.
+        # Oracle.
         env = TetrisEnv(seed=g)
         obs = env.reset()
         f = 0
@@ -576,7 +576,7 @@ def cmd_bench():
     total_size = sum(t.size() for t in trees)
     print(f"  AST size:          {total_size} nodes (target < 50)")
 
-    # ── CSV для диплома ──────────────────────────────────────────────────
+    # ── CSV output ───────────────────────────────────────────────────────
     import os, csv
     os.makedirs(config.RESULTS_DIR, exist_ok=True)
     table_path = os.path.join(config.RESULTS_DIR, 'benchmark_table.csv')
@@ -605,7 +605,7 @@ def cmd_bench():
 
 
 def cmd_export():
-    """Экспорт EML-формулы в C-инлайн (для микроконтроллера / замера latency)."""
+    """Export the EML formula to inline C (for the MCU / latency measurement)."""
     import os
     from eml_distiller import EMLNode
     import storage
@@ -624,18 +624,18 @@ def cmd_export():
 
     lines = [
         "/*",
-        " * eml_formula.h — дистиллированная EML-политика Tetris (автогенерация).",
+        " * eml_formula.h — distilled Tetris EML policy (auto-generated).",
         " *",
-        f" * Источник: {src or 'models/best_eml.json'}",
+        f" * Source: {src or 'models/best_eml.json'}",
         f" * AST: size={tree.size()}  depth={tree.depth()}  "
         f"unique_vars={tree.n_unique_vars()}",
-        f" * Метрики дистилляции: {meta}",
+        f" * Distillation metrics: {meta}",
         " *",
-        " * Использование: для каждой легальной постановки заполнить f[26]",
-        " * (нормализация как в features.py: [-1,1]) и выбрать постановку",
-        " * с максимальным eml_formula(f).",
+        " * Usage: for every legal placement fill f[26] (normalized as in",
+        " * features.py: [-1,1]) and choose the placement with the maximum",
+        " * eml_formula(f).",
         " *",
-        " * Индексы признаков:",
+        " * Feature indices:",
     ]
     for i, name in enumerate(config.FEATURE_NAMES):
         lines.append(f" *   f[{i:2d}] = {name}")
@@ -673,25 +673,26 @@ def cmd_export():
     print(f"  AST size {tree.size()}, depth {tree.depth()}, "
           f"vars {tree.n_unique_vars()}")
     print(f"  Saved -> {path}")
-    print("  Формула — одно C-выражение из expf/logf: на MCU считается за")
-    print("  единицы микросекунд; CNN-оракул туда не помещается в принципе.")
+    print("  The formula is a single C expression of expf/logf: it evaluates on")
+    print("  an MCU in a few microseconds; a CNN oracle does not fit there.")
 
 
 def main():
     if len(sys.argv) < 2:
         print("Usage: python main.py "
               "[test|testcnn|testppo|testdistill|train|gui|distill|bench]")
-        print("  test        — smoke-test среды и признаков")
-        print("  testcnn     — smoke-test CNN-оракула")
-        print("  testppo     — smoke-test PPO")
-        print("  testdistill — smoke-test EML-дистилляции")
-        print("  train       — обучение CNN-оракула (PPO, placement-based)")
-        print("  distill     — EML-дистилляция оракула в формулу")
+        print("  test        — smoke test of the environment and the features")
+        print("  testcnn     — smoke test of the CNN oracle")
+        print("  testppo     — smoke test of PPO")
+        print("  testdistill — smoke test of EML distillation")
+        print("  train       — CNN oracle training (PPO, placement-based)")
+        print("  distill     — EML distillation of the oracle into a formula")
         print("                 [--reuse-data] [--no-joint]")
-        print("  bench [N]   — сравнение CNN vs EML на N играх (+CSV в results/)")
-        print("  export [f]  — экспорт EML-формулы в C-инлайн (results/eml_formula.h)")
-        print("  gui         — GUI (обучение · дистилляция · play · формулы)")
-        print("  play        — GUI сразу на вкладке Play (смотреть игру модели)")
+        print("  bench [N]   — CNN vs EML over N games (+CSV in results/)")
+        print("  export [f]  — export the EML formula to inline C "
+              "(results/eml_formula.h)")
+        print("  gui         — GUI (training · distillation · play · formulas)")
+        print("  play        — GUI on the Play tab (watch the model play)")
         return
 
     cmd = sys.argv[1].lower()
@@ -718,7 +719,7 @@ def main():
     elif cmd == 'export':
         cmd_export()
     else:
-        print(f"Команда '{cmd}' не найдена (см. python main.py).")
+        print(f"Command '{cmd}' not found (see python main.py).")
 
 
 if __name__ == "__main__":

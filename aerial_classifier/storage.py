@@ -1,34 +1,35 @@
 """
-storage.py — сохранение/загрузка оракулов (PyTorch) и EML-формул (JSON).
+storage.py — saving/loading oracles (PyTorch) and EML formulas (JSON).
 
-АКТИВНЫЕ артефакты (их берут export, verify-c, bench и вкладки теста):
+ACTIVE artifacts (used by export, verify-c, bench and the test tabs):
     models/oracle_A.pt        FeatureMLP
     models/oracle_B.pt        PixelCNN
-    models/best_eml_A.json    4 формулы ветки A
-    models/best_eml_B.json    4 формулы ветки B
+    models/best_eml_A.json    4 branch A formulas
+    models/best_eml_B.json    4 branch B formulas
 
-БИБЛИОТЕКА — models/library/: именованные копии каждого прогона.
+LIBRARY — models/library/: named copies of every run.
 
     models/library/oracle_A__20260724-1230_bal0.908.pt
     models/library/eml_A__medium-seed4.json
 
-Зачем библиотека. Раньше каждое обучение затирало единственный слот, и
-сравнить две модели можно было только по памяти: «вроде вчера было лучше».
-Прогоны при этом стоят от 14 секунд до часа, а разброс GA по сидам больше
-разницы между правками — то есть выбор из нескольких сохранённых наборов это
-не удобство, а необходимое условие осмысленного сравнения.
+Why the library exists. Previously every training run overwrote the single slot,
+and two models could only be compared from memory. Runs cost from 14 seconds to
+an hour, and the GA spread across seeds exceeds the difference between changes —
+so a choice among several saved sets is a condition of meaningful comparison
+rather than a convenience.
 
-Библиотека не заводит индексный файл: список собирается сканированием папки, а
-все характеристики читаются из meta самих артефактов. Индекс пришлось бы
-чинить каждый раз, когда файл удалили мимо программы.
+The library keeps no index file: the list is assembled by scanning the
+directory, and all characteristics are read from the meta of the artifacts
+themselves. An index would have to be repaired every time a file was deleted
+outside the program.
 
-Лучшая модель определяется ПО VAL — той же метрикой, по которой идёт отбор
-внутри прогона. Test для выбора не трогаем нигде: его смотрят один раз, в
-самом конце.
+The best model is determined BY VAL — the same metric used for selection within
+a run. Test is never touched for selection: it is inspected once, at the very
+end.
 
-Формулы кладутся в JSON, а не в pickle, сознательно: это конечный артефакт
-проекта, его должно быть можно прочитать глазами, продиффать в git и
-разобрать любым другим языком при переносе на микроконтроллер.
+Formulas are stored as JSON rather than pickle deliberately: this is the final
+artifact of the project, and it must be readable by eye, diffable in git, and
+parseable by any other language when porting to a microcontroller.
 """
 
 import json
@@ -55,11 +56,11 @@ def formulas_path(branch: str) -> str:
     return os.path.join(config.MODELS_DIR, f'best_eml_{branch.upper()}.json')
 
 
-# ── Оракул ───────────────────────────────────────────────────────────────────
+# ── Oracle ───────────────────────────────────────────────────────────────────
 
 def save_oracle(model, branch: str = 'A', path: str | None = None,
                 meta: dict | None = None) -> str:
-    """Сохранить state_dict оракула + метаданные обучения."""
+    """Save the oracle state_dict + training metadata."""
     path = path or oracle_path(branch)
     _ensure_dir(path)
     meta = dict(meta or {})
@@ -71,29 +72,30 @@ def save_oracle(model, branch: str = 'A', path: str | None = None,
 def load_oracle(model, branch: str = 'A', path: str | None = None,
                 device=None, check_classes: bool = True) -> dict:
     """
-    Загрузить веса в существующий экземпляр модели. Возвращает meta.
+    Load weights into an existing model instance. Returns meta.
 
-    Несовпадение набора классов ловится ДО load_state_dict: при другом числе
-    классов torch и так упадёт, но сообщением про размерность тензора, из
-    которого причина («выбран другой датасет») не читается вовсе. А при том же
-    числе классов, но других именах, не упадёт ничего.
+    A class set mismatch is caught BEFORE load_state_dict: with a different
+    number of classes torch would fail anyway, but with a message about tensor
+    dimensions from which the actual cause ("a different dataset was selected")
+    cannot be read at all. And with the same number of classes but different
+    names, nothing would fail.
     """
     path = path or oracle_path(branch)
     if not os.path.exists(path):
         raise FileNotFoundError(
-            f"нет чекпоинта оракула {path}. Сначала: python main.py train "
+            f"no oracle checkpoint {path}. First run: python main.py train "
             f"--branch {branch.upper()}")
     ckpt = torch.load(path, map_location=device or 'cpu', weights_only=False)
     meta = ckpt.get('meta', {})
     if check_classes:
         check_class_names(meta.get('class_names'),
-                          f"оракул ветки {branch.upper()}")
+                          f"branch {branch.upper()} oracle")
     model.load_state_dict(ckpt['state_dict'])
     return meta
 
 
 def oracle_meta(branch: str = 'A') -> dict:
-    """Прочитать только метаданные оракула, не создавая модель."""
+    """Read only the oracle metadata, without constructing a model."""
     path = oracle_path(branch)
     if not os.path.exists(path):
         return {}
@@ -101,7 +103,7 @@ def oracle_meta(branch: str = 'A') -> dict:
                       weights_only=False).get('meta', {})
 
 
-# ── EML-формулы ──────────────────────────────────────────────────────────────
+# ── EML formulas ─────────────────────────────────────────────────────────────
 
 def save_formulas(trees: list, branch: str = 'A', path: str | None = None,
                   meta: dict | None = None,
@@ -109,23 +111,23 @@ def save_formulas(trees: list, branch: str = 'A', path: str | None = None,
                   calibration: dict | None = None,
                   decoder: dict | None = None) -> str:
     """
-    Сохранить EML-деревья как JSON.
+    Save EML trees as JSON.
 
     Args:
-        trees: ветки A и B — список EMLNode длиной N_CLASSES в порядке
-            config.CLASS_NAMES; ветка C — список из одного дерева.
-        input_names: имена входов формулы — признаки (ветки A и C) или
-            имена координат эмбеддинга (ветка B).
-        calibration: {'offsets': [...], 'scales': [...]} — константы выравнивания
-            выходов формул (ветки A и B). Без них argmax между формулами не
-            имеет смысла, поэтому они часть артефакта, а не отладочная
-            информация.
-        decoder: таблица порогов ветки C. Ровно та же роль: без неё выход
-            формулы это просто число.
+        trees: branches A and B — a list of EMLNode of length N_CLASSES in
+            config.CLASS_NAMES order; branch C — a list with a single tree.
+        input_names: names of the formula inputs — features (branches A and C)
+            or embedding coordinate names (branch B).
+        calibration: {'offsets': [...], 'scales': [...]} — the constants that
+            align the formula outputs (branches A and B). Without them the
+            argmax between formulas is meaningless, so they are part of the
+            artifact rather than debug information.
+        decoder: the branch C threshold table. Exactly the same role: without it
+            the formula output is just a number.
 
-    class_names пишутся в артефакт обязательно. Набор классов теперь зависит
-    от выбранной папки, и формулы, обученные на четырёх классах, при пяти
-    означают не то же самое — молча применить их было бы хуже, чем отказаться.
+    class_names are always written into the artifact. The class set now depends
+    on the selected folder, and formulas trained on four classes mean something
+    different with five — applying them silently would be worse than refusing.
     """
     path = path or formulas_path(branch)
     _ensure_dir(path)
@@ -143,7 +145,7 @@ def save_formulas(trees: list, branch: str = 'A', path: str | None = None,
         'calibration': calibration,
         'decoder': decoder,
         'trees': [t.to_dict() for t in trees],
-        'formulas': [t.to_string() for t in trees],   # человекочитаемая копия
+        'formulas': [t.to_string() for t in trees],   # human-readable copy
         'meta': meta or {},
     }
     with open(path, 'w', encoding='utf-8') as f:
@@ -153,28 +155,29 @@ def save_formulas(trees: list, branch: str = 'A', path: str | None = None,
 
 def check_class_names(payload_classes, what: str):
     """
-    Сверить набор классов артефакта с текущим датасетом.
+    Verify the artifact's class set against the current dataset.
 
-    Молчаливое несовпадение — самая дорогая ошибка после смены папки: модель
-    отработает, метрики посчитаются, и всё будет означать не то. Поэтому не
-    предупреждение, а отказ с готовым рецептом.
+    A silent mismatch is the most expensive error after a folder change: the
+    model runs, the metrics are computed, and everything means something else.
+    Hence a refusal with a ready recipe rather than a warning.
     """
     if not payload_classes:
-        return                                   # старый артефакт без списка
+        return                                   # old artifact without a list
     if list(payload_classes) == list(config.CLASS_NAMES):
         return
     raise ValueError(
-        f"{what} обучены на классах {list(payload_classes)}, а сейчас выбран "
-        f"датасет с классами {list(config.CLASS_NAMES)}. Либо верните прежний "
-        f"датасет (python main.py --dataset <папка> ...), либо обучите заново.")
+        f"{what} was trained on classes {list(payload_classes)}, while the "
+        f"currently selected dataset has classes {list(config.CLASS_NAMES)}. "
+        f"Either restore the previous dataset "
+        f"(python main.py --dataset <folder> ...) or retrain.")
 
 
 def formulas_meta(branch: str = 'A', path: str | None = None) -> dict:
     """
-    Метаданные сохранённых формул без разбора деревьев ({} если файла нет).
+    Metadata of the saved formulas without parsing the trees ({} if no file).
 
-    Нужна, чтобы сравнить новый прогон с уже лежащим и не затереть лучший
-    результат худшим (см. pipeline.save_best).
+    Needed to compare a new run against the stored one and avoid overwriting a
+    better result with a worse one (see pipeline.save_best).
     """
     path = path or formulas_path(branch)
     if not os.path.exists(path):
@@ -183,20 +186,20 @@ def formulas_meta(branch: str = 'A', path: str | None = None) -> dict:
         with open(path, 'r', encoding='utf-8') as f:
             return json.load(f).get('meta', {})
     except (json.JSONDecodeError, OSError):
-        # Битый файл — как будто его нет: пусть новый прогон его заменит.
+        # A corrupted file counts as absent: let a new run replace it.
         return {}
 
 
 def load_formulas(node_cls, branch: str = 'A', path: str | None = None):
     """
-    Загрузить EML-деревья. node_cls — класс EMLNode (с .from_dict).
+    Load EML trees. node_cls is the EMLNode class (with .from_dict).
 
-    Returns: (trees, payload) — деревья и весь прочитанный JSON.
+    Returns: (trees, payload) — the trees and the whole parsed JSON.
     """
     path = path or formulas_path(branch)
     if not os.path.exists(path):
         raise FileNotFoundError(
-            f"нет файла формул {path}. Сначала: python main.py distill "
+            f"no formula file {path}. First run: python main.py distill "
             f"--branch {branch.upper()}")
     with open(path, 'r', encoding='utf-8') as f:
         payload = json.load(f)
@@ -207,19 +210,19 @@ def load_formulas(node_cls, branch: str = 'A', path: str | None = None):
 def load_classifier(branch: str = 'A', path: str | None = None,
                     check_classes: bool = True):
     """
-    Загрузить готовую модель вместе с её константами.
+    Load a ready model together with its constants.
 
-    Ветки A и B — EMLClassifier с калибровкой, ветка C — EMLSingle с таблицей
-    порогов. Отдельная функция, потому что забыть применить константы после
-    загрузки — самая вероятная ошибка при использовании артефакта: формулы
-    отработают, а ответ молча окажется мусором.
+    Branches A and B — an EMLClassifier with calibration, branch C — an
+    EMLSingle with a threshold table. A separate function, because forgetting to
+    apply the constants after loading is the most likely mistake when using the
+    artifact: the formulas would run and the answer would silently be garbage.
     """
     from eml_distiller import EMLClassifier, EMLNode
 
     trees, payload = load_formulas(EMLNode, branch=branch, path=path)
     if check_classes:
         check_class_names(payload.get('class_names'),
-                          f"формулы ветки {branch.upper()}")
+                          f"branch {branch.upper()} formulas")
 
     if payload.get('decoder'):
         from eml_single import EMLSingle, IntervalDecoder
@@ -231,7 +234,7 @@ def load_classifier(branch: str = 'A', path: str | None = None,
                          scales=calib.get('scales')), payload
 
 
-# ── Библиотека именованных моделей ───────────────────────────────────────────
+# ── Named model library ──────────────────────────────────────────────────────
 
 KINDS = ('oracle', 'eml')
 _EXT = {'oracle': '.pt', 'eml': '.json'}
@@ -243,11 +246,11 @@ def library_dir() -> str:
 
 def slugify(name: str) -> str:
     """
-    Имя модели -> безопасное имя файла.
+    Model name -> safe file name.
 
-    Пользователь вводит имя руками («ветка A, medium, сид 4»), а оно попадает
-    в путь. Пропускать его в файловую систему как есть нельзя: пробелы,
-    двоеточия и слэши либо ломают путь, либо создают вложенные папки.
+    The user types the name by hand ("branch A, medium, seed 4"), and it ends up
+    in a path. Passing it to the file system as is will not do: spaces, colons
+    and slashes either break the path or create nested directories.
     """
     slug = re.sub(r'[^\w.-]+', '-', name.strip(), flags=re.UNICODE)
     slug = re.sub(r'-{2,}', '-', slug).strip('-.')
@@ -256,10 +259,10 @@ def slugify(name: str) -> str:
 
 def auto_name(kind: str, branch: str, meta: dict) -> str:
     """
-    Имя по умолчанию: время плюс главная метрика.
+    Default name: timestamp plus the primary metric.
 
-    Время — чтобы прогоны не сливались, метрика — чтобы список читался без
-    раскрытия каждого пункта.
+    The timestamp keeps runs distinct, the metric makes the list readable
+    without expanding every item.
     """
     score = main_score(kind, meta)
     stamp = time.strftime('%Y%m%d-%H%M')
@@ -268,9 +271,9 @@ def auto_name(kind: str, branch: str, meta: dict) -> str:
 
 def main_score(kind: str, meta: dict) -> float | None:
     """
-    Главная характеристика для сравнения моделей — сбалансированная accuracy
-    на ВАЛИДАЦИИ. Та же метрика, по которой идёт отбор внутри прогона; test
-    для выбора не используется нигде.
+    The primary characteristic for comparing models — balanced accuracy on
+    VALIDATION. The same metric used for selection within a run; test is never
+    used for selection.
     """
     if kind == 'oracle':
         value = meta.get('val_bal_acc')
@@ -289,7 +292,7 @@ def _test_score(kind: str, meta: dict) -> float | None:
 
 @dataclass
 class ModelEntry:
-    """Одна модель в библиотеке вместе с её характеристиками."""
+    """One model in the library together with its characteristics."""
 
     kind: str                    # 'oracle' | 'eml'
     branch: str
@@ -310,74 +313,74 @@ class ModelEntry:
 
     @property
     def size(self) -> int | None:
-        """Сложность: параметров у оракула, узлов AST у формул."""
+        """Complexity: parameters for an oracle, AST nodes for formulas."""
         return (self.meta.get('params') if self.kind == 'oracle'
                 else self.meta.get('total_nodes'))
 
     @property
     def classes(self) -> list[str] | None:
-        """Набор классов, на котором модель обучена (None у старых артефактов)."""
+        """Class set the model was trained on (None for old artifacts)."""
         value = self.meta.get('class_names')
         return list(value) if value else None
 
     @property
     def fits_dataset(self) -> bool:
         """
-        Годится ли модель для текущего датасета.
+        Whether the model is applicable to the current dataset.
 
-        С выбором папки в библиотеке соседствуют модели разных задач. Отличать
-        их надо в списке: иначе разница обнаружится только при попытке
-        загрузить, и выглядеть это будет как поломка, а не как «модель просто
-        от другого датасета».
+        With folder selection, models for different tasks sit side by side in
+        the library. They must be distinguishable in the list: otherwise the
+        difference surfaces only on an attempt to load, and it looks like a
+        failure rather than "the model is simply from another dataset".
         """
         return self.classes is None or self.classes == list(config.CLASS_NAMES)
 
     def label(self) -> str:
-        """Строка для выпадающего списка: имя, метрика, сложность, пометки."""
+        """Line for the dropdown: name, metric, complexity, marks."""
         marks = ('★' if self.is_best else ' ') + ('•' if self.is_active else ' ')
         val = f"{self.val_score:.4f}" if self.val_score is not None else "  ?   "
-        unit = 'пар.' if self.kind == 'oracle' else 'узл.'
+        unit = 'par.' if self.kind == 'oracle' else 'nodes'
         size = f"{self.size} {unit}" if self.size is not None else ''
-        alien = '' if self.fits_dataset else '  [другой датасет]'
+        alien = '' if self.fits_dataset else '  [other dataset]'
         return f"{marks} {self.name:<28} val {val}  {size}{alien}"
 
     def details(self) -> str:
-        """Многострочная сводка для панели."""
-        lines = [f"имя: {self.name}",
-                 f"ветка {self.branch}, "
-                 f"{'оракул' if self.kind == 'oracle' else 'формулы'}"]
+        """Multi-line summary for the panel."""
+        lines = [f"name: {self.name}",
+                 f"branch {self.branch}, "
+                 f"{'oracle' if self.kind == 'oracle' else 'formulas'}"]
         if self.classes:
-            lines.append(f"классы: {', '.join(self.classes)}")
+            lines.append(f"classes: {', '.join(self.classes)}")
         if not self.fits_dataset:
-            lines.append("НЕ ОТ ТЕКУЩЕГО ДАТАСЕТА")
+            lines.append("NOT FROM THE CURRENT DATASET")
         if self.is_active:
-            lines.append("АКТИВНАЯ")
+            lines.append("ACTIVE")
         if self.is_best:
-            lines.append("лучшая по val")
+            lines.append("best by val")
         if self.val_score is not None:
             lines.append(f"val bal:  {self.val_score:.4f}")
         if self.test_score is not None:
             lines.append(f"test bal: {self.test_score:.4f}")
         if self.kind == 'oracle':
             if self.meta.get('params'):
-                lines.append(f"параметров: {self.meta['params']:,}")
+                lines.append(f"parameters: {self.meta['params']:,}")
             if self.meta.get('epochs_run'):
-                lines.append(f"эпох: {self.meta['epochs_run']}")
+                lines.append(f"epochs: {self.meta['epochs_run']}")
             if self.meta.get('seconds'):
-                lines.append(f"обучение: {self.meta['seconds']:.0f} c")
+                lines.append(f"training: {self.meta['seconds']:.0f} s")
         else:
             if self.meta.get('total_nodes'):
-                lines.append(f"узлов AST: {self.meta['total_nodes']}, "
-                             f"глубина {self.meta.get('max_depth', '?')}")
+                lines.append(f"AST nodes: {self.meta['total_nodes']}, "
+                             f"depth {self.meta.get('max_depth', '?')}")
             if self.meta.get('n_inputs_used') is not None:
-                lines.append(f"входов: {self.meta['n_inputs_used']}"
+                lines.append(f"inputs: {self.meta['n_inputs_used']}"
                              f"/{self.meta.get('n_inputs_available', '?')}")
             fidelity = self.meta.get('metrics', {}).get('test', {}).get('fidelity')
             if fidelity is not None:
                 lines.append(f"fidelity: {fidelity:.4f}")
             if self.meta.get('depth_penalty'):
-                lines.append(f"штраф: {self.meta['depth_penalty']}, "
-                             f"сид {self.meta.get('seed', '?')}")
+                lines.append(f"penalty: {self.meta['depth_penalty']}, "
+                             f"seed {self.meta.get('seed', '?')}")
         lines.append(time.strftime('%Y-%m-%d %H:%M',
                                    time.localtime(self.saved_at)))
         return '\n'.join(lines)
@@ -385,13 +388,13 @@ class ModelEntry:
 
 def library_path(kind: str, branch: str, name: str) -> str:
     if kind not in KINDS:
-        raise ValueError(f"kind должен быть 'oracle' или 'eml', получено {kind!r}")
+        raise ValueError(f"kind must be 'oracle' or 'eml', got {kind!r}")
     return os.path.join(library_dir(),
                         f"{kind}_{branch.upper()}__{slugify(name)}{_EXT[kind]}")
 
 
 def _parse_library_filename(filename: str):
-    """'oracle_A__имя.pt' -> ('oracle', 'A', 'имя'); None, если не наше."""
+    """'oracle_A__name.pt' -> ('oracle', 'A', 'name'); None if not ours."""
     stem, ext = os.path.splitext(filename)
     for kind in KINDS:
         if ext == _EXT[kind] and stem.startswith(f"{kind}_") and '__' in stem:
@@ -408,11 +411,11 @@ def active_path(kind: str, branch: str) -> str:
 
 def active_name(kind: str, branch: str) -> str | None:
     """
-    Имя библиотечной модели, лежащей сейчас в активном слоте.
+    Name of the library model currently sitting in the active slot.
 
-    Определяется по meta самого активного файла, а не по сравнению содержимого:
-    имя записывается туда при сохранении, поэтому активную модель видно даже
-    после ручного копирования файла.
+    Determined from the meta of the active file itself rather than by comparing
+    contents: the name is written there on save, so the active model is
+    identifiable even after the file was copied by hand.
     """
     meta = (oracle_meta(branch) if kind == 'oracle' else formulas_meta(branch))
     name = meta.get('library_name')
@@ -427,26 +430,26 @@ def _read_meta(kind: str, path: str) -> dict:
         with open(path, 'r', encoding='utf-8') as f:
             payload = json.load(f)
         meta = payload.get('meta', {})
-        # У формул список классов лежит на верхнем уровне артефакта, а не в
-        # meta. Подтягиваем его сюда, чтобы список моделей мог показать, на
-        # каком наборе классов модель обучена: с выбором датасета в библиотеке
-        # соседствуют модели разных задач, и различать их надо в списке, а не
-        # по отказу при загрузке.
+        # For formulas the class list sits at the top level of the artifact
+        # rather than in meta. Pull it in here so the model list can show which
+        # class set the model was trained on: with dataset selection, models for
+        # different tasks sit side by side in the library, and they must be
+        # distinguishable in the list rather than by a refusal at load time.
         if 'class_names' not in meta and payload.get('class_names'):
             meta = {**meta, 'class_names': payload['class_names']}
         return meta
     except Exception:                                  # noqa: BLE001
-        # Битый или чужой файл не должен ронять весь список: показываем его
-        # без характеристик, пользователь сам решит удалить.
+        # A corrupted or foreign file must not break the whole list: show it
+        # without characteristics and let the user decide to delete it.
         return {}
 
 
 def list_models(kind: str | None = None, branch: str | None = None
                 ) -> list[ModelEntry]:
     """
-    Всё, что лежит в библиотеке, отсортированное по главной метрике (убывание).
+    Everything in the library, sorted by the primary metric (descending).
 
-    Модели без метрики уезжают в конец: сравнивать их не с чем.
+    Models without a metric go to the end: there is nothing to compare them to.
     """
     directory = library_dir()
     if not os.path.isdir(directory):
@@ -471,9 +474,9 @@ def list_models(kind: str | None = None, branch: str | None = None
     entries.sort(key=lambda e: (e.val_score is None,
                                 -(e.val_score or 0.0), e.name))
 
-    # Имя активной модели читается по одному разу на пару (вид, ветка), а не
-    # на каждую запись: это чтение чекпоинта с диска, а активный файл для всех
-    # записей группы один и тот же.
+    # The active model name is read once per (kind, branch) pair rather than per
+    # entry: that is a checkpoint read from disk, and the active file is the
+    # same for every entry in the group.
     active: dict[tuple[str, str], str | None] = {}
     for entry in entries:
         key = (entry.kind, entry.branch)
@@ -481,12 +484,13 @@ def list_models(kind: str | None = None, branch: str | None = None
             active[key] = active_name(*key)
         entry.is_active = (entry.name == active[key])
 
-    # Пометки считаются внутри каждой пары (вид, ветка): лучший оракул ветки A
-    # и лучший набор формул ветки B — разные сущности, соревноваться им не в чем.
+    # The marks are computed within each (kind, branch) pair: the best branch A
+    # oracle and the best branch B formula set are different entities with
+    # nothing to compete over.
     #
-    # Модели от других датасетов из соревнования исключены. Их метрики просто
-    # несравнимы: на двух классах сбалансированная accuracy стартует с 0.5, и
-    # звёздочка досталась бы им автоматически, что бы ни лежало рядом.
+    # Models from other datasets are excluded from the competition. Their
+    # metrics are simply not comparable: on two classes balanced accuracy starts
+    # at 0.5, and the star would go to them automatically whatever sat nearby.
     for entry_kind in KINDS:
         for entry_branch in {e.branch for e in entries if e.kind == entry_kind}:
             group = [e for e in entries
@@ -505,24 +509,24 @@ def find_model(kind: str, branch: str, name: str) -> ModelEntry | None:
 
 
 def _unique_name(kind: str, branch: str, name: str) -> str:
-    """Свободное имя: занятое дополняется -2, -3 и так далее."""
+    """A free name: a taken one is extended with -2, -3 and so on."""
     if not os.path.exists(library_path(kind, branch, name)):
         return name
     for suffix in range(2, 1000):
         candidate = f"{name}-{suffix}"
         if not os.path.exists(library_path(kind, branch, candidate)):
             return candidate
-    raise RuntimeError(f"не удалось подобрать свободное имя для {name!r}")
+    raise RuntimeError(f"could not find a free name for {name!r}")
 
 
 def reserve_name(kind: str, branch: str, name: str | None, meta: dict) -> str:
     """
-    Подобрать свободное имя в библиотеке ДО сохранения.
+    Reserve a free library name BEFORE saving.
 
-    Порядок важен: имя записывается внутрь артефакта (по нему опознаётся
-    активная модель), поэтому уточнять его после записи нельзя — активный файл
-    и библиотечная копия разъехались бы по имени, и активная модель перестала
-    бы опознаваться.
+    The order matters: the name is written inside the artifact (it is what
+    identifies the active model), so it cannot be adjusted after writing — the
+    active file and the library copy would then disagree on the name, and the
+    active model would stop being recognized.
     """
     return _unique_name(kind, branch.upper(),
                         slugify(name) if name else auto_name(kind, branch, meta))
@@ -532,16 +536,16 @@ def add_to_library(kind: str, branch: str, name: str | None, meta: dict,
                    source_path: str | None = None,
                    overwrite: bool = False) -> ModelEntry:
     """
-    Положить в библиотеку копию артефакта под именем.
+    Place a copy of the artifact into the library under a name.
 
-    Копируется уже сохранённый файл, а не сериализуется заново: так
-    библиотечная копия гарантированно побитово совпадает с тем, что померили,
-    и расхождение между «моделью, которую оценили» и «моделью, которую
-    сохранили» невозможно в принципе.
+    The already saved file is copied rather than re-serialized: this way the
+    library copy is guaranteed to be byte-identical to what was measured, and a
+    divergence between "the model that was evaluated" and "the model that was
+    saved" is impossible in principle.
 
-    Занятое имя не затирается молча (кроме overwrite=True): прогоны стоят от
-    минут до часа, и потерять чужой результат из-за совпадения имени обиднее,
-    чем увидеть в списке «имя-2».
+    A taken name is not overwritten silently (unless overwrite=True): runs cost
+    from minutes to an hour, and losing another run's result to a name collision
+    is worse than seeing "name-2" in the list.
     """
     branch = branch.upper()
     name = slugify(name) if name else auto_name(kind, branch, meta)
@@ -549,7 +553,7 @@ def add_to_library(kind: str, branch: str, name: str | None, meta: dict,
         name = _unique_name(kind, branch, name)
     source_path = source_path or active_path(kind, branch)
     if not os.path.exists(source_path):
-        raise FileNotFoundError(f"нечего копировать в библиотеку: {source_path}")
+        raise FileNotFoundError(f"nothing to copy into the library: {source_path}")
 
     target = library_path(kind, branch, name)
     _ensure_dir(target)
@@ -560,11 +564,11 @@ def add_to_library(kind: str, branch: str, name: str | None, meta: dict,
 
 def rename_model(entry: ModelEntry, new_name: str) -> ModelEntry:
     """
-    Переименовать модель в библиотеке.
+    Rename a model in the library.
 
-    Имя живёт и в пути файла, и в meta (по нему определяется активная модель),
-    поэтому меняется в обоих местах — иначе переименованная модель перестала бы
-    опознаваться как активная.
+    The name lives both in the file path and in meta (which is what identifies
+    the active model), so it is changed in both places — otherwise a renamed
+    model would stop being recognized as active.
     """
     name = _unique_name(entry.kind, entry.branch, slugify(new_name))
     target = library_path(entry.kind, entry.branch, name)
@@ -583,7 +587,7 @@ def rename_model(entry: ModelEntry, new_name: str) -> ModelEntry:
 
 
 def _write_library_name(kind: str, path: str, name: str):
-    """Переписать library_name внутри уже сохранённого артефакта."""
+    """Rewrite library_name inside an already saved artifact."""
     if not os.path.exists(path):
         return
     if kind == 'oracle':
@@ -600,11 +604,11 @@ def _write_library_name(kind: str, path: str, name: str):
 
 def activate(entry: ModelEntry) -> str:
     """
-    Сделать библиотечную модель активной: копия уезжает в основной слот.
+    Make a library model active: a copy goes into the main slot.
 
-    Копия, а не символическая ссылка: артефакт должен оставаться обычным
-    файлом, который можно унести на другую машину, и не зависеть от прав на
-    создание ссылок в Windows.
+    A copy rather than a symbolic link: the artifact must remain an ordinary
+    file that can be carried to another machine, and must not depend on link
+    creation privileges on Windows.
     """
     target = active_path(entry.kind, entry.branch)
     _ensure_dir(target)
@@ -613,6 +617,6 @@ def activate(entry: ModelEntry) -> str:
 
 
 def delete_model(entry: ModelEntry) -> str:
-    """Удалить модель из библиотеки. Активный слот при этом не трогается."""
+    """Delete a model from the library. The active slot is not touched."""
     os.remove(entry.path)
     return entry.path

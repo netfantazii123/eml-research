@@ -1,22 +1,22 @@
 /*
- * aerial_eml_C.h — дистиллированный классификатор, ОДНА формула.
- * АВТОГЕНЕРАЦИЯ (export.py). Руками не править.
+ * aerial_eml_C.h — distilled classifier, ONE formula.
+ * AUTO-GENERATED (export.py). Do not edit by hand.
  *
- * Ветка: C   Классы: PEOPLE, ROADS
- * Узлов AST: 41, макс. глубина: 9
- * Участков оси: 2 (порогов 1)
- * Точность на test: 0.7901 (сбалансированная 0.7892)
- * Точность оракула: 0.9392 (сбалансированная 0.9394)
- * Совпадение с оракулом (fidelity): 0.8177
+ * Branch: C   Classes: PEOPLE, ROADS
+ * AST nodes: 41, max depth: 9
+ * Axis intervals: 2 (1 thresholds)
+ * Accuracy on test: 0.7901 (balanced 0.7892)
+ * Oracle accuracy: 0.9392 (balanced 0.9394)
+ * Agreement with the oracle (fidelity): 0.8177
  *
- * Вход: x[] — вектор признаков в [-1, 1], заполняется функцией
- *        aerial_extract_features() из aerial_features.h.
+ * Input: x[] — feature vector in [-1, 1], filled by
+ *        aerial_extract_features() from aerial_features.h.
  *
- * Как формула сама расставила классы на своей оси:
+ * How the formula placed the classes on its own axis:
  *             -inf .. +1.858        ->  PEOPLE
  *           +1.858 .. +inf          ->  ROADS
  *
- * Индексы входов:
+ * Input indices:
  *   x[ 0] = mean_r
  *   x[ 1] = mean_g
  *   x[ 2] = mean_b
@@ -60,8 +60,9 @@
 #define AERIAL_N_INTERVALS  2
 #define AERIAL_N_THRESHOLDS 1
 
-/* Базовый оператор проекта: eml(x, y) = exp(clamp(x)) - ln(|y| + eps).
- * clamp обязателен — без него exp() улетает в inf на первом выбросе. */
+/* The project's base operator: eml(x, y) = exp(clamp(x)) - ln(|y| + eps).
+ * The clamp is mandatory — without it exp() overflows to inf on the
+ * first outlier. */
 static inline float eml_op(float x, float y)
 {
     if (x < -10.0f) x = -10.0f;
@@ -69,16 +70,17 @@ static inline float eml_op(float x, float y)
     return expf(x) - logf(fabsf(y) + 1e-10f);
 }
 
-/* Единственная формула: 41 узлов, глубина 9. */
+/* The single formula: 41 nodes, depth 9. */
 static inline float aerial_formula(const float *x)
 {
     return eml_op(eml_op(x[20], eml_op(x[26], eml_op(x[24], -1.067405f))), eml_op(eml_op(x[26], eml_op(eml_op(eml_op(eml_op(eml_op(-1.091340f, x[18]), eml_op(eml_op(x[0], x[0]), eml_op(x[24], x[18]))), eml_op(eml_op(eml_op(x[2], x[20]), eml_op(0.602944f, x[27])), eml_op(x[0], eml_op(x[21], x[8])))), x[16]), x[19])), x[14]));
 }
 
-/* Таблица порогов. Она подобрана эволюцией под эту конкретную формулу:
- * порядок классов на оси и расстояния между ними выбирала она сама, а
- * не мы. Метки участков могут повторяться — класс имеет право занимать
- * несколько зон, и линейный порядок классов ничего не ограничивает. */
+/* Threshold table. It was fitted by evolution to this particular
+ * formula: the order of the classes on the axis and the distances
+ * between them were chosen by the formula, not by us. Interval labels
+ * may repeat — a class is allowed to occupy several zones, and the
+ * linear ordering of classes constrains nothing. */
 static const float aerial_thresholds[] = { 1.85835779f };
 static const int aerial_interval_class[AERIAL_N_INTERVALS] = { 0, 1 };
 
@@ -86,23 +88,24 @@ static const char *aerial_class_names[AERIAL_N_CLASSES] = {
     "PEOPLE", "ROADS"
 };
 
-/* Итог: индекс класса. K-1 сравнений, ни одного деления. */
+/* Result: class index. K-1 comparisons and no divisions. */
 static inline int aerial_classify(const float *x)
 {
     float v = aerial_formula(x);
     int i;
-    /* NaN не имеет места на оси — отдаём его самому левому участку,
-     * ровно как decode() в Python. */
+    /* NaN has no place on the axis — give it the leftmost interval,
+     * exactly like decode() in Python. */
     if (!(v == v)) return aerial_interval_class[0];
     for (i = 0; i < AERIAL_N_THRESHOLDS; ++i)
         if (v <= aerial_thresholds[i]) return aerial_interval_class[i];
     return aerial_interval_class[AERIAL_N_INTERVALS - 1];
 }
 
-/* Расстояние до ближайшего порога — мера того, насколько ответ
- * пограничный. Python считает во float64, здесь float32; на кадре,
- * где выход формулы лёг вплотную к порогу, ответы могут законно
- * разойтись, и verify-c отличает такой случай от поломки. */
+/* Distance to the nearest threshold — a measure of how borderline the
+ * answer is. Python computes in float64, here it is float32; on a
+ * frame where the formula output landed right next to a threshold the
+ * answers may legitimately differ, and verify-c tells that case apart
+ * from a breakage. */
 static inline float aerial_margin(const float *x)
 {
     float v = aerial_formula(x), best = -1.0f, d;

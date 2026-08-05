@@ -1,49 +1,53 @@
-# Концепт проекта: Нейро-символьное управление на базе EML-дистилляции
+# EML distillation — concept
 
-## 1. Глобальная цель проекта (Диплом/Публикация)
+Neuro-symbolic control: compressing the logic of a trained network into a
+compact analytic formula that runs on low-power microcontrollers in real time,
+and that can be read and analyzed directly.
 
-Разработка математически интерпретируемой и экстремально легковесной системы управления физическими объектами (БПЛА, робототехника).
+## 1. Mathematical basis
 
-Решение проблемы «черного ящика» классических нейросетей путем сжатия (дистилляции) их логики в компактную аналитическую формулу, способную работать на слабых микроконтроллерах в режиме реального времени.
-
-## 2. Математический базис
-
-В основе лежит универсальный бинарный оператор Exp-Minus-Log (EML), предложенный в 2026 году:
+The binary Exp-Minus-Log (EML) operator:
 
 $$
 eml(x, y) = \exp(x) - \ln(|y| + \epsilon)
 $$
 
-*Примечание:* Использование модуля и **$\epsilon$** обязательно для защиты от сингулярности логарифма **$\ln(\le 0)$** во время эволюции формулы.
+The absolute value and **$\epsilon$** are required to guard against the
+logarithm singularity **$\ln(\le 0)$** during evolution of the formula.
 
-## 3. Архитектура решения (Пайплайн)
+## 2. Pipeline
 
-Разработка разбита на 3 изолированных этапа, которые нельзя смешивать:
+Three isolated stages:
 
-1. **Обучение Оракула (Reinforcement Learning):** Обучение тяжелой классической нейросети (MLP/PPO) управлению объектом в симуляторе. Результат: идеальная «черноящичная» модель поведения.
-2. **Символьная дистилляция (Neuro-Symbolic шаг):** Сбор датасета «состояние среды **$\to$** действие Оракула». Использование генетического алгоритма (совместно с градиентным спуском для подгонки весов) для построения EML-дерева, которое максимально точно аппроксимирует ответы Оракула на этих данных.
-3. **Инференс (Эвалюация):** Развертывание полученной математической формулы (AST-дерева) в виде C++/Python кода для прямого управления без использования нейросетей.
+1. **Oracle training (reinforcement learning).** Train a heavy conventional
+   network (MLP/PPO) to control the object in a simulator. Result: a black-box
+   behavior model.
+2. **Symbolic distillation (neuro-symbolic step).** Collect an "environment
+   state **$\to$** oracle action" dataset. Use a genetic algorithm (together with
+   gradient descent for weight fitting) to build an EML tree approximating the
+   oracle's answers on that data.
+3. **Inference.** Emit the resulting formula (AST) as C++/Python code for direct
+   control without a neural network.
 
-## 4. Дорожная карта (Roadmap)
+## 3. Stage 1 configuration (2D — Flappy Bird)
 
-### Этап 1: Proof of Concept (2D — Flappy Bird)
+* **Environment:** Flappy Bird clone (Pygame).
+* **Oracle:** a small network trained to play the game. Input is 3–4 parameters
+  (bird y coordinate, y velocity, distance to pipes).
+* **Distillation:** the network logic becomes an EML equation of the form
+  `jump = eml(eml(y, speed), dist)`.
+* **Metrics:** FPS, RAM consumption, and evaluation latency of PyTorch/TFLite
+  inference against direct evaluation of the EML formula.
 
-*Текущий фокус проекта для отладки пайплайна и оценки жизнеспособности.*
+## 4. Engineering constraints
 
-* **Среда:** Любой клон Flappy Bird (Pygame).
-* **Оракул:** Обучить простую DQN/PPO сеть играть в игру. На входе 3-4 параметра (y-координата птицы, скорость по y, дистанция до труб).
-* **Дистилляция:** Перевести логику сети в EML-уравнение вида `jump = eml(eml(y, speed), dist)`.
-* **Метрики успеха:** Сравнить FPS, потребление оперативной памяти и время эвалюации (latency) между инференсом PyTorch/TFLite-модели и чистым расчетом EML-формулы.
-
-### Этап 2: Масштабирование (3D — БПЛА/Квадрокоптер)
-
-* **Среда:** Симулятор физики (PyBullet/MuJoCo).
-* **Оракул:** RL-агент, стабилизирующий дрон в воздухе.
-* **Адаптация:** Внедрение явного сохранения состояния на уровне обвязки кода (передача **$\Delta$** крена/тангажа как дополнительных входов для эмуляции PD/PID регулятора).
-* **Деплой:** Парсинг полученного уравнения на слабую отладочную плату (например, STM32 или Arduino).
-
-## 5. Критические инженерные правила (Заметки разработчика)
-
-1. **EML — stateless (без памяти):** Формула не имеет состояния. Производные (скорость изменения, дельты) **всегда** вычисляются снаружи в коде обвязки и подаются на вход EML-функции как отдельные аргументы.
-2. **Штраф за глубину (Floating-point drift):** При глубоком вложении операторов экспоненциально накапливается ошибка округления `float`. Фитнес-функция в генетическом алгоритме обязана жестко штрафовать деревья за лишние уровни глубины. Решение должно быть плоским.
-3. **Взрыв градиентов:** Если для обучения используется градиентный спуск, выходы нейросети перед подачей в EML-слой должны обязательно проходить через функцию нормализации/ограничения (например, `Tanh`), чтобы **$\exp(x)$** не выдал `NaN`.
+1. **EML is stateless.** The formula has no memory. Derivatives (rates of
+   change, deltas) are **always** computed outside, in the surrounding code, and
+   passed into the EML function as separate arguments.
+2. **Depth penalty (floating-point drift).** Deep operator nesting accumulates
+   `float` rounding error exponentially. The genetic algorithm's fitness
+   function must penalize trees for excess depth levels; the solution has to
+   stay flat.
+3. **Gradient explosion.** When gradient descent is used for training, network
+   outputs must pass through a normalization/clamping function (e.g. `Tanh`)
+   before the EML layer, so that **$\exp(x)$** does not produce `NaN`.

@@ -1,13 +1,13 @@
 """
-TetrisEnv — headless-среда Tetris с gym-like интерфейсом.
+TetrisEnv — a headless Tetris environment with a gym-like interface.
 
-Frame-by-frame управление (6 дискретных действий), bag-7 рандомизация,
-gravity, line-clear. Без отрисовки — чистая логика на NumPy для скорости.
+Frame-by-frame control (6 discrete actions), bag-7 randomization,
+gravity, line clears. No rendering — pure NumPy logic for speed.
 
-Интерфейс:
+Interface:
     reset()           -> obs (dict: 'grid' (3,24,10), 'scalars' (19,))
     step(action: int) -> (obs, reward, done, info)
-    get_features()    -> np.ndarray (28,) инженерных признаков для EML
+    get_features()    -> np.ndarray (28,) engineered features for EML
 
 Action space:
     0 = NO-OP   1 = left   2 = right
@@ -27,7 +27,7 @@ import features as features_mod
 
 
 class TetrisEnv:
-    """Headless Tetris. Доска (24×10): строки 0..3 — буфер спавна, 4..23 — видимые."""
+    """Headless Tetris. Board (24x10): rows 0..3 are the spawn buffer, 4..23 visible."""
 
     def __init__(self, seed: int | None = None):
         self.rng = np.random.default_rng(seed)
@@ -39,15 +39,15 @@ class TetrisEnv:
         self.cur_y = SPAWN_Y
         self.next_type = 0
         self.gravity_counter = 0
-        self.score = 0          # суммарно очищенных линий за эпизод
+        self.score = 0          # total lines cleared in the episode
         self.frame = 0
         self.done = False
         self.reset()
 
-    # ── Публичный интерфейс ──────────────────────────────────────────────
+    # ── Public interface ─────────────────────────────────────────────────
 
     def reset(self) -> dict:
-        """Сброс среды. Возвращает первый obs."""
+        """Reset the environment. Returns the first obs."""
         self.board[:] = 0
         self._bag = []
         self.score = 0
@@ -55,11 +55,11 @@ class TetrisEnv:
         self.gravity_counter = 0
         self.done = False
         self.next_type = self._draw_from_bag()
-        self._spawn()   # на чистой доске спавн не может зайти в game over
+        self._spawn()   # on a clean board the spawn cannot hit game over
         return self.get_state()
 
     def step(self, action: int) -> tuple[dict, float, bool, dict]:
-        """Один кадр симуляции."""
+        """One simulation frame."""
         if self.done:
             return self.get_state(), 0.0, True, {'score': self.score}
 
@@ -68,7 +68,7 @@ class TetrisEnv:
         locked = False
         n_cleared = 0
 
-        # ── Применить действие ──────────────────────────────────────────
+        # ── Apply the action ────────────────────────────────────────────
         if action == 1:                              # left
             self._try_move(dx=-1, dy=0)
         elif action == 2:                            # right
@@ -77,14 +77,14 @@ class TetrisEnv:
             self._try_rotate()
         elif action == 4:                            # soft drop
             if self._try_move(dx=0, dy=1):
-                self.gravity_counter = 0             # soft drop сбрасывает таймер
+                self.gravity_counter = 0             # a soft drop resets the timer
         elif action == 5:                            # hard drop
             while self._try_move(dx=0, dy=1):
                 pass
             n_cleared = self._lock_piece()
             locked = True
 
-        # ── Gravity (если ещё не залочились хард-дропом) ─────────────────
+        # ── Gravity (unless already locked by a hard drop) ───────────────
         if not locked:
             self.gravity_counter += 1
             if self.gravity_counter >= GRAVITY_TICKS:
@@ -93,7 +93,7 @@ class TetrisEnv:
                     n_cleared = self._lock_piece()
                     locked = True
 
-        # ── Награда за лок/линии + спавн новой фигуры ────────────────────
+        # ── Lock/line reward + spawning a new piece ──────────────────────
         if locked:
             if n_cleared > 0:
                 reward += REWARD_LINE_BASE * (n_cleared ** 2)
@@ -114,7 +114,7 @@ class TetrisEnv:
 
     def get_state(self) -> dict:
         """
-        Observation для CNN.
+        Observation for the CNN.
 
         'grid':    (3, 24, 10) float32 — locked / current piece / ghost.
         'scalars': (19,) float32 — one-hot(cur 7) + one-hot(next 7)
@@ -139,13 +139,13 @@ class TetrisEnv:
         return {'grid': grid, 'scalars': scalars}
 
     def get_features(self) -> np.ndarray:
-        """28 инженерных признаков для EML (см. features.py)."""
+        """28 engineered features for EML (see features.py)."""
         return features_mod.extract(self.board, self.cur_type, self.cur_rot)
 
-    # ── Bag-7 рандомизация ───────────────────────────────────────────────
+    # ── Bag-7 randomization ──────────────────────────────────────────────
 
     def _draw_from_bag(self) -> int:
-        """Достать следующую фигуру из bag-7."""
+        """Draw the next piece from the bag of 7."""
         if not self._bag:
             self._bag = list(range(N_PIECES))
             self.rng.shuffle(self._bag)
@@ -153,8 +153,8 @@ class TetrisEnv:
 
     def _spawn(self) -> bool:
         """
-        Заспавнить текущую фигуру из next_type на стартовой позиции.
-        Возвращает False, если спавн коллизирует (→ game over).
+        Spawn the current piece from next_type at the start position.
+        Returns False if the spawn collides (-> game over).
         """
         self.cur_type = self.next_type
         self.cur_rot = 0
@@ -165,10 +165,10 @@ class TetrisEnv:
         return not self._collides(self.cur_type, self.cur_rot,
                                   self.cur_x, self.cur_y)
 
-    # ── Движение / повороты ──────────────────────────────────────────────
+    # ── Movement / rotation ──────────────────────────────────────────────
 
     def _collides(self, ptype: int, rot: int, x: int, y: int) -> bool:
-        """Коллизия фигуры (тип, поворот) в позиции (x, y) со стенами/полом/блоками."""
+        """Collision of a piece (type, rotation) at (x, y) with walls/floor/blocks."""
         for (r, c) in piece_cells(ptype, rot):
             br, bc = y + r, x + c
             if bc < 0 or bc >= BOARD_W or br >= BOARD_H_TOTAL or br < 0:
@@ -178,7 +178,7 @@ class TetrisEnv:
         return False
 
     def _try_move(self, dx: int, dy: int) -> bool:
-        """Попробовать сдвинуть фигуру. True, если удалось."""
+        """Try to move the piece. True if it succeeded."""
         nx, ny = self.cur_x + dx, self.cur_y + dy
         if not self._collides(self.cur_type, self.cur_rot, nx, ny):
             self.cur_x, self.cur_y = nx, ny
@@ -186,7 +186,7 @@ class TetrisEnv:
         return False
 
     def _try_rotate(self) -> bool:
-        """Поворот по часовой (без wall-kicks). True, если удалось."""
+        """Clockwise rotation (without wall kicks). True if it succeeded."""
         nrot = (self.cur_rot + 1) % 4
         if not self._collides(self.cur_type, nrot, self.cur_x, self.cur_y):
             self.cur_rot = nrot
@@ -194,34 +194,34 @@ class TetrisEnv:
         return False
 
     def _ghost_y(self) -> int:
-        """Y, на котором фигура зафиксируется при hard drop."""
+        """The Y at which the piece will lock on a hard drop."""
         y = self.cur_y
         while not self._collides(self.cur_type, self.cur_rot, self.cur_x, y + 1):
             y += 1
         return y
 
-    # ── Лок и очистка линий ──────────────────────────────────────────────
+    # ── Lock and line clearing ───────────────────────────────────────────
 
     def _lock_piece(self) -> int:
-        """Зафиксировать текущую фигуру на доске и очистить полные линии."""
+        """Lock the current piece onto the board and clear full lines."""
         for (r, c) in piece_cells(self.cur_type, self.cur_rot):
             self.board[self.cur_y + r, self.cur_x + c] = 1
         return self._clear_lines()
 
     def _clear_lines(self) -> int:
-        """Удалить заполненные строки, сдвинуть остальное вниз. Возвращает кол-во."""
+        """Remove full rows and shift the rest down. Returns the count."""
         full = np.all(self.board == 1, axis=1)
         n = int(np.count_nonzero(full))
         if n == 0:
             return 0
         kept = self.board[~full]
         new_board = np.zeros_like(self.board)
-        new_board[n:] = kept     # сохранённые строки опускаются вниз
+        new_board[n:] = kept     # the surviving rows drop down
         self.board = new_board
         return n
 
     def _aggregate_height(self) -> int:
-        """Сумма высот колонок (для height-penalty reward)."""
+        """Sum of the column heights (for the height-penalty reward)."""
         filled = self.board != 0
         heights = BOARD_H_TOTAL - np.argmax(
             np.vstack([filled, np.ones((1, BOARD_W), dtype=bool)]), axis=0

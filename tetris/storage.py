@@ -1,8 +1,8 @@
 """
-storage.py — сохранение/загрузка оракула (PyTorch) и EML-формул (JSON).
+storage.py — saving/loading the oracle (PyTorch) and the EML formulas (JSON).
 
-Оракул:   models/best_ppo.pt    (state_dict + метаданные)
-Формулы:  models/best_eml.json  (6 AST-деревьев + метрики)
+Oracle:   models/best_ppo.pt    (state_dict + metadata)
+Formulas: models/best_eml.json  (6 AST trees + metrics)
 """
 
 import os
@@ -17,10 +17,10 @@ def _ensure_dir(path: str):
     os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
 
 
-# ── Оракул (CNN) ─────────────────────────────────────────────────────────────
+# ── Oracle (CNN) ─────────────────────────────────────────────────────────────
 
 def save_oracle(model, path: str | None = None, meta: dict | None = None):
-    """Сохранить state_dict оракула + метаданные обучения."""
+    """Save the oracle state_dict + training metadata."""
     if path is None:
         path = os.path.join(config.MODELS_DIR, 'best_ppo.pt')
     _ensure_dir(path)
@@ -32,7 +32,7 @@ def save_oracle(model, path: str | None = None, meta: dict | None = None):
 
 
 def load_oracle(model, path: str | None = None, device=None):
-    """Загрузить веса в существующий экземпляр модели. Возвращает meta."""
+    """Load weights into an existing model instance. Returns meta."""
     if path is None:
         path = os.path.join(config.MODELS_DIR, 'best_ppo.pt')
     ckpt = torch.load(path, map_location=device or 'cpu')
@@ -40,15 +40,15 @@ def load_oracle(model, path: str | None = None, device=None):
     return ckpt.get('meta', {})
 
 
-# ── EML-формулы ──────────────────────────────────────────────────────────────
+# ── EML formulas ─────────────────────────────────────────────────────────────
 
 def save_formulas(trees: list, path: str | None = None,
                   meta: dict | None = None):
     """
-    Сохранить EML-деревья как JSON (v2: одна afterstate-формула в списке).
+    Save the EML trees as JSON (v2: a single afterstate formula in the list).
 
     Args:
-        trees: список EMLNode, каждый имеет .to_dict().
+        trees: list of EMLNode, each with .to_dict().
     """
     if path is None:
         path = os.path.join(config.MODELS_DIR, 'best_eml.json')
@@ -65,8 +65,8 @@ def save_formulas(trees: list, path: str | None = None,
 
 def load_formulas(node_cls, path: str | None = None):
     """
-    Загрузить EML-деревья. node_cls — класс EMLNode (с .from_dict).
-    Возвращает (trees, meta).
+    Load the EML trees. node_cls is the EMLNode class (with .from_dict).
+    Returns (trees, meta).
     """
     if path is None:
         path = os.path.join(config.MODELS_DIR, 'best_eml.json')

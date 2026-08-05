@@ -1,42 +1,42 @@
 """
-Flappy Bird AI — конфигурация.
-Все константы проекта в одном месте.
+Flappy Bird AI — configuration.
+All project constants in one place.
 """
 
-# ── Константы среды ──────────────────────────────────────────────────────────
+# ── Environment constants ────────────────────────────────────────────────────
 
-SCREEN_W = 400          # логическая ширина поля (px)
-SCREEN_H = 600          # логическая высота поля (px)
-PIPE_GAP = 150          # расстояние между верхней и нижней трубой (px)
-PIPE_SPEED = 3          # скорость движения труб влево (px/frame)
-PIPE_FREQ = 90          # каждые N кадров спавнится новая труба
-GRAVITY = 0.5           # ускорение падения (px/frame²)
-FLAP_POWER = -8         # импульс прыжка (отрицательный = вверх)
-BIRD_X = 60             # фиксированная X-позиция птички
-BIRD_RADIUS = 12        # радиус хитбокса птички (круг)
-PIPE_WIDTH = 50         # ширина трубы (px)
-STATE_SIZE = 4          # размерность вектора состояния
+SCREEN_W = 400          # logical field width (px)
+SCREEN_H = 600          # logical field height (px)
+PIPE_GAP = 150          # distance between the upper and lower pipe (px)
+PIPE_SPEED = 3          # pipe movement speed to the left (px/frame)
+PIPE_FREQ = 90          # a new pipe spawns every N frames
+GRAVITY = 0.5           # falling acceleration (px/frame^2)
+FLAP_POWER = -8         # jump impulse (negative = upward)
+BIRD_X = 60             # fixed X position of the bird
+BIRD_RADIUS = 12        # bird hitbox radius (circle)
+PIPE_WIDTH = 50         # pipe width (px)
+STATE_SIZE = 4          # dimensionality of the state vector
 
-# ── Константы Генетического Алгоритма (нейроэволюция) ────────────────────────
+# ── Genetic algorithm constants (neuroevolution) ─────────────────────────────
 
-GA_POPULATION = 1000    # размер популяции (количество птичек)
-GA_MUTATION_RATE = 0.1  # вероятность мутации каждого веса
-GA_MUTATION_STD = 0.3   # стандартное отклонение шума мутации
-GA_ELITISM = 5          # количество лучших особей, копируемых без изменений
-GA_GENERATIONS = 50     # максимальное количество поколений
-GA_MAX_FRAMES = 3000    # лимит кадров на одну игру
-GA_PATIENCE = 15        # поколений без улучшения best_fitness → стоп
-GA_TARGET_SCORE = 0     # 0 = выключено; иначе ранний стоп при достижении этого скора
+GA_POPULATION = 1000    # population size (number of birds)
+GA_MUTATION_RATE = 0.1  # mutation probability per weight
+GA_MUTATION_STD = 0.3   # standard deviation of the mutation noise
+GA_ELITISM = 5          # number of best individuals copied unchanged
+GA_GENERATIONS = 50     # maximum number of generations
+GA_MAX_FRAMES = 3000    # frame limit for a single game
+GA_PATIENCE = 15        # generations without best_fitness improvement -> stop
+GA_TARGET_SCORE = 0     # 0 = off; otherwise stop early at this score
 
-# ── Константы EML-дистилляции ────────────────────────────────────────────────
+# ── EML distillation constants ───────────────────────────────────────────────
 
-EML_POPULATION = 500    # размер популяции EML-деревьев
-EML_GENERATIONS = 500   # максимальное количество поколений
-EML_ELITISM = 10         # элитные особи без изменений
-EML_MAX_DEPTH = 5       # максимальная глубина при инициализации
-EML_PATIENCE = 100       # поколений без улучшения → стоп
-EML_DATASET_EPISODES = 500  # эпизодов для сбора датасета
-EML_EPSILON = 1e-10     # защита от ln(0)
+EML_POPULATION = 500    # EML tree population size
+EML_GENERATIONS = 500   # maximum number of generations
+EML_ELITISM = 10         # elite individuals carried over unchanged
+EML_MAX_DEPTH = 5       # maximum depth at initialization
+EML_PATIENCE = 100       # generations without improvement -> stop
+EML_DATASET_EPISODES = 500  # episodes for dataset collection
+EML_EPSILON = 1e-10     # guard against ln(0)
 
 DEPTH_PENALTIES = {
     'weak':   0.01,
@@ -44,7 +44,7 @@ DEPTH_PENALTIES = {
     'strong': 0.15,
 }
 
-# ── Директории ───────────────────────────────────────────────────────────────
+# ── Directories ──────────────────────────────────────────────────────────────
 
 MODELS_DIR = 'models'
 RESULTS_DIR = 'results'

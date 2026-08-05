@@ -1,16 +1,16 @@
 """
-cnn_oracle.py — CNN actor-critic оракул для Tetris (обучается PPO).
+cnn_oracle.py — CNN actor-critic oracle for Tetris (trained with PPO).
 
-Вход:
+Input:
     grid:    (B, 3, 24, 10) — locked / current piece / ghost.
-    scalars: (B, 19)        — one-hot фигуры/следующей/поворота + drop progress.
+    scalars: (B, 19)        — one-hot of piece/next/rotation + drop progress.
 
-Выход:
-    logits: (B, 6) — сырые логиты политики (до softmax).
-    value:  (B,)   — оценка состояния V(s) (critic).
+Output:
+    logits: (B, 6) — raw policy logits (before softmax).
+    value:  (B,)   — state value V(s) (critic).
 
-Архитектура (shared trunk, две головы) — см. PROJECT_BLUEPRINT.md § 3.3.
-Device-aware: автоматически использует CUDA, если доступна.
+Architecture: a shared trunk with two heads.
+Device-aware: uses CUDA automatically when available.
 """
 
 import numpy as np
@@ -25,7 +25,7 @@ SCALAR_SIZE = 19
 
 
 def get_device() -> torch.device:
-    """CUDA, если доступна, иначе CPU."""
+    """CUDA if available, otherwise CPU."""
     return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
@@ -33,13 +33,13 @@ class TetrisCNN(nn.Module):
     """
     Actor-Critic CNN.
 
-    Conv-ствол обрабатывает 3-канальную доску, результат конкатенируется
-    со скалярными признаками и идёт в общий FC, затем в две головы.
+    The conv trunk processes the 3-channel board, the result is concatenated
+    with the scalar features and goes into a shared FC, then into two heads.
     """
 
     def __init__(self):
         super().__init__()
-        # ── Conv-ствол ───────────────────────────────────────────────────
+        # ── Conv trunk ───────────────────────────────────────────────────
         self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
         self.conv3 = nn.Conv2d(64, 64, kernel_size=3, padding=1)
@@ -47,23 +47,23 @@ class TetrisCNN(nn.Module):
         conv_flat = 64 * BOARD_H_TOTAL * BOARD_W          # 64*24*10 = 15360
         fc_in = conv_flat + SCALAR_SIZE                   # + 19 = 15379
 
-        # ── Общий FC ─────────────────────────────────────────────────────
+        # ── Shared FC ────────────────────────────────────────────────────
         self.fc1 = nn.Linear(fc_in, 256)
         self.fc2 = nn.Linear(256, 128)
 
-        # ── Головы ───────────────────────────────────────────────────────
-        self.actor = nn.Linear(128, N_ACTIONS)            # политика π
-        self.critic = nn.Linear(128, 1)                   # ценность V
+        # ── Heads ────────────────────────────────────────────────────────
+        self.actor = nn.Linear(128, N_ACTIONS)            # policy pi
+        self.critic = nn.Linear(128, 1)                   # value V
 
         self._init_weights()
 
     def _init_weights(self):
-        """Ортогональная инициализация (стандарт для PPO)."""
+        """Orthogonal initialization (the PPO standard)."""
         for m in self.modules():
             if isinstance(m, (nn.Conv2d, nn.Linear)):
                 nn.init.orthogonal_(m.weight, gain=np.sqrt(2))
                 nn.init.constant_(m.bias, 0.0)
-        # Голова политики — малый gain для стартовой near-uniform политики.
+        # Policy head — a small gain for a near-uniform initial policy.
         nn.init.orthogonal_(self.actor.weight, gain=0.01)
         nn.init.orthogonal_(self.critic.weight, gain=1.0)
 
@@ -84,13 +84,13 @@ class TetrisCNN(nn.Module):
         value = self.critic(x).squeeze(-1)
         return logits, value
 
-    # ── Helpers для rollout / инференса ──────────────────────────────────
+    # ── Helpers for rollout / inference ──────────────────────────────────
 
     @torch.no_grad()
     def act(self, grid: torch.Tensor, scalars: torch.Tensor,
             deterministic: bool = False):
         """
-        Выбрать действие(я).
+        Choose action(s).
 
         Returns:
             action: (B,) long
@@ -108,7 +108,7 @@ class TetrisCNN(nn.Module):
     def evaluate_actions(self, grid: torch.Tensor, scalars: torch.Tensor,
                          actions: torch.Tensor):
         """
-        Для PPO-обновления: log_prob, entropy, value по заданным действиям.
+        For the PPO update: log_prob, entropy and value for the given actions.
         """
         logits, value = self.forward(grid, scalars)
         dist = torch.distributions.Categorical(logits=logits)
@@ -117,22 +117,22 @@ class TetrisCNN(nn.Module):
     @torch.no_grad()
     def get_logits(self, grid: torch.Tensor,
                    scalars: torch.Tensor) -> torch.Tensor:
-        """Сырые логиты — цель для EML-дистилляции."""
+        """Raw logits — the target for EML distillation."""
         logits, _ = self.forward(grid, scalars)
         return logits
 
 
-# ── Утилиты обёртки obs → тензоры ────────────────────────────────────────────
+# ── obs -> tensor wrapper utilities ──────────────────────────────────────────
 
 def obs_to_tensors(obs: dict, device: torch.device):
-    """Один obs (dict из env) → батч-тензоры размера 1."""
+    """One obs (dict from env) -> batch tensors of size 1."""
     grid = torch.from_numpy(obs['grid']).unsqueeze(0).to(device)
     scalars = torch.from_numpy(obs['scalars']).unsqueeze(0).to(device)
     return grid, scalars
 
 
 def batch_obs_to_tensors(obs_list: list[dict], device: torch.device):
-    """Список obs → батч-тензоры (B, ...)."""
+    """List of obs -> batch tensors (B, ...)."""
     grids = np.stack([o['grid'] for o in obs_list])
     scalars = np.stack([o['scalars'] for o in obs_list])
     return (torch.from_numpy(grids).to(device),

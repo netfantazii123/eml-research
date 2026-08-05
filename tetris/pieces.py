@@ -1,11 +1,11 @@
 """
-Tetromino-фигуры: 7 типов × 4 поворота.
+Tetromino pieces: 7 types × 4 rotations.
 
-Каждый поворот задан списком (row, col) занятых ячеек внутри
-bounding box с верх-левым углом в (0, 0). Координаты — стандартные
-guideline-ротации (без SRS wall-kicks; kicks добавим как улучшение).
+Every rotation is given as a list of (row, col) occupied cells inside a bounding
+box whose top-left corner is at (0, 0). The coordinates are the standard
+guideline rotations (without SRS wall kicks).
 
-Индексация типов фиксирована и совпадает с FEATURE_NAMES в config.py:
+The type indexing is fixed and matches FEATURE_NAMES in config.py:
     0=I, 1=O, 2=T, 3=S, 4=Z, 5=J, 6=L
 """
 
@@ -20,7 +20,7 @@ SHAPES: list[list[tuple[tuple[int, int], ...]]] = [
         ((2, 0), (2, 1), (2, 2), (2, 3)),
         ((0, 1), (1, 1), (2, 1), (3, 1)),
     ],
-    # ── O ── (все повороты одинаковы) ──────────────────────────────────
+    # ── O ── (all rotations are identical) ─────────────────────────────
     [
         ((0, 1), (0, 2), (1, 1), (1, 2)),
         ((0, 1), (0, 2), (1, 1), (1, 2)),
@@ -64,17 +64,17 @@ SHAPES: list[list[tuple[tuple[int, int], ...]]] = [
     ],
 ]
 
-# Кол-во геометрически РАЗЛИЧНЫХ поворотов: O одинакова во всех, I/S/Z имеют
-# по 2 уникальные ориентации (2 и 3 повторяют 0 и 1 со сдвигом). Используется
-# маской placement-действий, чтобы не дублировать эквивалентные постановки.
+# Number of geometrically DISTINCT rotations: O is the same in all of them,
+# I/S/Z have 2 unique orientations each (2 and 3 repeat 0 and 1 with a shift).
+# Used by the placement action mask to avoid duplicating equivalent placements.
 DISTINCT_ROTATIONS = [2, 1, 4, 2, 2, 4, 4]   # I, O, T, S, Z, J, L
 
-# Спавн-смещение по X (колонка top-left bbox) для центрирования на доске
-# шириной 10. Все фигуры спавнятся около центра.
+# Spawn offset along X (top-left bbox column) for centering on a board of width
+# 10. All pieces spawn near the center.
 SPAWN_X = 3
-SPAWN_Y = 0   # верх буфера
+SPAWN_Y = 0   # top of the buffer
 
 
 def piece_cells(piece_type: int, rotation: int) -> tuple[tuple[int, int], ...]:
-    """Ячейки фигуры в её bounding box для данного поворота."""
+    """Cells of the piece in its bounding box for the given rotation."""
     return SHAPES[piece_type][rotation % 4]

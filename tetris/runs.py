@@ -1,15 +1,16 @@
 """
-runs.py — папки запусков с датой: гарантированный полный слепок эксперимента.
+runs.py — dated run directories: a guaranteed full snapshot of an experiment.
 
-Каждый запуск обучения/дистилляции создаёт runs/<дата_время>_<вид>/ и кладёт
-туда ВСЁ, что нужно для воспроизведения и диплома:
-    config_snapshot.json   — все константы config на момент запуска
-    <модель/формулы>       — копии итоговых артефактов
-    *_history.json / *.png — история и графики
-    summary.json           — итоговые метрики запуска
+Every training/distillation run creates runs/<date_time>_<kind>/ and places
+there EVERYTHING needed to reproduce it:
+    config_snapshot.json   — all config constants at run time
+    <model/formulas>       — copies of the final artifacts
+    *_history.json / *.png — history and plots
+    summary.json           — final run metrics
 
-Канонические пути (models/best_ppo.pt, models/best_eml.json) продолжают
-обновляться — пайплайн и GUI смотрят на них; run-папка — неизменяемый архив.
+The canonical paths (models/best_ppo.pt, models/best_eml.json) keep being
+updated — the pipeline and the GUI look at them; the run directory is an
+immutable archive.
 """
 
 import os
@@ -23,7 +24,7 @@ RUNS_DIR = 'runs'
 
 
 def create_run_dir(kind: str) -> str:
-    """Создать runs/<YYYY-MM-DD_HH-MM-SS>_<kind>/ и вернуть путь."""
+    """Create runs/<YYYY-MM-DD_HH-MM-SS>_<kind>/ and return the path."""
     stamp = time.strftime('%Y-%m-%d_%H-%M-%S')
     path = os.path.join(RUNS_DIR, f"{stamp}_{kind}")
     os.makedirs(path, exist_ok=True)
@@ -32,7 +33,7 @@ def create_run_dir(kind: str) -> str:
 
 
 def snapshot_config(run_dir: str) -> str:
-    """Все UPPERCASE-константы config → config_snapshot.json."""
+    """All UPPERCASE config constants -> config_snapshot.json."""
     snap = {}
     for name in dir(config):
         if name.isupper():
@@ -46,7 +47,7 @@ def snapshot_config(run_dir: str) -> str:
 
 
 def save_summary(run_dir: str, summary: dict) -> str:
-    """Итоговые метрики запуска → summary.json."""
+    """Final run metrics -> summary.json."""
     path = os.path.join(run_dir, 'summary.json')
     payload = {'saved_at': time.strftime('%Y-%m-%d %H:%M:%S'), **summary}
     with open(path, 'w', encoding='utf-8') as f:
@@ -55,7 +56,7 @@ def save_summary(run_dir: str, summary: dict) -> str:
 
 
 def copy_into(run_dir: str, *paths: str) -> list[str]:
-    """Скопировать файлы в run-папку (отсутствующие тихо пропускаются)."""
+    """Copy files into the run directory (missing ones are skipped silently)."""
     copied = []
     for p in paths:
         if p and os.path.exists(p):

@@ -1,17 +1,16 @@
 """
-Тесты экстрактора признаков.
+Tests of the feature extractor.
 
-Проверяются три вещи, каждая из которых при поломке НЕ падает сама по себе:
+Three things are checked, each of which does NOT fail on its own when broken:
 
-  1. Все признаки лежат в [-1, 1]. EML-оператор содержит exp(), и признак,
-     вылетевший за диапазон, даёт формуле inf — не ошибку, а тихо испорченный
-     результат.
-  2. Поворотно-инвариантные признаки действительно инвариантны. На этом
-     построен отбор признаков в дипломе (grad_vert/grad_horz выброшены именно
-     потому, что зависели от ориентации кадра) — утверждение надо проверять,
-     а не декларировать.
-  3. Отпечаток кэша меняется при правке констант. Без этого правка масштаба
-     молча не доезжает до обучения.
+  1. All features lie in [-1, 1]. The EML operator contains exp(), and a feature
+     that leaves the range gives the formula inf — not an error but a quietly
+     corrupted result.
+  2. The rotation-invariant features really are invariant. Feature selection
+     rests on this (grad_vert/grad_horz were discarded precisely because they
+     depended on frame orientation) — the claim must be checked, not declared.
+  3. The cache fingerprint changes when a constant is edited. Without this a
+     scale change silently never reaches training.
 """
 
 import numpy as np
@@ -21,37 +20,37 @@ import config
 import features
 
 
-# ── Наборы тестовых картинок ──────────────────────────────────────────────────
+# ── Sets of test images ───────────────────────────────────────────────────────
 
 def sample_images() -> dict:
-    """Картинки разного характера — от вырожденных до похожих на классы."""
+    """Images of various character — from degenerate to class-like."""
     rng = np.random.default_rng(0)
     size = config.IMG_SIZE
     out = {}
 
-    out['шум'] = rng.integers(0, 256, (size, size, 3), dtype=np.uint8)
-    out['чёрная'] = np.zeros((size, size, 3), dtype=np.uint8)
-    out['белая'] = np.full((size, size, 3), 255, dtype=np.uint8)
-    out['серая'] = np.full((size, size, 3), 128, dtype=np.uint8)
+    out['noise'] = rng.integers(0, 256, (size, size, 3), dtype=np.uint8)
+    out['black'] = np.zeros((size, size, 3), dtype=np.uint8)
+    out['white'] = np.full((size, size, 3), 255, dtype=np.uint8)
+    out['gray'] = np.full((size, size, 3), 128, dtype=np.uint8)
 
-    # Полосы: грубая имитация дороги — одно доминирующее направление.
+    # Stripes: a crude imitation of a road — one dominant direction.
     stripes = np.zeros((size, size, 3), dtype=np.uint8)
     stripes[:, ::4] = 255
-    out['полосы'] = stripes
+    out['stripes'] = stripes
 
-    # Плавный градиент — гладкий фон без текстуры.
+    # A smooth gradient — a flat background without texture.
     ramp = np.linspace(0, 255, size, dtype=np.uint8)
-    out['градиент'] = np.repeat(np.tile(ramp, (size, 1))[:, :, None], 3, axis=2)
+    out['gradient'] = np.repeat(np.tile(ramp, (size, 1))[:, :, None], 3, axis=2)
 
-    # Яркое пятно в центре — «объект в кадре».
+    # A bright spot in the center — "an object in the frame".
     spot = np.full((size, size, 3), 40, dtype=np.uint8)
     spot[24:40, 24:40] = 220
-    out['пятно'] = spot
+    out['spot'] = spot
     return out
 
 
 def transforms():
-    """Восемь ориентаций кадра: у аэроснимка нет верха и низа."""
+    """Eight frame orientations: an aerial image has no top or bottom."""
     return {
         'rot90': lambda a: np.rot90(a, 1, axes=(0, 1)),
         'rot180': lambda a: np.rot90(a, 2, axes=(0, 1)),
@@ -61,20 +60,20 @@ def transforms():
     }
 
 
-# ── Диапазон и форма ──────────────────────────────────────────────────────────
+# ── Range and shape ───────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize('name', list(sample_images()))
 def test_features_stay_in_range(name):
-    """Каждый признак в [-1, 1] и конечен — на любой картинке, включая вырожденные."""
+    """Every feature is in [-1, 1] and finite — on any image, degenerate ones too."""
     feats = features.extract(sample_images()[name])
     assert feats.shape == (config.N_FEATURES,)
-    assert np.all(np.isfinite(feats)), f"нефинитные признаки на «{name}»"
-    assert feats.min() >= -1.0 - 1e-6, f"признак ниже -1 на «{name}»"
-    assert feats.max() <= 1.0 + 1e-6, f"признак выше +1 на «{name}»"
+    assert np.all(np.isfinite(feats)), f"non-finite features on \"{name}\""
+    assert feats.min() >= -1.0 - 1e-6, f"feature below -1 on \"{name}\""
+    assert feats.max() <= 1.0 + 1e-6, f"feature above +1 on \"{name}\""
 
 
 def test_batch_matches_single():
-    """extract_batch и extract считают одно и то же."""
+    """extract_batch and extract compute the same thing."""
     images = np.stack(list(sample_images().values()))
     batch = features.extract_batch(images)
     for i, image in enumerate(images):
@@ -82,7 +81,7 @@ def test_batch_matches_single():
 
 
 def test_batch_chunking_is_transparent():
-    """Разбиение на куски не влияет на результат."""
+    """Splitting into chunks does not affect the result."""
     images = np.stack(list(sample_images().values()))
     assert np.allclose(features.extract_batch(images, chunk=2),
                        features.extract_batch(images, chunk=512), atol=1e-6)
@@ -93,16 +92,16 @@ def test_rejects_wrong_shape():
         features.extract_batch(np.zeros((2, 64, 64), dtype=np.uint8))
 
 
-# ── Поворотная инвариантность ─────────────────────────────────────────────────
+# ── Rotation invariance ───────────────────────────────────────────────────────
 
 @pytest.mark.parametrize('name', list(sample_images()))
 def test_radial_slope_is_rotation_invariant(name):
     """
-    radial_slope не зависит от ориентации кадра.
+    radial_slope does not depend on the frame orientation.
 
-    Он считается через расстояние до центра, а карта расстояний симметрична
-    относительно поворотов на 90° и отражений, поэтому совпадение здесь
-    точное — с точностью до порядка суммирования float32.
+    It is computed through the distance to the center, and the distance map is
+    symmetric under 90° rotations and reflections, so the match here is exact —
+    up to float32 summation order.
     """
     idx = config.FEATURE_NAMES.index('radial_slope')
     image = sample_images()[name]
@@ -115,13 +114,13 @@ def test_radial_slope_is_rotation_invariant(name):
 @pytest.mark.parametrize('name', list(sample_images()))
 def test_coherence_is_rotation_invariant(name):
     """
-    coherence не зависит от ориентации кадра.
+    coherence does not depend on the frame orientation.
 
-    Точного равенства тут не бывает и не может быть: градиенты считаются на
-    сетке 63x63, то есть последние строка и столбец в неё не попадают, и при
-    повороте выпадают ДРУГИЕ пиксели. На структурных картинках расхождение
-    нулевое, на чистом шуме доходит до ~0.03 — это разница выборки, а не
-    зависимость от ориентации, поэтому допуск 0.05.
+    Exact equality does not and cannot occur here: the gradients are computed on
+    a 63x63 grid, i.e. the last row and column do not enter it, and under a
+    rotation DIFFERENT pixels drop out. On structured images the divergence is
+    zero, on pure noise it reaches ~0.03 — that is a sampling difference rather
+    than an orientation dependence, hence the 0.05 tolerance.
     """
     idx = config.FEATURE_NAMES.index('coherence')
     image = sample_images()[name]
@@ -133,36 +132,36 @@ def test_coherence_is_rotation_invariant(name):
 
 def test_coherence_separates_lines_from_noise():
     """
-    Главное утверждение диплома про признаки: у дорог одно доминирующее
-    направление, у песка и толпы — нет. Полосы должны давать когерентность
-    заметно выше, чем шум.
+    The main claim about the features: roads have one dominant direction, sand
+    and crowds do not. Stripes must give a coherence noticeably higher than
+    noise.
     """
     idx = config.FEATURE_NAMES.index('coherence')
     images = sample_images()
-    lines = features.extract(images['полосы'])[idx]
-    noise = features.extract(images['шум'])[idx]
+    lines = features.extract(images['stripes'])[idx]
+    noise = features.extract(images['noise'])[idx]
     assert lines > noise + 0.5
 
 
 def test_center_features_react_to_center():
-    """Признаки центр-периферия должны отличать кадр с объектом от однородного."""
+    """Center-periphery features must tell a frame with an object from a flat one."""
     images = sample_images()
-    spot = features.extract(images['пятно'])
-    flat = features.extract(images['серая'])
+    spot = features.extract(images['spot'])
+    flat = features.extract(images['gray'])
     for name in ('center_gray_diff', 'center_edge_diff'):
         idx = config.FEATURE_NAMES.index(name)
         assert abs(spot[idx]) > abs(flat[idx]) + 0.05, name
 
 
-# ── Масштабы и отпечаток кэша ─────────────────────────────────────────────────
+# ── Scales and the cache fingerprint ──────────────────────────────────────────
 
 def test_center_edge_has_its_own_scale():
     """
-    center_edge_diff нормируется своей константой, а не _SCALE_GRAD_MAG.
+    center_edge_diff is normalized by its own constant, not _SCALE_GRAD_MAG.
 
-    Разность градиентов центр-периферия вчетверо мельче самого градиента; на
-    общем масштабе признак занимал четверть диапазона [-1, 1]. Тест держит
-    исправление на месте.
+    The center-periphery gradient difference is four times smaller than the
+    gradient itself; on the shared scale the feature occupied a quarter of the
+    [-1, 1] range. This test keeps the fix in place.
     """
     assert features._SCALE_CENTER_EDGE != features._SCALE_GRAD_MAG
     assert 'center_edge_diff' in features.EMPIRICALLY_SCALED
@@ -170,11 +169,11 @@ def test_center_edge_has_its_own_scale():
 
 def test_fingerprint_reacts_to_scale_change(monkeypatch):
     """
-    Отпечаток обязан меняться при правке любой константы масштаба.
+    The fingerprint must change when any scale constant is edited.
 
-    Иначе кэш признаков (форма которого от масштаба не зависит) остаётся
-    «валидным», обучение идёт на старых числах, и правка выглядит как
-    не давшая эффекта.
+    Otherwise the feature cache (whose shape does not depend on the scale) stays
+    "valid", training proceeds on the old numbers, and the change appears to
+    have had no effect.
     """
     before = features.fingerprint()
     monkeypatch.setattr(features, '_SCALE_CENTER_EDGE', 33.0)
@@ -188,18 +187,19 @@ def test_fingerprint_reacts_to_threshold_change(monkeypatch):
 
 
 def test_fingerprint_is_stable():
-    """Без правок отпечаток не меняется — иначе кэш пересчитывался бы всегда."""
+    """Without edits the fingerprint is stable — otherwise the cache would always
+    be recomputed."""
     assert features.fingerprint() == features.fingerprint()
 
 
-# ── F-статистика ──────────────────────────────────────────────────────────────
+# ── F-statistic ───────────────────────────────────────────────────────────────
 
 def test_anova_f_is_scale_invariant():
     """
-    F-статистика не меняется при аффинном масштабировании признака.
+    The F-statistic does not change under an affine scaling of a feature.
 
-    Из этого следует важное для диплома: правка констант _SCALE_* не может
-    изменить таблицу F-статистик — она влияет только на EML-формулы.
+    An important consequence: editing the _SCALE_* constants cannot change the
+    table of F-statistics — it affects only the EML formulas.
     """
     rng = np.random.default_rng(0)
     y = np.repeat(np.arange(config.N_CLASSES), 30)

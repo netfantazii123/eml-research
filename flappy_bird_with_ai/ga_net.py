@@ -1,10 +1,10 @@
 """
-GANet — нейросеть для генетического алгоритма + тренер.
-Архитектура: 4 -> 16 -> 1 (sigmoid). 97 параметров.
+GANet — the network for the genetic algorithm plus its trainer.
+Architecture: 4 -> 16 -> 1 (sigmoid). 97 parameters.
 
-ВАЖНО: train_ga() читает гиперпараметры из модуля `config` при вызове,
-а не из захваченных при импорте дефолтов — чтобы изменения config
-из GUI/тестов реально применялись.
+IMPORTANT: train_ga() reads its hyperparameters from the `config` module at call
+time rather than from defaults captured at import time — so that config changes
+made from the GUI/tests actually take effect.
 """
 
 import time
@@ -20,11 +20,11 @@ from env import FlappyEnv
 
 class GANet(nn.Module):
     """
-    Компактная нейросеть для Генетического Алгоритма.
+    A compact network for the genetic algorithm.
 
-    Архитектура: 4 -> 16 -> 1 (sigmoid).
-    Не обучается через градиенты — веса эволюционируют через мутацию.
-    Действие: sigmoid(output) > 0.5 => flap, иначе no-flap.
+    Architecture: 4 -> 16 -> 1 (sigmoid).
+    It is not trained by gradients — the weights evolve through mutation.
+    Action: sigmoid(output) > 0.5 => flap, otherwise no-flap.
     """
 
     def __init__(self):
@@ -33,26 +33,26 @@ class GANet(nn.Module):
         self.fc2 = nn.Linear(16, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Прямой проход. Возвращает вероятность прыжка (0..1)."""
+        """Forward pass. Returns the flap probability (0..1)."""
         x = F.relu(self.fc1(x))
         x = torch.sigmoid(self.fc2(x))
         return x
 
     def get_action(self, state: np.ndarray) -> int:
-        """Выбрать действие по состоянию (без градиентов)."""
+        """Choose an action from the state (without gradients)."""
         with torch.no_grad():
             t = torch.from_numpy(state).unsqueeze(0)
             prob = self.forward(t).item()
         return 1 if prob > 0.5 else 0
 
     def get_sigmoid(self, state: np.ndarray) -> float:
-        """Вернуть сырой sigmoid выход (для дистилляции)."""
+        """Return the raw sigmoid output (for distillation)."""
         with torch.no_grad():
             t = torch.from_numpy(state).unsqueeze(0)
             return self.forward(t).item()
 
     def mutate(self, rate: float = 0.1, std: float = 0.3):
-        """Мутация весов на месте."""
+        """In-place weight mutation."""
         with torch.no_grad():
             for param in self.parameters():
                 mask = torch.rand_like(param) < rate
@@ -60,14 +60,14 @@ class GANet(nn.Module):
                 param.add_(mask * noise)
 
     def copy_from(self, other: "GANet"):
-        """Скопировать веса из другой сети."""
+        """Copy the weights from another network."""
         self.load_state_dict(other.state_dict())
 
 
 def evaluate_agent(agent, env: FlappyEnv,
                    max_frames: int | None = None) -> float:
     """
-    Прогнать одного агента через одну игру и вернуть fitness.
+    Run one agent through one game and return its fitness.
     Fitness = score * 100 + frame_count.
     """
     if max_frames is None:
@@ -94,21 +94,21 @@ def train_ga(
     should_stop=None,
 ) -> dict:
     """
-    Обучение методом нейроэволюции (Генетический Алгоритм).
+    Training by neuroevolution (a genetic algorithm).
 
-    Гиперпараметры: если не переданы — берутся из текущего `config`.
+    Hyperparameters: taken from the current `config` when not passed.
 
-    Автостоп:
-        - patience поколений без улучшения best_fitness → стоп.
-          patience=0 выключает плато-стоп.
-        - target_score > 0 → стоп при достижении этого скора.
-        - should_stop() возвращает True → стоп (для отмены из GUI).
+    Auto-stop:
+        - patience generations without best_fitness improvement -> stop.
+          patience=0 disables the plateau stop.
+        - target_score > 0 -> stop once that score is reached.
+        - should_stop() returning True -> stop (for cancellation from the GUI).
 
     Returns:
         dict: 'best_agent', 'history', 'total_frames', 'elapsed',
               'stopped_early', 'stop_reason'.
     """
-    # Резолвинг параметров из config (на момент вызова, а не импорта)
+    # Resolve the parameters from config (at call time, not at import time)
     if generations is None:    generations = config.GA_GENERATIONS
     if population_size is None: population_size = config.GA_POPULATION
     if elitism is None:        elitism = config.GA_ELITISM
@@ -152,7 +152,7 @@ def train_ga(
         avg_fitness = sum(fitness_scores) / len(fitness_scores)
         best_score = int(best_fitness // 100)
 
-        # ── Автостоп: трекинг плато ───────────────────────────────────────
+        # ── Auto-stop: plateau tracking ───────────────────────────────────
         if best_fitness > best_fitness_ever:
             best_fitness_ever = best_fitness
             snapshot = GANet()
@@ -178,7 +178,7 @@ def train_ga(
                   f"Avg: {avg_fitness:8.0f} | "
                   f"Best score: {best_score:3d}{tag}")
 
-        # ── Условия остановки ─────────────────────────────────────────────
+        # ── Stopping conditions ───────────────────────────────────────────
         if target_score and target_score > 0 and best_score >= target_score:
             stop_reason = f'target_score>={target_score}'
             if verbose:
@@ -193,7 +193,7 @@ def train_ga(
                       f"{patience} generations.")
             break
 
-        # ── Новое поколение ──────────────────────────────────────────────
+        # ── New generation ───────────────────────────────────────────────
         new_population = []
         for i in range(elitism):
             elite = GANet()
@@ -211,7 +211,7 @@ def train_ga(
         population = new_population
 
     elapsed = time.perf_counter() - t0
-    # Лучший агент из всех просмотренных, а не просто последнего поколения
+    # The best agent seen overall, not merely the best of the last generation
     best_agent = best_agent_ever if best_agent_ever is not None else population[0]
 
     return {

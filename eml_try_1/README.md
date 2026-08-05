@@ -1,23 +1,27 @@
-# eml_try_1 — первые эксперименты с оператором EML
+# eml_try_1 — initial experiments with the EML operator
 
-Песочница, с которой начался проект: проверка самого оператора `eml(x, y) = exp(x) − ln(|y| + ε)` и способов его быстрого вычисления.
+Sandbox for the operator `eml(x, y) = exp(x) − ln(|y| + ε)` and ways of
+evaluating it quickly.
 
-Что внутри:
+Contents:
 
-- `eml_c.c` + `CMakeLists.txt` — реализация оператора и целых EML-графов на C (собирается в `eml_c.dll` для ctypes и в `eml_test.exe` для автономных тестов);
-- `eml_core.py` — приведение выражений к EML-форме и их вычисление (sympy);
-- `eml_compiler.py`, `eml_vm.py` — компилятор и VM для EML-выражений;
-- `main.py` — бенчмарк реализаций: sympy vs numba vs ctypes-вызовы vs целиком C-граф;
-- `gui.py` — графический интерфейс к экспериментам;
-- `eml_base.txt` — заметки по базовым тождествам оператора.
+- `eml_c.c` + `CMakeLists.txt` — the operator and whole EML graphs in C (builds
+  into `eml_c.dll` for ctypes and `eml_test.exe` for standalone tests);
+- `eml_core.py` — reduction of expressions to EML form and their evaluation
+  (sympy);
+- `eml_compiler.py`, `eml_vm.py` — compiler and VM for EML expressions;
+- `main.py` — implementation benchmark: sympy vs numba vs ctypes calls vs a full
+  C graph;
+- `gui.py` — graphical interface to the experiments;
+- `eml_base.txt` — notes on the base identities of the operator.
 
-## Сборка и запуск
+## Build and run
 
 ```bash
 cmake -S . -B build
 cmake --build build
-# положить build/eml_c.dll рядом с main.py
+# place build/eml_c.dll next to main.py
 python main.py
 ```
 
-Собранные бинарники в репозиторий не входят.
+Built binaries are not tracked.

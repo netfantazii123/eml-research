@@ -8,7 +8,7 @@
 #endif
 
 /* ============================================================
- * EML (Exponent Minus Logarithm) — базовый оператор
+ * EML (Exponent Minus Logarithm) — the base operator
  * eml(x, y) = exp(x) - ln(y)
  * ============================================================ */
 
@@ -17,7 +17,7 @@ static inline double complex eml(double complex x, double complex y) {
 }
 
 /* ============================================================
- * DLL-экспорт
+ * DLL export
  * ============================================================ */
 
 #ifdef _WIN32
@@ -26,7 +26,7 @@ static inline double complex eml(double complex x, double complex y) {
 #define EXPORT __attribute__((visibility("default")))
 #endif
 
-/* --- Примитивный оператор (для совместимости с Python ctypes) --- */
+/* --- Primitive operator (for compatibility with Python ctypes) --- */
 EXPORT void eml_c(double real_x, double imag_x,
                   double real_y, double imag_y,
                   double* out_real, double* out_imag)
@@ -39,10 +39,10 @@ EXPORT void eml_c(double real_x, double imag_x,
 }
 
 /* ============================================================
- * Стек-машина (VM) для вычисления произвольных EML-графов
+ * Stack machine (VM) for evaluating arbitrary EML graphs
  *
- * Python компилирует sympy EML-дерево в массив инструкций,
- * передаёт через ctypes, C интерпретирует за один FFI-вызов.
+ * Python compiles a sympy EML tree into an instruction array,
+ * passes it through ctypes, and C interprets it in a single FFI call.
  * ============================================================ */
 
 #define OP_CONST  0   /* push constant (real + imag)          */
@@ -64,15 +64,15 @@ typedef struct {
 } EmlInstruction;
 
 /*
- * eml_vm_eval — исполняет байткод на стек-машине.
+ * eml_vm_eval — executes the bytecode on the stack machine.
  *
- * Параметры:
- *   program   — массив инструкций (байткод)
- *   prog_len  — длина программы
- *   x_real/x_imag — значение переменной x
- *   out_real/out_imag — результат (вершина стека после исполнения)
+ * Parameters:
+ *   program   — the instruction array (bytecode)
+ *   prog_len  — the program length
+ *   x_real/x_imag — the value of the variable x
+ *   out_real/out_imag — the result (stack top after execution)
  *
- * Возвращает 0 при успехе, -1 при ошибке (переполнение/недобор стека).
+ * Returns 0 on success, -1 on error (stack overflow/underflow).
  */
 EXPORT int eml_vm_eval(const EmlInstruction* program, int prog_len,
                        double x_real, double x_imag,
@@ -143,11 +143,11 @@ EXPORT int eml_vm_eval(const EmlInstruction* program, int prog_len,
                 break;
             }
             default:
-                return -1;  /* неизвестный opcode */
+                return -1;  /* unknown opcode */
         }
     }
 
-    if (sp != 1) return -1;  /* стек должен содержать ровно 1 значение */
+    if (sp != 1) return -1;  /* the stack must hold exactly 1 value */
 
     *out_real = creal(stack[0]);
     *out_imag = cimag(stack[0]);
@@ -155,10 +155,10 @@ EXPORT int eml_vm_eval(const EmlInstruction* program, int prog_len,
 }
 
 /* ============================================================
- * Тестовые EML-графы (полные выражения)
+ * Test EML graphs (complete expressions)
  *
- * Каждая функция вычисляет целое математическое выражение,
- * используя ТОЛЬКО оператор eml() рекурсивно.
+ * Every function evaluates a whole mathematical expression,
+ * using ONLY the eml() operator recursively.
  * ============================================================ */
 
 /* exp(x)  →  eml(x, 1) */
@@ -189,14 +189,14 @@ static double complex eml_test_complex1(double complex x) {
     return s + l - e;
 }
 
-/* sin²(x) + cos²(x)   (должно быть = 1) */
+/* sin^2(x) + cos^2(x)   (must equal 1) */
 static double complex eml_test_trig_identity(double complex x) {
     double complex s = (eml(I * x, 1) - eml(-I * x, 1)) / (2.0 * I);
     double complex c = 0.5 * (eml(I * x, 1) + eml(-I * x, 1));
     return s * s + c * c;
 }
 
-/* exp(-0.5x) * cos(2πx - π/4)  — затухающий осциллятор */
+/* exp(-0.5x) * cos(2*pi*x - pi/4)  — a damped oscillator */
 static double complex eml_test_damped(double complex x) {
     double complex pi_val = -I * (1.0 - eml(0, -1));
     double complex decay = eml(-0.5 * x, 1);
@@ -222,8 +222,8 @@ static double complex eml_test_crazy(double complex x) {
 }
 
 /* ============================================================
- * DLL-экспорт полных графов
- * (позволяет Python вызывать целый граф за один FFI-вызов)
+ * DLL export of the complete graphs
+ * (lets Python evaluate a whole graph in a single FFI call)
  * ============================================================ */
 
 EXPORT void eml_graph_exp(double rx, double ix, double* out_r, double* out_i) {
@@ -267,7 +267,7 @@ EXPORT void eml_graph_crazy(double rx, double ix, double* out_r, double* out_i) 
 }
 
 /* ============================================================
- * Утилиты для бенчмарка
+ * Benchmark utilities
  * ============================================================ */
 
 #ifndef EML_BUILD_DLL
@@ -290,7 +290,7 @@ static void run_test(const char* name, test_fn fn, double complex x,
 }
 
 /* ============================================================
- * main() — автономный запуск тестов
+ * main() — standalone test runner
  * ============================================================ */
 
 int main(void) {
@@ -301,7 +301,7 @@ int main(void) {
     printf("  EML C Native Tests  |  x = %.1f\n", creal(x));
     printf("================================================================\n\n");
 
-    /* Ожидаемые значения (стандартные math-функции) */
+    /* Expected values (standard math functions) */
     double complex exp_std  = cexp(x);
     double complex log_std  = clog(x);
     double complex sin_std  = csin(x);
@@ -330,7 +330,7 @@ int main(void) {
     run_test("damped oscillator",         eml_test_damped,         x, damp_std);
     run_test("crazy trig",                eml_test_crazy,          x, crazy_std);
 
-    /* --- Бенчмарк: 1M итераций «crazy trig» --- */
+    /* --- Benchmark: 1M iterations of "crazy trig" --- */
     printf("\n--- Benchmark: 1 000 000 iterations of 'crazy trig' ---\n");
     int N = 1000000;
     clock_t t0 = clock();

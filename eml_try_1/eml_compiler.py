@@ -1,14 +1,14 @@
 """
-Компилятор: sympy EML-дерево → байткод для C стек-машины.
+Compiler: a sympy EML tree -> bytecode for the C stack machine.
 
-Рекурсивно обходит sympy-выражение после to_eml_form() и генерирует
-последовательность инструкций (opcodes) для интерпретатора в eml_c.dll.
+Recursively walks the sympy expression after to_eml_form() and generates a
+sequence of instructions (opcodes) for the interpreter in eml_c.dll.
 """
 
 import sympy as sp
 from eml_core import eml
 
-# Opcodes — должны совпадать с #define в eml_c.c
+# Opcodes — must match the #define values in eml_c.c
 OP_CONST = 0
 OP_VAR   = 1
 OP_EML   = 2
@@ -22,13 +22,13 @@ OP_POW   = 8
 
 def compile_eml(expr, x_sym=None):
     """
-    Компилирует sympy EML-выражение в список инструкций для C VM.
-    
-    Параметры:
-        expr   — sympy-выражение (после to_eml_form)
-        x_sym  — символ переменной (по умолчанию sp.Symbol('x'))
-    
-    Возвращает:
+    Compiles a sympy EML expression into a list of instructions for the C VM.
+
+    Parameters:
+        expr   — the sympy expression (after to_eml_form)
+        x_sym  — the variable symbol (default sp.Symbol('x'))
+
+    Returns:
         list of tuples: [(opcode, real, imag), ...]
     """
     if x_sym is None:
@@ -40,23 +40,24 @@ def compile_eml(expr, x_sym=None):
 
 
 def _compile_node(expr, x_sym, code):
-    """Рекурсивный обход дерева → генерация байткода."""
-    
-    # 1. Переменная x
+    """Recursive tree walk -> bytecode generation."""
+
+    # 1. The variable x
     if expr == x_sym:
         code.append((OP_VAR, 0.0, 0.0))
         return
-    
-    # 2. Числовая константа (включая I, Rational, Float, complex)
-    #    is_number (lowercase) = True для любого численного значения без символов.
-    #    ВАЖНО: is_number может вернуть True для выражений вроде -I*(1-eml(0,-1)),
-    #    где все листья — числа, но eml() не вычислен. Поэтому проверяем has(eml).
+
+    # 2. A numeric constant (including I, Rational, Float, complex).
+    #    is_number (lowercase) = True for any numeric value without symbols.
+    #    IMPORTANT: is_number can return True for expressions such as
+    #    -I*(1-eml(0,-1)), where all leaves are numbers but eml() has not been
+    #    evaluated. Hence the has(eml) check.
     if expr.is_number and not expr.has(eml):
         val = complex(expr)
         code.append((OP_CONST, val.real, val.imag))
         return
     
-    # 3. Оператор EML: eml(a, b) → compile(a), compile(b), OP_EML
+    # 3. The EML operator: eml(a, b) -> compile(a), compile(b), OP_EML
     if isinstance(expr, eml):
         a, b = expr.args
         _compile_node(a, x_sym, code)
@@ -64,7 +65,7 @@ def _compile_node(expr, x_sym, code):
         code.append((OP_EML, 0.0, 0.0))
         return
     
-    # 4. Сложение: Add(a, b, c, ...) → a, b, ADD, c, ADD, ...
+    # 4. Addition: Add(a, b, c, ...) -> a, b, ADD, c, ADD, ...
     if isinstance(expr, sp.Add):
         args = expr.args
         _compile_node(args[0], x_sym, code)
@@ -73,7 +74,7 @@ def _compile_node(expr, x_sym, code):
             code.append((OP_ADD, 0.0, 0.0))
         return
     
-    # 5. Умножение: Mul(a, b, c, ...) → a, b, MUL, c, MUL, ...
+    # 5. Multiplication: Mul(a, b, c, ...) -> a, b, MUL, c, MUL, ...
     if isinstance(expr, sp.Mul):
         args = expr.args
         _compile_node(args[0], x_sym, code)
@@ -82,7 +83,7 @@ def _compile_node(expr, x_sym, code):
             code.append((OP_MUL, 0.0, 0.0))
         return
     
-    # 6. Степень: Pow(a, b) → compile(a), compile(b), OP_POW
+    # 6. Power: Pow(a, b) -> compile(a), compile(b), OP_POW
     if isinstance(expr, sp.Pow):
         base, exp = expr.args
         _compile_node(base, x_sym, code)
@@ -90,18 +91,18 @@ def _compile_node(expr, x_sym, code):
         code.append((OP_POW, 0.0, 0.0))
         return
     
-    # Fallback: если попали сюда — неподдерживаемый узел
+    # Fallback: reaching this point means an unsupported node
     raise ValueError(
-        f"Неподдерживаемый узел sympy: {type(expr).__name__} = {expr}\n"
-        f"Убедитесь, что выражение полностью преобразовано через to_eml_form()."
+        f"Unsupported sympy node: {type(expr).__name__} = {expr}\n"
+        f"Make sure the expression was fully converted through to_eml_form()."
     )
 
 
 def disassemble(bytecode):
     """
-    Человекочитаемый дизассемблер байткода (для отладки).
-    
-    Возвращает строку с листингом инструкций.
+    A human-readable bytecode disassembler (for debugging).
+
+    Returns a string with the instruction listing.
     """
     op_names = {
         OP_CONST: "CONST",

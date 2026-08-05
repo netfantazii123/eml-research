@@ -1,44 +1,49 @@
-# EML — дистилляция нейросетевых политик в аналитические формулы
+# EML — distilling neural network policies into analytic formulas
 
-> ⚠️ Учебно-исследовательский проект в процессе разработки (дипломная работа). Код местами сырой, структура менялась по ходу экспериментов.
-
-**Идея:** обучить нейросеть-«оракула» играть в игру (RL), затем генетическим алгоритмом дистиллировать её политику в компактную аналитическую формулу на базе оператора
+Train a neural "oracle" to play a game (RL), then use a genetic algorithm to
+distill its policy into a compact analytic formula built on the operator
 
 ```
 eml(x, y) = exp(x) − ln(|y| + ε)
 ```
 
-Формула не требует torch, занимает десятки узлов AST и пригодна для инференса на микроконтроллере (STM32/Arduino) в реальном времени. Заодно решается проблема «чёрного ящика»: формулу можно прочитать и проанализировать.
+The formula requires no torch, occupies tens of AST nodes, and runs inference on
+a microcontroller (STM32/Arduino) in real time. It is also directly readable and
+analyzable.
 
-**Пайплайн (3 изолированных этапа):**
+**Pipeline (3 isolated stages):**
 
-1. **Оракул** — обучение тяжёлой нейросети (GA+MLP или CNN+PPO).
-2. **Дистилляция** — сбор датасета `(state → oracle_action)` и GA-эволюция EML-дерева, аппроксимирующего его.
-3. **Инференс** — экспорт формулы в чистый C/Python без ML-зависимостей.
+1. **Oracle** — train a heavy neural network (GA+MLP or CNN+PPO).
+2. **Distillation** — collect a `(state → oracle_action)` dataset and evolve an
+   EML tree that approximates it.
+3. **Inference** — export the formula to plain C/Python with no ML dependencies.
 
-## Структура репозитория
+## Repository layout
 
-| Папка | Что это |
+| Directory | Contents |
 |---|---|
-| [`flappy_bird_with_ai/`](flappy_bird_with_ai/) | **Этап 1 (завершён):** PoC на Flappy Bird. Оракул — GA + крошечный MLP. Полный концепт EML описан в [`update.md`](flappy_bird_with_ai/update.md). |
-| [`tetris/`](tetris/) | **Этап 2 (текущий):** Тетрис, оракул CNN+PPO с placement-based действиями. Лучшая EML-формула играет на **97 % от уровня оракула** при 43 узлах AST и в 5 раз быстрее. |
-| [`aerial_classifier/`](aerial_classifier/) | **Этап 2.5 (перенос метода на классификацию):** 4 класса аэрофотоснимков 64×64. Не управление, а распознавание — поэтому формул несколько (по одной на класс) и их выходы приходится калибровать. Ablation-ветка поверх эмбеддинга CNN держит **97 %** сбалансированной точности оракула 28 узлами, ветка на инженерных признаках — лишь **62 %**, причём разброс по сидам GA (0.52–0.62) там больше любого эффекта правок. |
-| [`tetris_prototype/`](tetris_prototype/) | Ранний frame-by-frame прототип Тетриса (v1). Заменён на `tetris/`, оставлен для истории. |
-| [`eml_try_1/`](eml_try_1/) | Самые первые эксперименты с оператором EML: C-библиотека, компилятор/VM выражений, бенчмарки sympy vs numba vs C. |
-| `models/` | Прочие чекпоинты (в репозиторий не входят). |
+| [`flappy_bird_with_ai/`](flappy_bird_with_ai/) | **Stage 1:** Flappy Bird proof of concept. Oracle is GA + a tiny MLP. The full EML concept is described in [`update.md`](flappy_bird_with_ai/update.md). |
+| [`tetris/`](tetris/) | **Stage 2:** Tetris, CNN+PPO oracle with placement-based actions. Best EML formula plays at **97 % of oracle level** with 43 AST nodes and 5× lower latency. |
+| [`aerial_classifier/`](aerial_classifier/) | **Stage 2.5:** the method applied to classification. 64×64 aerial imagery, classes read from dataset subdirectories. Ablation branch over a CNN embedding holds **97 %** of oracle balanced accuracy with 28 nodes; the engineered-feature branch reaches **62 %**, where GA seed spread (0.52–0.62) exceeds the effect of any individual change. |
+| [`tetris_prototype/`](tetris_prototype/) | Early frame-by-frame Tetris prototype (v1). Superseded by `tetris/`. |
+| [`eml_try_1/`](eml_try_1/) | Initial experiments with the EML operator: C library, expression compiler/VM, sympy vs numba vs C benchmarks. |
+| `models/` | Miscellaneous checkpoints (not tracked). |
 
-Этап 3 (план) — перенос пайплайна на 3D-задачу (квадрокоптер в PyBullet/MuJoCo).
+## Running
 
-## Запуск
-
-Каждая папка автономна: свой `requirements.txt` и точка входа `main.py`. Например:
+Each directory is self-contained: its own `requirements.txt` and a `main.py`
+entry point. For example:
 
 ```bash
 cd tetris
 pip install -r requirements.txt
-python main.py            # покажет список команд (train / distill / bench / gui / export)
+python main.py            # prints the command list (train / distill / bench / gui / export)
 ```
 
-## Чего нет в репозитории
+## Not included in the repository
 
-Виртуальные окружения, чекпоинты `*.pt`, датасеты `*.npz`, логи и снапшоты запусков (`logs/`, `runs/`) игнорируются — см. [`.gitignore`](.gitignore). Оракула можно переобучить командой `python main.py train` (Тетрис: ~90 мин на CPU). Итоговые EML-формулы (`*.json`), графики и CSV-бенчмарки — в репозитории, в папках `models/` и `results/` подпроектов.
+Virtual environments, `*.pt` checkpoints, `*.npz` datasets, logs, and run
+snapshots (`logs/`, `runs/`) are ignored — see [`.gitignore`](.gitignore). The
+oracle is retrained with `python main.py train` (Tetris: ~90 min on CPU). Final
+EML formulas (`*.json`), plots, and CSV benchmarks are tracked, under each
+sub-project's `models/` and `results/`.

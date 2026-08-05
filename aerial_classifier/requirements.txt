@@ -1,24 +1,27 @@
-# Базовые зависимости (CPU).
+# Base dependencies (CPU).
 numpy
 torch
 matplotlib
-# GUI — tkinter, входит в стандартную поставку Python, ставить не нужно.
+# GUI — tkinter, part of the standard Python distribution, no install needed.
 
-# ── Опционально: только для вкладки «Тест · Видео» ───────────────────────────
-# Нужен декодер видео, своими силами это не написать. Без OpenCV работает всё
-# остальное, включая фото-тест: вкладка видео просто сообщит, чего не хватает.
+# ── Optional: only for the "Test · Video" tab ────────────────────────────────
+# A video decoder is required and cannot reasonably be written here. Everything
+# else works without OpenCV, including the photo test: the video tab simply
+# reports what is missing.
 #   pip install opencv-python
-# Он же добавляет чтение png/jpg в фото-тесте (BMP читается без него).
+# It also adds png/jpg reading in the photo test (BMP is read without it).
 
-# Для машин с NVIDIA GPU вместо CPU-сборки torch:
+# For machines with an NVIDIA GPU, instead of the CPU torch build:
 #   pip install torch --index-url https://download.pytorch.org/whl/cu124
-# Код сам подхватит CUDA (oracle.get_device), менять ничего не нужно.
+# The code picks up CUDA by itself (oracle.get_device), nothing to change.
 
-# Чего здесь СПЕЦИАЛЬНО нет:
-#   Pillow / OpenCV — датасет это 24-битные несжатые BMP, и парсер на numpy
-#                     в data.py занимает 30 строк. Проект целится в
-#                     микроконтроллер, лишние зависимости в пайплайне вредны.
-#   scikit-learn    — нужны были только split, F-статистика и матрица ошибок;
-#                     все три написаны в data.py / main.py / pipeline.py.
-#   tensorflow      — исходные скрипты обучения были на TF, но весь остальной
-#                     репозиторий на torch, и держать два фреймворка незачем.
+# What is DELIBERATELY absent here:
+#   Pillow / OpenCV — the dataset is 24-bit uncompressed BMP, and the numpy
+#                     parser in data.py takes 30 lines. The project targets a
+#                     microcontroller; extra pipeline dependencies are harmful.
+#   scikit-learn    — only the split, the F-statistic and the confusion matrix
+#                     were needed; all three are written in data.py / main.py /
+#                     pipeline.py.
+#   tensorflow      — the original training scripts were on TF, but the rest of
+#                     the repository is on torch, and keeping two frameworks is
+#                     pointless.

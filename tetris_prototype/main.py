@@ -1,12 +1,12 @@
 """
-Tetris AI — Нейро-символьное управление через EML-дистилляцию.
+Tetris AI — neuro-symbolic control through EML distillation.
 
-Точка входа:
-    python main.py test    — smoke-test среды и признаков
-    python main.py train   — обучение CNN-оракула (PPO)        [TODO]
-    python main.py distill — EML-дистилляция оракула           [TODO]
-    python main.py bench   — сравнение CNN vs EML              [TODO]
-    python main.py demo    — pygame side-by-side демо          [TODO]
+Entry point:
+    python main.py test    — smoke test of the environment and features
+    python main.py train   — CNN oracle training (PPO)         [TODO]
+    python main.py distill — EML distillation of the oracle     [TODO]
+    python main.py bench   — CNN vs EML comparison              [TODO]
+    python main.py demo    — pygame side-by-side demo           [TODO]
 """
 
 import sys
@@ -15,7 +15,7 @@ import numpy as np
 
 
 def cmd_test():
-    """Smoke-test среды и экстрактора признаков."""
+    """Smoke test of the environment and the feature extractor."""
     from env import TetrisEnv
     from features import extract, column_heights
     import config
@@ -24,7 +24,7 @@ def cmd_test():
         if not cond:
             raise AssertionError(msg)
 
-    # ── 1. TetrisEnv: интерфейс и obs ────────────────────────────────────
+    # ── 1. TetrisEnv: the interface and the obs ──────────────────────────
     print("=" * 56)
     print("   TetrisEnv Smoke Test")
     print("=" * 56)
@@ -36,14 +36,14 @@ def cmd_test():
            f"grid shape: {obs['grid'].shape}")
     _check(obs['scalars'].shape == (19,), f"scalars shape: {obs['scalars'].shape}")
     _check(obs['grid'].dtype == np.float32, "grid dtype != float32")
-    # one-hot текущей фигуры — ровно одна единица в [0:7]
+    # one-hot of the current piece — exactly one 1 in [0:7]
     _check(obs['scalars'][:7].sum() == 1.0, "cur piece one-hot broken")
     _check(obs['scalars'][7:14].sum() == 1.0, "next piece one-hot broken")
     print(f"  obs.grid:    {obs['grid'].shape}")
     print(f"  obs.scalars: {obs['scalars'].shape}")
     print("  [OK] Interface passed.")
 
-    # ── 2. Действия валидны, эпизод завершается ──────────────────────────
+    # ── 2. The actions are valid and the episode terminates ──────────────
     print("\n" + "=" * 56)
     print("   Episode dynamics")
     print("=" * 56)
@@ -61,7 +61,7 @@ def cmd_test():
     _check(env.done, "episode did not terminate")
     print("  [OK] Episode terminates.")
 
-    # ── 3. Hard drop фиксирует фигуру и очищает линии ────────────────────
+    # ── 3. A hard drop locks the piece and clears lines ──────────────────
     print("\n" + "=" * 56)
     print("   Hard drop + line clear")
     print("=" * 56)
@@ -70,32 +70,32 @@ def cmd_test():
     filled_before = int((env.board != 0).sum())
     env.step(5)   # hard drop
     filled_after = int((env.board != 0).sum())
-    # после хард-дропа либо 4 ячейки добавились, либо линия очистилась
+    # after a hard drop either 4 cells were added or a line was cleared
     print(f"  Cells before: {filled_before}, after hard drop: {filled_after}")
     _check(filled_after >= 0, "board corrupted")
     print("  [OK] Hard drop works.")
 
-    # ── 4. Features: размерность, диапазон, эталоны ──────────────────────
+    # ── 4. Features: dimensionality, range, reference values ─────────────
     print("\n" + "=" * 56)
     print("   Feature extractor")
     print("=" * 56)
 
-    # Пустая доска
+    # Empty board
     empty = np.zeros((config.BOARD_H_TOTAL, config.BOARD_W), dtype=np.int8)
     f_empty = extract(empty, piece_type=0, rotation=0)
     _check(f_empty.shape == (28,), f"features shape: {f_empty.shape}")
     _check(np.all(np.abs(f_empty[:17]) <= 1.0 + 1e-6),
            "numeric features out of [-1,1]")
-    # на пустой доске высоты = 0 → нормализованы в -1
+    # on an empty board the heights are 0 -> normalized to -1
     _check(np.allclose(f_empty[:10], -1.0), "empty heights != -1")
     h_empty = column_heights(empty)
     _check(np.all(h_empty == 0), "empty board heights != 0")
     print(f"  Empty board features OK (heights all -1).")
 
-    # Доска с одной полной нижней строкой кроме одной дырки в колонке 0
+    # A board with a full bottom row except for one gap in column 0
     test_board = np.zeros((config.BOARD_H_TOTAL, config.BOARD_W), dtype=np.int8)
-    test_board[-1, 1:] = 1            # нижняя строка занята кроме колонки 0
-    test_board[-3, 0] = 1            # навес над колонкой 0 → дыра
+    test_board[-1, 1:] = 1            # bottom row filled except column 0
+    test_board[-3, 0] = 1            # an overhang above column 0 -> a hole
     h = column_heights(test_board)
     from features import count_holes
     holes = count_holes(test_board, h)
@@ -104,7 +104,7 @@ def cmd_test():
     _check(holes >= 2, f"expected holes under overhang, got {holes}")
     print("  [OK] Features passed.")
 
-    # ── 5. Бенчмарк FPS (цель ≥ 50K) ─────────────────────────────────────
+    # ── 5. FPS benchmark (target >= 50K) ─────────────────────────────────
     print("\n" + "=" * 56)
     print("   FPS Benchmark (random policy)")
     print("=" * 56)
@@ -129,7 +129,7 @@ def cmd_test():
     else:
         print(f"  [WARN] FPS below 50K target ({fps:,.0f}). Optimization needed.")
 
-    # ── 6. FPS с извлечением признаков (для оценки overhead дистилляции) ──
+    # ── 6. FPS with feature extraction (distillation overhead estimate) ──
     env = TetrisEnv(seed=0)
     env.reset()
     n = 50_000
@@ -148,7 +148,7 @@ def cmd_test():
 
 
 def cmd_train():
-    """Полноценное обучение CNN-оракула (PPO). Долго на CPU — лучше GPU."""
+    """Full CNN oracle training (PPO). Slow on CPU — a GPU is preferable."""
     from ppo_trainer import train_ppo
     from cnn_oracle import get_device, count_params
     import storage
@@ -160,7 +160,7 @@ def cmd_train():
     print(f"  Device: {get_device()}")
     print(f"  Budget: {config.PPO_TOTAL_STEPS:,} steps, "
           f"{config.PPO_N_ENVS} envs, target {config.PPO_TARGET_SCORE} lines")
-    print("  (Ctrl+C сохранит текущую модель)\n")
+    print("  (Ctrl+C saves the current model)\n")
 
     try:
         result = train_ppo(verbose=True, log_every=1)
@@ -180,7 +180,7 @@ def cmd_train():
 
 
 def cmd_test_cnn():
-    """Smoke-test CNN-оракула: forward pass, размерности, save/load."""
+    """Smoke test of the CNN oracle: forward pass, shapes, save/load."""
     import torch
     from env import TetrisEnv
     from cnn_oracle import (
@@ -204,7 +204,7 @@ def cmd_test_cnn():
     n_params = count_params(model)
     print(f"  Params: {n_params:,}")
 
-    # ── Forward на одном obs ─────────────────────────────────────────────
+    # ── Forward on a single obs ──────────────────────────────────────────
     env = TetrisEnv(seed=1)
     obs = env.reset()
     grid, scalars = obs_to_tensors(obs, device)
@@ -221,7 +221,7 @@ def cmd_test_cnn():
     print(f"  act -> a={action.item()}, logp={log_prob.item():.3f}, "
           f"entropy={ent.item():.3f}")
 
-    # ── Батч ─────────────────────────────────────────────────────────────
+    # ── Batch ────────────────────────────────────────────────────────────
     obs_list = [env.reset() for _ in range(8)]
     g, s = batch_obs_to_tensors(obs_list, device)
     logits_b, value_b = model(g, s)
@@ -238,7 +238,7 @@ def cmd_test_cnn():
     _check(torch.allclose(l1, l2), "save/load mismatch")
     print(f"  save/load roundtrip OK ({path})")
 
-    # ── Тайминг forward (для оценки latency vs EML позже) ────────────────
+    # ── Forward timing (for the latency comparison against EML later) ────
     model.eval()
     with torch.no_grad():
         t0 = time.perf_counter()
@@ -253,7 +253,7 @@ def cmd_test_cnn():
 
 
 def cmd_test_ppo():
-    """Smoke-test PPO: крохотный прогон end-to-end (что не падает)."""
+    """Smoke test of PPO: a tiny end-to-end run (that it does not crash)."""
     from ppo_trainer import train_ppo, VecTetris, compute_gae
     import numpy as np
 
@@ -261,7 +261,7 @@ def cmd_test_ppo():
     print("   PPO Smoke Test (tiny run)")
     print("=" * 56)
 
-    # ── GAE юнит-проверка на простом случае ──────────────────────────────
+    # ── GAE unit check on a simple case ──────────────────────────────────
     rewards = np.ones((4, 1), dtype=np.float32)
     values = np.zeros((4, 1), dtype=np.float32)
     dones = np.zeros((4, 1), dtype=np.float32)
@@ -279,10 +279,10 @@ def cmd_test_ppo():
     assert r.shape == (4,), f"vec rewards: {r.shape}"
     print(f"  VecTetris(4) OK: grid {g.shape}, rewards {r.shape}")
 
-    # ── Мини train_ppo: 2 update'а на 2 средах ───────────────────────────
+    # ── Mini train_ppo: 2 updates over 2 environments ────────────────────
     print("  Running 2 PPO updates (n_envs=4, rollout=64)...")
     result = train_ppo(
-        total_steps=4 * 64 * 2,   # ровно 2 update'а
+        total_steps=4 * 64 * 2,   # exactly 2 updates
         n_envs=4, rollout=64, epochs=2, batch_size=64,
         target_score=0, seed=0, verbose=True, log_every=1,
     )
@@ -299,11 +299,11 @@ def cmd_test_ppo():
 def main():
     if len(sys.argv) < 2:
         print("Usage: python main.py [test|testcnn|testppo|train|gui|distill|bench|demo]")
-        print("  test    — smoke-test среды и признаков")
-        print("  train   — обучение CNN-оракула (PPO)         [TODO]")
-        print("  distill — EML-дистилляция                    [TODO]")
-        print("  bench   — сравнение CNN vs EML               [TODO]")
-        print("  demo    — pygame демо                        [TODO]")
+        print("  test    — smoke test of the environment and features")
+        print("  train   — CNN oracle training (PPO)          [TODO]")
+        print("  distill — EML distillation                   [TODO]")
+        print("  bench   — CNN vs EML comparison              [TODO]")
+        print("  demo    — pygame demo                        [TODO]")
         return
 
     cmd = sys.argv[1].lower()
@@ -319,7 +319,7 @@ def main():
         from gui import main as gui_main
         gui_main()
     else:
-        print(f"Команда '{cmd}' ещё не реализована (см. roadmap в PROJECT_BLUEPRINT.md).")
+        print(f"Command '{cmd}' is not implemented yet.")
 
 
 if __name__ == "__main__":

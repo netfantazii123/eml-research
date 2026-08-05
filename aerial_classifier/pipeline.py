@@ -1,23 +1,23 @@
 """
-pipeline.py — полный прогон дистилляции и оценка результата.
+pipeline.py — the full distillation run and evaluation of the result.
 
-Связывает вместе три фазы проекта: берёт обученного оракула, собирает датасет
-(входы -> логиты оракула), эволюционирует EML-формулы и меряет, сколько
-качества потеряно при замене нейросети на формулу.
+Ties the three project phases together: takes a trained oracle, collects the
+dataset (inputs -> oracle logits), evolves the EML formulas, and measures how
+much quality is lost by replacing the neural network with a formula.
 
-Ключевая метрика тут не одна, а три, и путать их нельзя:
+There is not one key metric here but three, and they must not be confused:
 
-    accuracy    — доля правильных ответов относительно ИСТИННЫХ меток.
-                  Отвечает на вопрос «работает ли формула».
-    fidelity    — доля совпадений с ответом ОРАКУЛА.
-                  Отвечает на вопрос «повторяет ли формула именно оракула».
-    bal_accuracy— accuracy, усреднённая по классам.
-                  Главная метрика: датасет несбалансирован 3.4:1, и обычная
-                  accuracy переоценивает модель, которая просто любит ROADS.
+    accuracy    — fraction of correct answers against the GROUND TRUTH labels.
+                  Answers the question "does the formula work".
+    fidelity    — fraction of matches with the ORACLE's answer.
+                  Answers the question "does the formula reproduce the oracle".
+    bal_accuracy— accuracy averaged over classes.
+                  The primary metric: the dataset is imbalanced 3.4:1, and plain
+                  accuracy overrates a model that simply likes ROADS.
 
-Формула может иметь высокую accuracy и низкую fidelity — тогда она решает
-задачу по-своему, а не копирует оракула. Для диплома это самостоятельный
-результат, а не ошибка, поэтому обе величины считаются и печатаются.
+A formula can have high accuracy and low fidelity — then it solves the task in
+its own way rather than copying the oracle. That is a result in itself rather
+than an error, so both quantities are computed and printed.
 """
 
 import json
@@ -35,27 +35,27 @@ import oracle as oracle_mod
 import storage
 
 
-# ── Сбор датасета для дистилляции ─────────────────────────────────────────────
+# ── Collecting the distillation dataset ───────────────────────────────────────
 
 def oracle_branch_of(branch: str) -> str:
     """
-    Чей оракул дистиллирует ветка.
+    Whose oracle a branch distills.
 
-    Ветка C работает в том же пространстве признаков, что и A, и учится у того
-    же MLP: иначе сравнение «одна формула против четырёх» мерило бы заодно и
-    разницу оракулов.
+    Branch C works in the same feature space as A and learns from the same MLP:
+    otherwise the "one formula against four" comparison would also measure a
+    difference between oracles.
     """
     return 'B' if branch.upper() == 'B' else 'A'
 
 
 def collect_dataset(branch: str = 'A', verbose: bool = True) -> dict:
     """
-    Собрать всё, что нужно дистиллятору: входы формул, логиты оракула, метки.
+    Collect everything the distiller needs: formula inputs, oracle logits, labels.
 
-    Ветки A и C: входы = 32 инженерных признака, оракул = FeatureMLP.
-    Ветка B: входы = bottleneck-эмбеддинг обученной CNN.
+    Branches A and C: inputs = 32 engineered features, oracle = FeatureMLP.
+    Branch B: inputs = the bottleneck embedding of the trained CNN.
 
-    Возвращает словарь с ключами inputs / logits / labels / splits / meta.
+    Returns a dict with keys inputs / logits / labels / splits / meta.
     """
     branch = branch.upper()
     images, labels, _ = data.load_dataset(verbose=verbose)
@@ -76,9 +76,9 @@ def collect_dataset(branch: str = 'A', verbose: bool = True) -> dict:
         input_names = [f'e{i}' for i in range(inputs.shape[1])]
 
     if verbose:
-        print(f"[collect] ветка {branch}: входы {inputs.shape}, "
-              f"логиты {logits.shape}")
-        print(f"[collect] оракул: val {meta.get('val_acc', float('nan')):.4f}, "
+        print(f"[collect] branch {branch}: inputs {inputs.shape}, "
+              f"logits {logits.shape}")
+        print(f"[collect] oracle: val {meta.get('val_acc', float('nan')):.4f}, "
               f"test {meta.get('test_acc', float('nan')):.4f}")
 
     return {
@@ -88,11 +88,11 @@ def collect_dataset(branch: str = 'A', verbose: bool = True) -> dict:
     }
 
 
-# ── Оценка ────────────────────────────────────────────────────────────────────
+# ── Evaluation ────────────────────────────────────────────────────────────────
 
 def evaluate(clf: dist.EMLClassifier, inputs: np.ndarray, logits: np.ndarray,
              labels: np.ndarray, idx: np.ndarray) -> dict:
-    """Метрики формул и оракула на одном сплите."""
+    """Metrics of the formulas and the oracle on one split."""
     X, y = inputs[idx], labels[idx]
     eml_pred = clf.predict(X)
     oracle_pred = logits[idx].argmax(axis=1)
@@ -109,35 +109,36 @@ def evaluate(clf: dist.EMLClassifier, inputs: np.ndarray, logits: np.ndarray,
 
 def confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray,
                      n_classes: int | None = None) -> np.ndarray:
-    """Матрица ошибок (n_classes, n_classes), строки = истина."""
+    """Confusion matrix (n_classes, n_classes), rows = ground truth."""
     n_classes = n_classes or config.N_CLASSES
     cm = np.zeros((n_classes, n_classes), dtype=np.int64)
     np.add.at(cm, (y_true, y_pred), 1)
     return cm
 
 
-# ── Полный прогон ─────────────────────────────────────────────────────────────
+# ── Full run ──────────────────────────────────────────────────────────────────
 
 def archive_run(trees: list, branch: str, meta: dict, input_names: list[str], *,
                 run_dir: str | None = None, name: str | None = None,
                 filename: str | None = None, decoder: dict | None = None):
     """
-    Записать прогон в runs/ и положить именованную копию в библиотеку.
+    Write the run into runs/ and place a named copy into the library.
 
-    Ничего не решает про «лучшесть» — только сохраняет. Разделение с
-    promote_if_better нужно батчу: там в библиотеку идут ВСЕ варианты, а в
-    активный слот претендует один.
+    Decides nothing about being "best" — it only saves. The separation from
+    promote_if_better is needed by the batch: there ALL variants go into the
+    library, while only one claims the active slot.
 
-    Returns: (ModelEntry, путь к копии в runs/).
+    Returns: (ModelEntry, path of the copy in runs/).
     """
     branch = branch.upper()
     run_dir = run_dir or os.path.join(
         config.RUNS_DIR, time.strftime('%Y%m%d_%H%M%S') + f'_run_{branch}')
     os.makedirs(run_dir, exist_ok=True)
 
-    # Имя записывается и в переданный словарь тоже. Раньше здесь была только
-    # копия, и вызывающий (а через него интерфейс) имени не видел: панель
-    # прогона показывала «в библиотеке: —» после каждой успешной дистилляции.
+    # The name is written into the passed dict as well. Previously there was
+    # only a copy here and the caller (and through it the GUI) never saw the
+    # name: the run panel showed "in library: —" after every successful
+    # distillation.
     meta['library_name'] = storage.reserve_name('eml', branch, name, meta)
     run_path = storage.save_formulas(
         trees, branch=branch, meta=dict(meta), input_names=input_names,
@@ -151,16 +152,16 @@ def archive_run(trees: list, branch: str, meta: dict, input_names: list[str], *,
 
 def promote_if_better(entry, *, verbose: bool = True) -> dict:
     """
-    Сделать модель активной, только если она не хуже уже лежащей ПО VAL.
+    Make a model active only if it is not worse than the current one BY VAL.
 
-    Раньше любой прогон с save=True (а это умолчание и в GUI, и в CLI) молча
-    перезаписывал models/best_eml_X.json. Один неудачный сид — и отобранный
-    батчем набор формул терялся без следа, причём заметить это было не по чему.
+    Previously any run with save=True (the default in both the GUI and the CLI)
+    silently overwrote models/best_eml_X.json. One unlucky seed and the
+    batch-selected formula set was lost without a trace.
 
-    Правила:
-      * сравнение только по val — test смотрят один раз, в самом конце;
-      * прежний файл на всякий случай остаётся рядом как .prev.json;
-      * прерванный пользователем прогон не претендует на активный никогда.
+    Rules:
+      * comparison by val only — test is inspected once, at the very end;
+      * the previous file is kept alongside as .prev.json;
+      * a run interrupted by the user never claims the active slot.
     """
     branch = entry.branch
     new_val = entry.val_score if entry.val_score is not None else -1.0
@@ -169,15 +170,15 @@ def promote_if_better(entry, *, verbose: bool = True) -> dict:
     best_path = storage.formulas_path(branch)
 
     if entry.meta.get('stopped'):
-        promoted, reason = False, "прогон прерван пользователем"
+        promoted, reason = False, "run was interrupted by the user"
     elif prev_val is None:
-        promoted, reason = True, "сохранённых формул не было"
+        promoted, reason = True, "there were no saved formulas"
     elif new_val >= float(prev_val):
         promoted = True
-        reason = f"val {new_val:.4f} >= прежних {float(prev_val):.4f}"
+        reason = f"val {new_val:.4f} >= previous {float(prev_val):.4f}"
     else:
         promoted = False
-        reason = f"val {new_val:.4f} < прежних {float(prev_val):.4f}"
+        reason = f"val {new_val:.4f} < previous {float(prev_val):.4f}"
 
     if promoted:
         if os.path.exists(best_path):
@@ -186,10 +187,10 @@ def promote_if_better(entry, *, verbose: bool = True) -> dict:
 
     if verbose:
         if promoted:
-            print(f"[distill] активной стала «{entry.name}» ({reason})"
+            print(f"[distill] \"{entry.name}\" became active ({reason})"
                   f" -> {best_path}")
         else:
-            print(f"[distill] активная модель НЕ тронута ({reason})")
+            print(f"[distill] active model NOT touched ({reason})")
     return {'promoted': promoted, 'reason': reason,
             'best_path': best_path if promoted else None,
             'entry': entry, 'library_name': entry.name}
@@ -199,23 +200,23 @@ def save_best(trees: list, branch: str, meta: dict, input_names: list[str], *,
               verbose: bool = True, run_dir: str | None = None,
               name: str | None = None, decoder: dict | None = None) -> dict:
     """
-    Сохранить прогон целиком: архив в runs/, копия в библиотеку, и активный
-    слот, если прогон не хуже прежнего.
+    Save the whole run: an archive in runs/, a copy in the library, and the
+    active slot if the run is not worse than the previous one.
 
     Returns: {'run_path', 'best_path' | None, 'promoted', 'reason', 'entry'}.
     """
     entry, run_path = archive_run(trees, branch, meta, input_names,
                                   run_dir=run_dir, name=name, decoder=decoder)
     if verbose:
-        print(f"\n[distill] прогон -> {run_path}")
-        print(f"[distill] в библиотеку как «{entry.name}» -> {entry.path}")
+        print(f"\n[distill] run -> {run_path}")
+        print(f"[distill] into the library as \"{entry.name}\" -> {entry.path}")
     result = promote_if_better(entry, verbose=verbose)
     result['run_path'] = run_path
     return result
 
 
 def checkpoint_path(branch: str, seed: int) -> str:
-    """Где лежит состояние длинного прогона, чтобы его можно было продолжить."""
+    """Where the state of a long run lives so that it can be resumed."""
     return os.path.join(config.RUNS_DIR, 'checkpoints',
                         f'eml_{branch.upper()}_seed{seed}.json')
 
@@ -229,14 +230,15 @@ def run_single(branch: str = 'C', *, size_penalty: str | None = None,
                progress_cb=None, should_stop=None,
                name: str | None = None) -> dict:
     """
-    Прогон ветки C: одна формула плюс подобранная под неё таблица порогов.
+    A branch C run: one formula plus a threshold table fitted to it.
 
-    ЦЕЛЬ ОБУЧЕНИЯ — ОТВЕТЫ ОРАКУЛА, а не истинные метки. Это по-прежнему
-    дистилляция, как этапы 1 и 2: формула воспроизводит решающую функцию сети,
-    и её fidelity — осмысленная величина. Истинные метки идут только в отчёт.
+    THE TRAINING TARGET IS THE ORACLE'S ANSWERS, not the ground truth labels.
+    This is still distillation, as in stages 1 and 2: the formula reproduces the
+    network's decision function, and its fidelity is a meaningful quantity.
+    Ground truth labels only go into the report.
 
-    Прогон рассчитан на часы: состояние пишется в checkpoint и resume=True
-    продолжает прерванный прогон с последнего сохранения.
+    The run is designed for hours: state is written to checkpoint, and
+    resume=True continues an interrupted run from the last save.
     """
     import eml_single as single
 
@@ -252,10 +254,10 @@ def run_single(branch: str = 'C', *, size_penalty: str | None = None,
     ckpt = checkpoint if checkpoint is not None else checkpoint_path(branch, seed)
 
     if verbose:
-        print(f"\n[distill] ветка {branch}: ОДНА формула на {config.N_CLASSES} "
-              f"классов, {inputs.shape[1]} входов, {len(train_idx)} примеров")
-        print(f"[distill] цель — ответы оракула (дистилляция), штраф "
-              f"{penalty_name}, чекпоинт {ckpt}")
+        print(f"\n[distill] branch {branch}: ONE formula for {config.N_CLASSES} "
+              f"classes, {inputs.shape[1]} inputs, {len(train_idx)} examples")
+        print(f"[distill] target — oracle answers (distillation), penalty "
+              f"{penalty_name}, checkpoint {ckpt}")
 
     result = single.evolve_single(
         inputs[train_idx], oracle_labels[train_idx],
@@ -285,7 +287,7 @@ def run_single(branch: str = 'C', *, size_penalty: str | None = None,
         'decoder': model.decoder.to_dict(),
         'n_intervals': model.decoder.n_intervals,
         'class_layout': model.decoder.describe(config.CLASS_NAMES),
-        'depth_penalty': penalty_name,          # то же поле, что у веток A и B
+        'depth_penalty': penalty_name,          # same field as in branches A and B
         'size_penalty': config.EMLC_SIZE_PENALTIES[penalty_name],
         'train_bal_acc_final': result['train_score'],
         'best_fitness': result['best_fitness'],
@@ -304,9 +306,9 @@ def run_single(branch: str = 'C', *, size_penalty: str | None = None,
                           verbose=verbose, name=name,
                           decoder=model.decoder.to_dict())
 
-    # Чекпоинт живёт ровно столько, сколько прогон не закончен. Оставить его
-    # после нормального завершения значило бы, что следующий прогон с тем же
-    # сидом молча продолжит уже отработавший и сразу упрётся в patience.
+    # The checkpoint lives exactly as long as the run is unfinished. Keeping it
+    # after normal completion would mean the next run with the same seed
+    # silently continues an already finished one and immediately hits patience.
     if not result.get('stopped') and os.path.exists(ckpt):
         os.remove(ckpt)
 
@@ -318,14 +320,14 @@ def run_single(branch: str = 'C', *, size_penalty: str | None = None,
 
 
 def print_report_single(meta: dict, model):
-    """Сводка прогона ветки C: метрики, сложность и раскладка классов на оси."""
+    """Branch C run summary: metrics, complexity, and class layout on the axis."""
     m = meta['metrics']
     print("\n" + "=" * 72)
-    print(f"ВЕТКА {meta['branch']}: оракул -> ОДНА EML-формула + "
-          f"{meta['n_intervals']} участков оси")
+    print(f"BRANCH {meta['branch']}: oracle -> ONE EML formula + "
+          f"{meta['n_intervals']} axis intervals")
     print("=" * 72)
-    print(f"{'сплит':<8} {'accuracy':>18} {'bal.accuracy':>20} {'fidelity':>10}")
-    print(f"{'':8} {'EML':>8} {'оракул':>9} {'EML':>9} {'оракул':>10} {'':>10}")
+    print(f"{'split':<8} {'accuracy':>18} {'bal.accuracy':>20} {'fidelity':>10}")
+    print(f"{'':8} {'EML':>8} {'oracle':>9} {'EML':>9} {'oracle':>10} {'':>10}")
     for split in ('train', 'val', 'test'):
         s = m[split]
         print(f"{split:<8} {s['eml_acc']:>8.4f} {s['oracle_acc']:>9.4f} "
@@ -335,24 +337,24 @@ def print_report_single(meta: dict, model):
     test = m['test']
     retained = (test['eml_bal_acc'] / test['oracle_bal_acc'] * 100
                 if test['oracle_bal_acc'] > 0 else 0.0)
-    print(f"\nформула держит {retained:.1f}% сбалансированной точности оракула "
-          f"на test")
-    print(f"сложность: {meta['total_nodes']} узлов AST, глубина "
-          f"{meta['max_depth']}, задействовано входов "
+    print(f"\nthe formula holds {retained:.1f}% of the oracle's balanced "
+          f"accuracy on test")
+    print(f"complexity: {meta['total_nodes']} AST nodes, depth "
+          f"{meta['max_depth']}, inputs used "
           f"{meta['n_inputs_used']}/{meta['n_inputs_available']}, "
-          f"участков {meta['n_intervals']}")
-    print(f"использованы: {', '.join(meta['inputs_used'])}")
+          f"intervals {meta['n_intervals']}")
+    print(f"used: {', '.join(meta['inputs_used'])}")
 
-    print("\nматрица ошибок EML на test (строки = истина):")
+    print("\nEML confusion matrix on test (rows = ground truth):")
     header = ' ' * 9 + ''.join(f"{c[:6]:>8}" for c in config.CLASS_NAMES)
     print(header)
     for i, row in enumerate(test['confusion']):
         print(f"{config.CLASS_NAMES[i]:>8} " + ''.join(f"{v:>8}" for v in row))
 
-    # Главное, ради чего ветка и затевалась: куда формула сама расставила
-    # классы. Соседние на оси классы должны путаться чаще прочих — это
-    # проверяется по матрице ошибок выше.
-    print("\nкуда формула расставила классы на своей оси:")
+    # The point of the branch: where the formula placed the classes itself.
+    # Classes adjacent on the axis should be confused more often than others —
+    # verifiable against the confusion matrix above.
+    print("\nclass layout on the formula axis:")
     print(meta['class_layout'])
     print(f"\nf = {model.tree.to_string()}")
     print("=" * 72)
@@ -365,16 +367,16 @@ def run(branch: str = 'A', *, depth_penalty: str | None = None,
         progress_cb=None, should_stop=None, name: str | None = None,
         **single_kwargs) -> dict:
     """
-    Собрать датасет -> дистиллировать -> оценить -> сохранить формулы.
+    Collect the dataset -> distill -> evaluate -> save the formulas.
 
-    progress_cb / should_stop пробрасываются в эволюцию: первый даёт живые
-    кривые, второй — мягкую остановку с сохранением лучшего на этот момент.
+    progress_cb / should_stop are forwarded into the evolution: the first gives
+    live curves, the second a soft stop that keeps the best result so far.
 
-    Ветка C устроена иначе (одна формула вместо набора, таблица порогов вместо
-    калибровки) и уходит в run_single; здесь она перехватывается, чтобы у CLI,
-    интерфейса и батча оставалась одна точка входа.
+    Branch C is built differently (one formula instead of a set, a threshold
+    table instead of calibration) and goes to run_single; it is intercepted here
+    so that the CLI, the GUI and the batch keep a single entry point.
 
-    Returns: dict с формулами, метриками по всем сплитам и метаданными.
+    Returns: dict with the formulas, metrics over all splits, and metadata.
     """
     branch = branch.upper()
     if branch == 'C':
@@ -388,13 +390,14 @@ def run(branch: str = 'A', *, depth_penalty: str | None = None,
     inputs, logits, labels = bundle['inputs'], bundle['logits'], bundle['labels']
     train_idx, val_idx, test_idx = bundle['splits']
 
-    # Формулы работают в пространстве входов конкретной ветки — сообщаем его
-    # дистиллятору до эволюции, иначе var_idx будет индексировать не то.
+    # The formulas work in the input space of a particular branch — tell the
+    # distiller about it before evolving, otherwise var_idx indexes the wrong
+    # thing.
     dist.configure_inputs(inputs.shape[1], bundle['input_names'])
 
     if verbose:
-        print(f"\n[distill] ветка {branch}, {inputs.shape[1]} входов, "
-              f"{len(train_idx)} обучающих примеров")
+        print(f"\n[distill] branch {branch}, {inputs.shape[1]} inputs, "
+              f"{len(train_idx)} training examples")
 
     result = dist.distill(
         inputs[train_idx], logits[train_idx], labels[train_idx],
@@ -404,8 +407,9 @@ def run(branch: str = 'A', *, depth_penalty: str | None = None,
         progress_cb=progress_cb, should_stop=should_stop,
     )
 
-    # Калибровка уже заморожена дистиллятором по train — берём классификатор
-    # как есть, не пересобирая: пересчёт по val/test был бы подглядыванием.
+    # The calibration is already frozen by the distiller on train — take the
+    # classifier as is without rebuilding it: recomputing on val/test would be
+    # looking ahead.
     clf = result['classifier']
     metrics = {
         'train': evaluate(clf, inputs, logits, labels, train_idx),
@@ -448,13 +452,13 @@ def run(branch: str = 'A', *, depth_penalty: str | None = None,
 
 
 def print_report(meta: dict, trees: list, input_names: list[str]):
-    """Человекочитаемая сводка прогона."""
+    """Human-readable run summary."""
     m = meta['metrics']
     print("\n" + "=" * 72)
-    print(f"ВЕТКА {meta['branch']}: оракул -> {len(trees)} EML-формул")
+    print(f"BRANCH {meta['branch']}: oracle -> {len(trees)} EML formulas")
     print("=" * 72)
-    print(f"{'сплит':<8} {'accuracy':>18} {'bal.accuracy':>20} {'fidelity':>10}")
-    print(f"{'':8} {'EML':>8} {'оракул':>9} {'EML':>9} {'оракул':>10} {'':>10}")
+    print(f"{'split':<8} {'accuracy':>18} {'bal.accuracy':>20} {'fidelity':>10}")
+    print(f"{'':8} {'EML':>8} {'oracle':>9} {'EML':>9} {'oracle':>10} {'':>10}")
     for split in ('train', 'val', 'test'):
         s = m[split]
         print(f"{split:<8} {s['eml_acc']:>8.4f} {s['oracle_acc']:>9.4f} "
@@ -464,37 +468,37 @@ def print_report(meta: dict, trees: list, input_names: list[str]):
     test = m['test']
     retained = (test['eml_bal_acc'] / test['oracle_bal_acc'] * 100
                 if test['oracle_bal_acc'] > 0 else 0.0)
-    print(f"\nформулы держат {retained:.1f}% сбалансированной точности оракула "
-          f"на test")
-    print(f"сложность: {meta['total_nodes']} узлов AST, глубина "
-          f"{meta['max_depth']}, задействовано входов "
+    print(f"\nthe formulas hold {retained:.1f}% of the oracle's balanced "
+          f"accuracy on test")
+    print(f"complexity: {meta['total_nodes']} AST nodes, depth "
+          f"{meta['max_depth']}, inputs used "
           f"{meta['n_inputs_used']}/{meta['n_inputs_available']}")
-    print(f"использованы: {', '.join(meta['inputs_used'])}")
+    print(f"used: {', '.join(meta['inputs_used'])}")
 
-    print("\nматрица ошибок EML на test (строки = истина):")
+    print("\nEML confusion matrix on test (rows = ground truth):")
     header = ' ' * 9 + ''.join(f"{c[:6]:>8}" for c in config.CLASS_NAMES)
     print(header)
     for i, row in enumerate(test['confusion']):
         print(f"{config.CLASS_NAMES[i]:>8} " + ''.join(f"{v:>8}" for v in row))
 
-    print("\nформулы:")
+    print("\nformulas:")
     for c, tree in enumerate(trees):
         print(f"  f_{config.CLASS_NAMES[c]} = {tree.to_string()}")
     print("=" * 72)
 
 
-# ── Батч-дистилляция ──────────────────────────────────────────────────────────
+# ── Batch distillation ────────────────────────────────────────────────────────
 
 def run_batch(branch: str = 'A', n_variants: int | None = None,
               verbose: bool = True, progress_cb=None, should_stop=None,
               generations: int | None = None,
               population: int | None = None) -> dict:
     """
-    Несколько прогонов с разными сидами и штрафами за глубину.
+    Several runs with different seeds and depth penalties.
 
-    GA стохастичен: один прогон говорит мало о том, чего метод достигает.
-    Лучший по val (НЕ по test — test трогаем один раз, в самом конце)
-    сохраняется как основной, сводка по всем — в runs/.
+    A GA is stochastic: one run says little about what the method achieves. The
+    best by val (NOT by test — test is touched once, at the very end) is saved
+    as the main one, and a summary of all of them goes into runs/.
     """
     n_variants = n_variants if n_variants is not None else config.EML_BATCH_VARIANTS
     penalties = list(config.EMLC_SIZE_PENALTIES if branch.upper() == 'C'
@@ -508,7 +512,7 @@ def run_batch(branch: str = 'A', n_variants: int | None = None,
     for i in range(n_variants):
         penalty = penalties[i % len(penalties)]
         if verbose:
-            print(f"\n{'#' * 72}\n# вариант {i + 1}/{n_variants}: "
+            print(f"\n{'#' * 72}\n# variant {i + 1}/{n_variants}: "
                   f"seed={i}, depth_penalty={penalty}\n{'#' * 72}")
         cb = None
         if progress_cb is not None:
@@ -519,9 +523,9 @@ def run_batch(branch: str = 'A', n_variants: int | None = None,
                   verbose=verbose, progress_cb=cb, should_stop=should_stop)
         val_score = out['meta']['metrics']['val']['eml_bal_acc']
 
-        # Каждый вариант — в библиотеку под говорящим именем. Выбрать потом
-        # можно только из сохранённого, а варианты батча отличаются друг от
-        # друга сильнее, чем иные правки метода.
+        # Every variant goes into the library under a descriptive name. Only
+        # what was saved can be selected later, and batch variants differ from
+        # each other more than many method changes do.
         entry, _ = archive_run(
             out['trees'], branch, out['meta'], out['bundle']['input_names'],
             run_dir=summary_dir, filename=f'variant_{i}_{penalty}.json',
@@ -538,11 +542,11 @@ def run_batch(branch: str = 'A', n_variants: int | None = None,
             best_val, best = val_score, out
         if should_stop is not None and should_stop():
             if verbose:
-                print(f"\n[batch] остановлено после варианта {i + 1}")
+                print(f"\n[batch] stopped after variant {i + 1}")
             break
 
-    # Тот же защищённый путь, что и у одиночного прогона: батч тоже не должен
-    # затирать лучший результат, если ему не повезло с сидами.
+    # The same protected path as for a single run: a batch must not overwrite
+    # the best result either if it was unlucky with its seeds.
     saved = promote_if_better(best['entry'], verbose=False)
     with open(os.path.join(summary_dir, 'summary.json'), 'w', encoding='utf-8') as f:
         json.dump({'branch': branch, 'runs': runs, 'best': best['meta'],
@@ -550,21 +554,21 @@ def run_batch(branch: str = 'A', n_variants: int | None = None,
                   f, indent=2, ensure_ascii=False)
 
     if verbose:
-        print(f"\n{'=' * 72}\nСВОДКА ПО ВАРИАНТАМ (лучший выбран по val)")
+        print(f"\n{'=' * 72}\nVARIANT SUMMARY (best chosen by val)")
         print(f"{'#':>3} {'penalty':>9} {'val bal':>9} {'test bal':>9} "
-              f"{'узлов':>7}  имя в библиотеке")
+              f"{'nodes':>7}  library name")
         for r in runs:
             mark = ' <-' if r['val_bal_acc'] == best_val else '   '
             print(f"{r['seed']:>3} {r['depth_penalty']:>9} "
                   f"{r['val_bal_acc']:>9.4f} {r['test_bal_acc']:>9.4f} "
                   f"{r['nodes']:>7}{mark} {r['library_name']}")
         if saved['promoted']:
-            print(f"активной стала «{saved['library_name']}» "
+            print(f"\"{saved['library_name']}\" became active "
                   f"-> {saved['best_path']}")
         else:
-            print(f"активная НЕ тронута ({saved['reason']}); все варианты "
-                  f"лежат в библиотеке")
-        print(f"сводка -> {summary_dir}/summary.json")
+            print(f"active NOT touched ({saved['reason']}); all variants "
+                  f"are in the library")
+        print(f"summary -> {summary_dir}/summary.json")
 
     return {'best': best, 'runs': runs, 'summary_dir': summary_dir,
             'saved': saved}

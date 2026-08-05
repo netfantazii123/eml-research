@@ -1,12 +1,12 @@
 """
-gui.py — GUI монитор обучения CNN-оракула.
+gui.py — a GUI monitor for CNN oracle training.
 
-Запуск: python gui.py  или  python main.py gui
+Run with: python gui.py  or  python main.py gui
 
-Панели:
-  Left   — редактор гиперпараметров PPO (Apply применяет на лету во время обучения)
-  Center — графики avg/max линий и потерь (pg/vf/entropy) + лог
-  Right  — числовой статус в реальном времени
+Panels:
+  Left   — PPO hyperparameter editor (Apply takes effect live during training)
+  Center — avg/max line and loss (pg/vf/entropy) plots + log
+  Right  — numeric status in real time
   Bottom — Start / Stop / Save Model
 """
 
@@ -54,7 +54,7 @@ def _btn(parent: tk.Widget, text: str, cmd, *,
 
 
 class ParamRow:
-    """Строка «Label + Entry» для одного гиперпараметра."""
+    """A "Label + Entry" row for a single hyperparameter."""
 
     def __init__(self, parent: tk.Widget, label: str, default, fmt=float):
         self._fmt = fmt
@@ -81,8 +81,8 @@ class ParamRow:
 # ── Main window ───────────────────────────────────────────────────────────────
 
 class TrainingGUI:
-    _CHART_MAX = 300      # точек истории на графике
-    _POLL_MS   = 250      # интервал опроса очереди, мс
+    _CHART_MAX = 300      # history points on the chart
+    _POLL_MS   = 250      # queue polling interval, ms
 
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -337,7 +337,7 @@ class TrainingGUI:
         self.root.after(self._POLL_MS, self._poll)
 
     def _absorb(self, rec: dict) -> None:
-        """Принять один update-record из очереди."""
+        """Accept one update record from the queue."""
         self._upd.append(rec["update"])
         self._avg.append(rec["avg_lines"])
         self._mx.append(rec["max_lines"])
