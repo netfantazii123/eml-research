@@ -223,13 +223,62 @@ def write_val_rows(run_dir, result, **kw) -> str:
     if not val:
         return ''
     kw.setdefault('run_dir', run_dir)
+    kw.setdefault('basis', result.get('basis', 'eml'))
+    kw.setdefault('k_budget', result.get('max_nodes'))
     return write_rows(run_dir, episode_rows(
         val, pool='val', policy='eml', static=result.get('static'), **kw))
+
+
+PARETO_COLUMNS = [
+    'task', 'basis', 'config_id', 'ga_seed', 'variant', 'k',
+    'train_fitness', 'val_fitness', 'val_lines', 'val_lines_std',
+    'nodes', 'depth', 'n_vars', 'n_exp', 'n_log', 'n_transcendental',
+    'est_code_bytes', 'est_stack_bytes',
+    'commit', 'config_hash', 'run_dir', 'formula',
+]
+
+
+def write_pareto_rows(run_dir, result, *, task='tetris', config_id=0,
+                      ga_seed=None, variant='single', prov=None) -> str:
+    """
+    The R(K) curve of one GA run -> results/pareto_curve.csv.
+
+    One row per node budget, carrying both the regression fitness the search
+    optimised and the in-game lines the thesis reports, so the two can be
+    plotted against each other rather than assumed to agree.
+    """
+    rows = result.get('pareto') or []
+    if not rows:
+        return ''
+    prov = prov or runs_mod.provenance()
+    base = {
+        'task': task, 'basis': result.get('basis', 'eml'),
+        'config_id': config_id, 'ga_seed': ga_seed, 'variant': variant,
+        'commit': prov.get('commit'), 'config_hash': prov.get('config_hash'),
+        'run_dir': run_dir,
+    }
+    out = [{**base, **{k: v for k, v in row.items() if k in PARETO_COLUMNS}}
+           for row in rows]
+
+    os.makedirs(config.RESULTS_DIR, exist_ok=True)
+    targets = [os.path.join(config.RESULTS_DIR, 'pareto_curve.csv')]
+    if run_dir:
+        targets.append(os.path.join(run_dir, 'pareto_curve.csv'))
+    for path in targets:
+        new = not os.path.exists(path)
+        with open(path, 'a', newline='', encoding='utf-8') as fh:
+            w = csv.DictWriter(fh, fieldnames=PARETO_COLUMNS)
+            if new:
+                w.writeheader()
+            w.writerows(out)
+    return targets[0]
 
 
 def write_test_rows(run_dir, holdout, result, **kw) -> str:
     """Per-episode TEST scores: the formula and the oracle on the same seeds."""
     kw.setdefault('run_dir', run_dir)
+    kw.setdefault('basis', result.get('basis', 'eml'))
+    kw.setdefault('k_budget', result.get('max_nodes'))
     rows = episode_rows(holdout['eml'], pool='test', policy='eml',
                         static=result.get('static'), **kw)
     # Static metrics describe the formula, so they stay blank on oracle rows.
@@ -267,6 +316,9 @@ def full_distill(
     data_generations: int | None = None,
     data_population: int | None = None,
     joint: bool = True,
+    basis_name: str | None = None,
+    max_nodes: int | None = None,
+    multi_objective: bool | None = None,
     eval_games: int | None = None,
     run_dir: str | None = None,
     on_event=None,
@@ -311,7 +363,10 @@ def full_distill(
         depth_penalty_name=depth_penalty_name,
         data_generations=data_generations,
         data_population=data_population,
-        joint=joint, verbose=verbose,
+        joint=joint,
+        basis_name=basis_name, max_nodes=max_nodes,
+        multi_objective=multi_objective,
+        verbose=verbose,
         should_stop=should_stop, on_event=on_event,
     )
 
@@ -336,6 +391,11 @@ def full_distill(
         'ratio_pct': ratio,
         'holdout': {k: v for k, v in holdout.items() if k not in ('eml', 'oracle')},
         'static': result['static'],
+        'basis': result.get('basis'),
+        'max_nodes': result.get('max_nodes'),
+        'multi_objective': result.get('multi_objective'),
+        'pareto': [{k: v for k, v in r.items() if k != 'formula'}
+                   for r in result.get('pareto', [])],
         'dataset_size': result['dataset_size'],
         'depth_penalty': depth_penalty_name,
         'joint': joint,
@@ -344,6 +404,7 @@ def full_distill(
     prov = meta['provenance']
     write_val_rows(run_dir, result, prov=prov)
     write_test_rows(run_dir, holdout, result, prov=prov)
+    write_pareto_rows(run_dir, result, prov=prov)
     path = storage.save_formulas(trees, meta=meta)
     _save_reports(result, run_dir, _emit, meta)
     runs_mod.copy_into(run_dir, path)
@@ -357,6 +418,7 @@ def full_distill(
         'oracle_lines': orc_lines,
         'ratio_pct': ratio,
         'total_size': total_size,
+        'pareto': meta['pareto'],
         'path': path,
         'run_dir': run_dir,
         'formulas': [t.to_string() for t in trees],
@@ -423,6 +485,9 @@ def batch_distill(
     data_generations: int | None = None,
     data_population: int | None = None,
     joint: bool = True,
+    basis_name: str | None = None,
+    max_nodes: int | None = None,
+    multi_objective: bool | None = None,
     eval_games: int | None = None,
     on_event=None,
     should_stop=None,
@@ -510,7 +575,10 @@ def batch_distill(
                     depth_penalty_name=params['depth_penalty'],
                     data_generations=params['generations'],
                     data_population=params['population'],
-                    joint=joint, verbose=verbose,
+                    joint=joint,
+                    basis_name=basis_name, max_nodes=max_nodes,
+                    multi_objective=multi_objective,
+                    verbose=verbose,
                     should_stop=should_stop, on_event=on_event,
                 )
                 tree = result['trees'][0]
@@ -524,6 +592,8 @@ def batch_distill(
                 })
                 write_val_rows(run_dir, result, config_id=c_id,
                                ga_seed=ga_seed, variant=label, prov=prov)
+                write_pareto_rows(run_dir, result, config_id=c_id,
+                                  ga_seed=ga_seed, variant=label, prov=prov)
                 variants.append({
                     'variant': idx, 'label': label,
                     'config_id': c_id, 'ga_seed': ga_seed, 'params': params,
@@ -577,6 +647,8 @@ def batch_distill(
         'ratio_pct': ratio,
         'holdout': {k: v for k, v in holdout.items() if k not in ('eml', 'oracle')},
         'static': best['static'],
+        'basis': best['result'].get('basis'),
+        'max_nodes': best['result'].get('max_nodes'),
         'dataset_size': len(features),
         'variant': best['variant'],
         'label': best['label'],
@@ -616,6 +688,8 @@ def batch_distill(
         'oracle_lines': orc_lines,
         'ratio_pct': ratio,
         'total_size': best['size'],
+        'pareto': [{k: v for k, v in r.items() if k != 'formula'}
+                   for r in best['result'].get('pareto', [])],
         'path': path,
         'run_dir': run_dir,
         'per_config': per_config,

@@ -69,6 +69,73 @@ def make_eml_op(epsilon: float = 1e-10, clamp: float = 10.0) -> Op:
               c_helpers=(helper,))
 
 
+def make_classic_ops(epsilon: float = 1e-10, clamp: float = 10.0) -> tuple[Op, ...]:
+    """
+    The control basis: + - * / exp log tanh.
+
+    It carries the SAME numerical guards as the EML operator — the same exp
+    clamp, the same log epsilon, the same protected division scale. Anything
+    else and a comparison between the two bases would partly measure who got the
+    kinder guards rather than which set of primitives expresses policies better.
+    """
+    def _div_batch(x, y):
+        return x / (np.abs(y) + epsilon) * np.sign(np.where(y == 0, 1.0, y))
+
+    def _div_scalar(x, y):
+        s = 1.0 if y >= 0 else -1.0
+        return x / (abs(y) + epsilon) * s
+
+    def _exp_batch(x):
+        return np.exp(np.clip(x, -clamp, clamp))
+
+    def _exp_scalar(x):
+        return math.exp(-clamp if x < -clamp else (clamp if x > clamp else x))
+
+    def _log_batch(x):
+        return np.log(np.abs(x) + epsilon)
+
+    def _log_scalar(x):
+        return math.log(abs(x) + epsilon)
+
+    div_helper = (
+        f"#define EML_EPS {epsilon:g}f\n"
+        "static inline float eml_div(float x, float y) {\n"
+        "    float s = (y >= 0.0f) ? 1.0f : -1.0f;\n"
+        "    return x / (fabsf(y) + EML_EPS) * s;\n"
+        "}"
+    )
+    exp_helper = (
+        f"#define EML_CLAMP {clamp:g}f\n"
+        "static inline float eml_exp(float x) {\n"
+        "    if (x > EML_CLAMP) x = EML_CLAMP;\n"
+        "    if (x < -EML_CLAMP) x = -EML_CLAMP;\n"
+        "    return expf(x);\n"
+        "}"
+    )
+    log_helper = (
+        f"#define EML_EPS {epsilon:g}f\n"
+        "static inline float eml_log(float x) {\n"
+        "    return logf(fabsf(x) + EML_EPS);\n"
+        "}"
+    )
+
+    return (
+        Op('add', 2, lambda x, y: x + y, lambda x, y: x + y,
+           "({0} + {1})", "({0} + {1})"),
+        Op('sub', 2, lambda x, y: x - y, lambda x, y: x - y,
+           "({0} - {1})", "({0} - {1})"),
+        Op('mul', 2, lambda x, y: x * y, lambda x, y: x * y,
+           "({0} * {1})", "({0} * {1})"),
+        Op('div', 2, _div_batch, _div_scalar,
+           "({0} / {1})", "eml_div({0}, {1})", (div_helper,)),
+        Op('exp', 1, _exp_batch, _exp_scalar,
+           "exp({0})", "eml_exp({0})", (exp_helper,)),
+        Op('log', 1, _log_batch, _log_scalar,
+           "log({0})", "eml_log({0})", (log_helper,)),
+        Op('tanh', 1, np.tanh, math.tanh, "tanh({0})", "tanhf({0})"),
+    )
+
+
 @dataclass
 class Basis:
     """The language of formulas plus the shape limits the search must respect."""
@@ -117,3 +184,32 @@ def eml_basis(n_vars: int, var_names=(), *, max_depth: int = 7,
     return Basis(name='eml', ops=(make_eml_op(epsilon, clamp),),
                  n_vars=n_vars, var_names=tuple(var_names),
                  max_depth=max_depth, max_nodes=max_nodes)
+
+
+def classic_basis(n_vars: int, var_names=(), *, max_depth: int = 7,
+                  epsilon: float = 1e-10, clamp: float = 10.0,
+                  max_nodes: int | None = None) -> Basis:
+    """
+    The control basis, against which an EML result actually means something.
+
+    Note one structural difference the numbers will reflect: a classic tree of N
+    nodes mixes arities, so at equal node count it holds a different amount of
+    computation than an EML tree, where every internal node is one exp and one
+    log. Comparing at equal N is the honest comparison for code size; comparing
+    at equal transcendental count is the honest one for runtime. Both are in the
+    metrics, and which one matters depends on the claim being made.
+    """
+    return Basis(name='classic', ops=make_classic_ops(epsilon, clamp),
+                 n_vars=n_vars, var_names=tuple(var_names),
+                 max_depth=max_depth, max_nodes=max_nodes)
+
+
+BASES = {'eml': eml_basis, 'classic': classic_basis}
+
+
+def make_basis(name: str, n_vars: int, var_names=(), **kw) -> Basis:
+    """Build a basis by name ('eml' or 'classic')."""
+    try:
+        return BASES[name](n_vars, var_names, **kw)
+    except KeyError:
+        raise ValueError(f"unknown basis {name!r} (have: {sorted(BASES)})") from None

@@ -17,13 +17,16 @@ Typical use from a task:
     tree = search.random_tree(basis, max_depth=3, force_op=True)
 """
 
-from .basis import Basis, Op, eml_basis, make_eml_op
+from .basis import (Basis, Op, eml_basis, classic_basis, make_basis,
+                    make_eml_op, make_classic_ops, BASES)
 from .node import Node
-from .metrics import static_metrics, pool_slice
-from . import search, cexport
+from .metrics import static_metrics, estimate_cost, pool_slice
+from .nsga2 import ParetoArchive
+from . import search, cexport, nsga2
 
 __all__ = [
-    'Basis', 'Op', 'eml_basis', 'make_eml_op',
-    'Node', 'static_metrics', 'pool_slice',
-    'search', 'cexport',
+    'Basis', 'Op', 'eml_basis', 'classic_basis', 'make_basis',
+    'make_eml_op', 'make_classic_ops', 'BASES',
+    'Node', 'static_metrics', 'estimate_cost', 'pool_slice',
+    'ParetoArchive', 'search', 'cexport', 'nsga2',
 ]

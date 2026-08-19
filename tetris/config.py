@@ -148,6 +148,24 @@ EML_EPSILON = 1e-10         # guard against ln(0)
 # function. Named here so the gap can be swept and reported rather than assumed
 # away; the clamp dominates eps by orders of magnitude, so sweep this one.
 EML_CLAMP = 10.0
+
+# Which set of primitives the search may use: 'eml' (the single operator this
+# work is about) or 'classic' (+ - * / exp log tanh). The control basis is not
+# decoration: an EML number means nothing until the same pipeline, at the same
+# budget and the same seeds, has been run on an ordinary one.
+EML_BASIS = 'eml'
+
+# Multi-objective search over (quality, size). It reads the whole quality-vs-K
+# curve off one run instead of needing one run per budget — the difference
+# between ~160 and ~1440 GA runs for the full sweep.
+EML_MULTI_OBJECTIVE = True
+EML_PARETO_MAX_POINTS = 12   # front members evaluated in-game (games cost time)
+# Give each curve point its own short GAME phase before scoring it. Off by
+# default because it costs one in-game evolution per point; ON is what the curve
+# needs to be about game score at all — DATA-phase formulas score near zero
+# lines whatever their regression fitness, which is why the GAME phase exists.
+EML_PARETO_REFINE = False
+EML_PARETO_REFINE_GENERATIONS = 12
 EML_PHASE_SWITCH = 0.15     # fraction of generations for the DATA phase (warm-up)
 
 # ── Dataset collection ─────────────────────────────────────────────────────

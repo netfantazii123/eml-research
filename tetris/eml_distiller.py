@@ -37,22 +37,25 @@ import config
 from config import DEPTH_PENALTIES, FEATURE_NAMES, N_FEATURES
 from env import TetrisEnv
 
-from emlcore import Node, eml_basis, search, static_metrics, pool_slice
+from emlcore import (Node, search, static_metrics, pool_slice,
+                     ParetoArchive, nsga2)
+from emlcore import make_basis as _make_basis
 
 
 # ── Basis ─────────────────────────────────────────────────────────────────────
 
-def make_basis(max_depth: int | None = None,
+def make_basis(name: str | None = None, max_depth: int | None = None,
                max_nodes: int | None = None) -> "object":
     """
     The basis this task searches in, built from config at call time.
 
     Built per call rather than once at import: batch_distill varies
     EML_MAX_DEPTH between runs, and a basis captured at import would silently
-    ignore that. max_nodes is the node budget K — unset for now, and the hook
-    the K sweep will use.
+    ignore that. max_nodes is the node budget K, used by the fixed-K anchor runs
+    that check the NSGA-II curve against dedicated ones.
     """
-    return eml_basis(
+    return _make_basis(
+        name or config.EML_BASIS,
         N_FEATURES, FEATURE_NAMES,
         max_depth=config.EML_MAX_DEPTH if max_depth is None else max_depth,
         epsilon=config.EML_EPSILON,
@@ -125,6 +128,8 @@ def evolve_formula(
     subsample: int | None = None,
     val_data: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
     basis=None,
+    multi_objective: bool | None = None,
+    archive: ParetoArchive | None = None,
     verbose: bool = False,
     label: str = 'PLACE',
     should_stop=None,
@@ -162,6 +167,18 @@ def evolve_formula(
     best_val_fitness = -math.inf
     best_tree_ever: EMLNode | None = None
     patience_counter = 0
+    if multi_objective is None:
+        multi_objective = config.EML_MULTI_OBJECTIVE
+    if archive is None:
+        archive = ParetoArchive()
+
+    # Size is an explicit objective under NSGA-II, so keeping a size penalty
+    # inside the fitness too would count it twice: the front collapses onto the
+    # smallest trees and R(K) stops rising well before the budget runs out.
+    # Single-objective runs keep the penalty — it is the only size pressure they
+    # have.
+    if multi_objective:
+        depth_penalty = 0.0
 
     for gen in range(generations):
         if should_stop is not None and should_stop():
@@ -178,6 +195,10 @@ def evolve_formula(
 
         fitness_scores = [_regression_fitness(t, Xs, ys, ws, depth_penalty)
                           for t in population]
+        # The archive is what the R(K) curve is read from. Filled from training
+        # fitness because it is already computed; the front is re-scored on
+        # validation once the run is over, so no curve point is a subsample fluke.
+        archive.update_many(population, fitness_scores)
 
         ranked = sorted(zip(fitness_scores, population),
                         key=lambda p: p[0], reverse=True)
@@ -225,16 +246,45 @@ def evolve_formula(
             break
 
         # New generation.
-        population = search.breed(
-            population, fitness_scores, basis,
-            size=population_size, elitism=elitism, intensity=intensity,
-            p_mutate=0.45, p_cross=0.75, p_cross_mutate=0.3, tournament_k=5)
+        if multi_objective:
+            # NSGA-II over (quality, -size): survivors come from parents plus
+            # offspring by front, so small trees keep selection pressure of
+            # their own instead of being bred out by the best-scoring big ones.
+            objectives = np.array(
+                [[f, -t.size()] for f, t in zip(fitness_scores, population)],
+                dtype=np.float64)
+            ranks, crowd = nsga2.rank_and_crowding(objectives)
+            offspring = search.breed_nsga2(
+                population, ranks, crowd, basis,
+                size=population_size, intensity=intensity,
+                p_mutate=0.45, p_cross=0.75, p_cross_mutate=0.3,
+                tournament_k=3)
+            off_fitness = [_regression_fitness(t, Xs, ys, ws, depth_penalty)
+                           for t in offspring]
+            archive.update_many(offspring, off_fitness)
+
+            combined = population + offspring
+            comb_obj = np.array(
+                [[f, -t.size()]
+                 for f, t in zip(fitness_scores + off_fitness, combined)],
+                dtype=np.float64)
+            keep = nsga2.environmental_selection(comb_obj, population_size)
+            population = [combined[i] for i in keep]
+        else:
+            population = search.breed(
+                population, fitness_scores, basis,
+                size=population_size, elitism=elitism, intensity=intensity,
+                p_mutate=0.45, p_cross=0.75, p_cross_mutate=0.3,
+                tournament_k=5)
 
     if best_tree_ever is None:
         best_tree_ever = population[0]
     return {'best_tree': best_tree_ever,
             'best_fitness': best_fitness_ever,
             'best_val_fitness': best_val_fitness,
+            'depth_penalty': depth_penalty,   # effective value, see above
+            'archive': archive,
+            'multi_objective': multi_objective,
             'history': history,
             'val_history': val_history}
 
@@ -465,6 +515,96 @@ def evolve_ingame(
     }
 
 
+def evaluate_pareto(archive: ParetoArchive, val_data, depth_penalty: float, *,
+                    val_seeds, max_placements: int,
+                    max_points: int | None = None,
+                    refine: bool | None = None,
+                    refine_generations: int | None = None,
+                    basis=None,
+                    verbose: bool = False) -> list[dict]:
+    """
+    Turn the size archive into the R(K) curve, scored on validation.
+
+    Two numbers per budget, and they are not interchangeable: the regression
+    fitness the search optimised, and the in-game lines the thesis is about.
+    Where they disagree is itself a result — a formula can agree with the oracle
+    on most placements and still fall apart in a game, or the reverse.
+
+    refine matters more than it looks. Without it the curve is read off DATA
+    phase trees, which score near zero lines no matter how good their regression
+    fitness is — that is precisely why the GAME phase exists. So the unrefined
+    curve is an R(K) in regression fitness only, and quoting its line counts as
+    a game result would be wrong. With refine, each front member gets its own
+    short GAME phase first, which costs one in-game evolution per point and
+    gives the curve the thesis actually needs.
+
+    In-game evaluation costs real games, so only max_points sizes are played,
+    spread across the front rather than taken from its best-scoring end.
+    """
+    if max_points is None:
+        max_points = config.EML_PARETO_MAX_POINTS
+    front = archive.front()
+    if not front:
+        return []
+
+    # Evenly spaced across the front: the small-K end is the interesting one and
+    # would be dropped by any "take the top N" rule.
+    if len(front) > max_points:
+        idx = np.linspace(0, len(front) - 1, max_points).round().astype(int)
+        picked = [front[i] for i in sorted(set(idx.tolist()))]
+    else:
+        picked = front
+
+    if refine is None:
+        refine = config.EML_PARETO_REFINE
+    if refine_generations is None:
+        refine_generations = config.EML_PARETO_REFINE_GENERATIONS
+
+    rows = []
+    for size, train_score, tree in picked:
+        if val_data is not None:
+            val_fit = _regression_fitness(tree, val_data[0], val_data[1],
+                                          val_data[2], depth_penalty)
+        else:
+            val_fit = train_score
+
+        played = tree
+        if refine:
+            # The budget must survive refinement, or the point stops being a
+            # point about K: the basis carries max_nodes = this size.
+            k_basis = make_basis(
+                (basis.name if basis is not None else None), max_nodes=size)
+            jres = evolve_ingame(
+                tree, basis=k_basis, generations=refine_generations,
+                verbose=False)
+            if jres['val_result']['avg_lines'] >= 0:
+                played = jres['best_tree']
+
+        game = score_episodes(played, val_seeds, max_placements)
+        stat = static_metrics(played)
+        rows.append({
+            'k': size,
+            'refined': bool(refine),
+            'formula_nodes': played.size(),
+            'train_fitness': train_score,
+            'val_fitness': val_fit,
+            'val_lines': game['avg_lines'],
+            'val_lines_std': game['std_lines'],
+            'nodes': stat['nodes'], 'depth': stat['depth'],
+            'n_vars': stat['n_vars_unique'],
+            'n_exp': stat['n_exp'], 'n_log': stat['n_log'],
+            'n_transcendental': stat['n_transcendental'],
+            'est_code_bytes': stat['est_code_bytes'],
+            'est_stack_bytes': stat['est_stack_bytes'],
+            'formula': played.to_string(),
+        })
+        if verbose:
+            print(f"      K={size:>4} | val_fit {val_fit:8.2f} | "
+                  f"{game['avg_lines']:6.2f}±{game['std_lines']:.2f} lines | "
+                  f"{stat['n_transcendental']:>3} transcendental")
+    return rows
+
+
 def split_groups(groups: np.ndarray, val_fraction: float,
                  rng) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -508,6 +648,9 @@ def distill(
     data_generations: int | None = None,
     data_population: int | None = None,
     joint: bool = True,
+    basis_name: str | None = None,
+    max_nodes: int | None = None,
+    multi_objective: bool | None = None,
     verbose: bool = True,
     should_stop=None,
     on_event=None,
@@ -543,7 +686,9 @@ def distill(
     dp = DEPTH_PENALTIES[depth_penalty_name]
     # One basis for the whole run: both phases must search the same language,
     # and it is recorded in the result so a formula can be rebuilt later.
-    basis = make_basis()
+    # max_nodes set = a fixed-K anchor run, used to check the NSGA-II curve
+    # against dedicated ones on at least one task.
+    basis = make_basis(basis_name, max_nodes=max_nodes)
     X = np.ascontiguousarray(features, dtype=np.float64)
     y = np.asarray(logits, dtype=np.float64).reshape(-1)
     w = np.asarray(weights, dtype=np.float64).reshape(-1)
@@ -576,9 +721,12 @@ def distill(
         print(f"  [DATA] evolving placement-value formula "
               f"({len(X_tr):,} train / {n_val:,} val samples)")
     _emit({'type': 'data_action_start', 'action': 0, 'name': 'PLACE'})
+    archive = ParetoArchive()
     res = evolve_formula(
         X_tr, y_tr, w_tr,
         basis=basis,
+        multi_objective=multi_objective,
+        archive=archive,
         generations=data_generations,
         population_size=data_population,
         elitism=config.EML_ELITISM,
@@ -611,6 +759,17 @@ def distill(
         print(f"  DATA-phase val score: {base_lines:.2f}±{base_val['std_lines']:.2f} "
               f"lines/game ({len(val_seeds)} games)")
     _emit({'type': 'base_score', 'base_lines': base_lines})
+
+    # ── R(K): quality against node budget, read off the archive ─────────────
+    if verbose:
+        print("  [PARETO] scoring the size front on validation...")
+    pareto = evaluate_pareto(
+        res['archive'], val_data, res['depth_penalty'],
+        val_seeds=val_seeds,
+        max_placements=config.EML_INGAME_MAX_PLACEMENTS,
+        basis=basis, verbose=verbose)
+    _emit({'type': 'pareto', 'points': [
+        {k: v for k, v in row.items() if k != 'formula'} for row in pareto]})
 
     # ── GAME phase: in-game tuning ──────────────────────────────────────────
     if joint:
@@ -648,6 +807,9 @@ def distill(
         'val_result': val_result,
         'static': static_metrics(final_tree),
         'basis': basis.name,
+        'max_nodes': basis.max_nodes,
+        'multi_objective': res['multi_objective'],
+        'pareto': pareto,
         'depth_penalty': depth_penalty_name,
         'dataset_size': len(features),
     }

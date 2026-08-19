@@ -444,6 +444,21 @@ def cmd_distill():
                     pass
         return default
 
+    def _flagval(flag, default=None):
+        if flag in args:
+            idx = args.index(flag)
+            if idx + 1 < len(args) and not args[idx + 1].startswith('--'):
+                return args[idx + 1]
+        return default
+
+    # --basis eml|classic   : which primitives the search may use (B1)
+    # --k N                 : hard node budget, for the fixed-K anchor runs that
+    #                         check the NSGA-II curve against dedicated ones
+    # --single-objective    : plain GA instead of NSGA-II (no R(K) spread)
+    basis_name = _flagval('--basis', config.EML_BASIS)
+    max_nodes = _num('--k', None)
+    multi_objective = '--single-objective' not in args
+
     do_batch = '--batch' in args or '--configs' in args or '--seeds' in args
     n_configs = _num('--configs', config.EML_BATCH_CONFIGS)
     # `--batch N` keeps working and now means N replicate seeds of one config,
@@ -458,13 +473,20 @@ def cmd_distill():
             if do_batch else "single")
     print(f"  Device: {get_device()}  | {mode}  reuse_data={reuse_data}  "
           f"joint={do_joint}")
+    print(f"  Basis: {basis_name}  "
+          f"K={max_nodes if max_nodes else 'unbounded'}  "
+          f"selection={'NSGA-II' if multi_objective else 'single-objective'}")
 
     if do_batch:
         summary = batch_distill(
             n_configs=n_configs, n_seeds=n_seeds, spread=spread,
+            basis_name=basis_name, max_nodes=max_nodes,
+            multi_objective=multi_objective,
             reuse_data=reuse_data, joint=do_joint, verbose=True)
     else:
         summary = full_distill(
+            basis_name=basis_name, max_nodes=max_nodes,
+            multi_objective=multi_objective,
             reuse_data=reuse_data, joint=do_joint, verbose=True)
 
     print("\n" + "=" * 56)
@@ -728,6 +750,8 @@ def main():
         print("  train       — CNN oracle training (PPO, placement-based)")
         print("  distill     — EML distillation of the oracle into a formula")
         print("                 [--reuse-data] [--no-joint]")
+        print("                 [--basis eml|classic] [--k N] "
+              "[--single-objective]")
         print("  bench [N]   — CNN vs EML over N games (+CSV in results/)")
         print("  export [f]  — export the EML formula to inline C "
               "(results/eml_formula.h)")

@@ -157,7 +157,11 @@ def breed(population: list[Node], fitness_scores: list[float], basis: Basis, *,
             return random_tree(basis, max_depth=2 + int(intensity * 2),
                                force_op=True)
 
-    new_pop = [population[i].clone() for i in range(min(elitism, len(population)))]
+    # Elites are budget-checked too: a survivor that violates the budget would
+    # otherwise carry the violation forward for the rest of the run.
+    new_pop = [population[i].clone()
+               for i in range(min(elitism, len(population)))
+               if within_budget(population[i], basis)]
     attempts = 0
     max_attempts = size * 20
     while len(new_pop) < size:
@@ -182,13 +186,69 @@ def breed(population: list[Node], fitness_scores: list[float], basis: Basis, *,
     return new_pop
 
 
+def breed_nsga2(population: list[Node], ranks, crowd, basis: Basis, *,
+                size: int, intensity: float,
+                p_mutate: float = 0.45, p_cross: float = 0.75,
+                p_cross_mutate: float = 0.3, tournament_k: int = 3,
+                fresh=None) -> list[Node]:
+    """
+    Offspring for an NSGA-II generation.
+
+    No elites are copied here: survivors are decided afterwards by
+    environmental selection over parents + offspring, which is what preserves
+    the whole front rather than only its best-quality end.
+    """
+    from .nsga2 import crowded_tournament
+
+    if fresh is None:
+        def fresh():
+            return random_tree(basis, max_depth=2 + int(intensity * 2),
+                               force_op=True)
+
+    offspring: list[Node] = []
+    attempts = 0
+    max_attempts = size * 20
+    while len(offspring) < size:
+        attempts += 1
+        r = random.random()
+        if r < p_mutate:
+            i = crowded_tournament(ranks, crowd, k=tournament_k)
+            child = mutate_tree(population[i], basis, intensity=intensity)
+        elif r < p_cross:
+            i1 = crowded_tournament(ranks, crowd, k=tournament_k)
+            i2 = crowded_tournament(ranks, crowd, k=tournament_k)
+            child = crossover(population[i1], population[i2], basis)
+            if random.random() < p_cross_mutate:
+                child = mutate_tree(child, basis, intensity=intensity * 0.5)
+        else:
+            child = fresh()
+
+        if within_budget(child, basis) or attempts > max_attempts:
+            offspring.append(child)
+    return offspring
+
+
 def seed_population(basis: Basis, size: int, *, seed_tree: Node | None = None,
                     max_depth: int = 3, intensity: float = 0.7) -> list[Node]:
-    """Initial population: random trees, or mutants around a seed formula."""
-    if seed_tree is None:
-        return [random_tree(basis, max_depth=max_depth, force_op=True)
-                for _ in range(size)]
-    pop = [seed_tree.clone()]
+    """
+    Initial population: random trees, or mutants around a seed formula.
+
+    Budget-checked like breeding is. Skipping the check here quietly breaks
+    fixed-K runs: mutation grows trees, so a population seeded from a K-node
+    formula starts above K and every later generation inherits the violation
+    through the elites.
+    """
+    def _draw():
+        if seed_tree is None:
+            return random_tree(basis, max_depth=max_depth, force_op=True)
+        return mutate_tree(seed_tree, basis, intensity=intensity)
+
+    pop = [seed_tree.clone()] if seed_tree is not None else []
+    attempts = 0
+    max_attempts = size * 20
     while len(pop) < size:
-        pop.append(mutate_tree(seed_tree, basis, intensity=intensity))
+        attempts += 1
+        cand = _draw()
+        if within_budget(cand, basis) or attempts > max_attempts:
+            pop.append(cand)
     return pop
