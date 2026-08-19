@@ -39,7 +39,7 @@ import runs as runs_mod
 import pieces
 from env import TetrisEnv
 from cnn_oracle import TetrisCNN, get_device, describe_device, obs_to_tensors
-from eml_distiller import EMLNode, EMLPolicy, play_episodes
+from eml_distiller import EMLNode, EMLPolicy, score_episodes
 
 # ── Catppuccin Mocha palette ─────────────────────────────────────────────────
 BG     = "#1e1e2e"
@@ -617,9 +617,10 @@ class DistillTab:
         add("episodes", "episodes", config.EML_DATASET_EPISODES)
 
         _sep(p)
-        tk.Label(p, text="batch (variants>1 = a batch of formulas)", bg=BG2, fg=FG2,
+        tk.Label(p, text="batch (configs x seeds > 1 = a batch)", bg=BG2, fg=FG2,
                  font=("Consolas", 7)).pack()
-        add("variants", "variants", config.EML_BATCH_VARIANTS)
+        add("configs", "configs", config.EML_BATCH_CONFIGS)
+        add("seeds", "GA seeds", config.EML_BATCH_SEEDS)
         self._hp["spread"] = ParamRow(p, "spread ±", config.EML_BATCH_SPREAD,
                                       fmt=float)
 
@@ -744,7 +745,8 @@ class DistillTab:
         dp_name = self._dp_var.get()
         reuse = self._reuse_var.get()
         joint = self._joint_var.get()
-        n_variants = max(1, hp.get("variants", 1))
+        n_configs = max(1, hp.get("configs", 1))
+        n_seeds = max(1, hp.get("seeds", 1))
         spread = max(0.0, hp.get("spread", 0.0))
 
         def _run():
@@ -760,14 +762,16 @@ class DistillTab:
                     data_generations=hp["data_gen"],
                     data_population=hp["data_pop"],
                     joint=joint,
-                    eval_games=hp["joint_games"],
+                    # eval_games is the HOLDOUT size and stays at
+                    # config.EML_TEST_GAMES: it must not shrink to the 3 games
+                    # the GAME phase uses for fitness.
                     on_event=lambda ev: self._q.put(ev),
                     should_stop=self._stop_evt.is_set,
                     verbose=False,
                 )
-                if n_variants > 1:
-                    batch_distill(n_variants=n_variants, spread=spread,
-                                  **common)
+                if n_configs * n_seeds > 1:
+                    batch_distill(n_configs=n_configs, n_seeds=n_seeds,
+                                  spread=spread, **common)
                 else:
                     full_distill(depth_penalty_name=dp_name, **common)
             except Exception as exc:  # noqa: BLE001 — show the error in the GUI
@@ -822,10 +826,10 @@ class DistillTab:
             sv['variant'].set(f"{ev['variant'] + 1}/{ev['total']}")
             p = ev['params']
             self._log_write(
-                f"— variant {ev['variant'] + 1}/{ev['total']}: "
+                f"— run {ev['variant'] + 1}/{ev['total']}: "
+                f"cfg={p.get('config_id')} ga_seed={p.get('ga_seed')} "
                 f"dp={p['depth_penalty']} gen={p['generations']} "
-                f"pop={p['population']} depth<={p['max_depth']} "
-                f"seed={p['seed']}")
+                f"pop={p['population']} depth<={p['max_depth']}")
             # Every variant has its own curves.
             self._data_fit = {a: ([], []) for a in range(N_FORMULAS)}
             self._joint_x.clear()
@@ -833,8 +837,8 @@ class DistillTab:
             return True
         elif t == 'variant_done':
             self._log_write(
-                f"  variant {ev['variant'] + 1}/{ev['total']} -> "
-                f"{ev['final_lines']:.1f} lines, AST {ev['size']}: "
+                f"  run {ev['variant'] + 1}/{ev['total']} -> "
+                f"val {ev['val_lines']:.1f} lines, AST {ev['size']}: "
                 f"{ev['formula']}")
         elif t == 'data_gen':
             xs, ys = self._data_fit[ev['action']]
@@ -848,13 +852,15 @@ class DistillTab:
                 f"  f[{ev['name']}] D{ev['depth']} S{ev['size']} "
                 f"V{ev['nvars']}  fit={ev['fitness']:.2f}")
         elif t == 'base_score':
-            self._log_write(f"DATA joint score: {ev['base_lines']:.2f} lines/game")
+            self._log_write(f"DATA phase val score: {ev['base_lines']:.2f} lines/game")
             sv['eml'].set(f"{ev['base_lines']:.2f}")
         elif t == 'joint_gen':
+            # Plot the validation score, not the training fitness: the training
+            # seeds rotate every generation, so that curve is mostly rotation.
             self._joint_x.append(ev['gen'])
-            self._joint_y.append(ev['lines'])
+            self._joint_y.append(ev.get('val_lines', ev['lines']))
             sv['jgen'].set(f"{ev['gen'] + 1}/{ev['generations']}")
-            sv['jlines'].set(f"{ev['lines']:.2f}")
+            sv['jlines'].set(f"{ev.get('val_lines', ev['lines']):.2f}")
             return True
         elif t == 'done':
             self._on_done(ev)
@@ -874,8 +880,13 @@ class DistillTab:
         sv['ratio'].set(f"{ev['ratio_pct']:.1f}%")
         sv['size'].set(f"{ev['total_size']}")
         self._log_write(
-            f"DONE — EML {ev['eml_lines']:.2f} vs oracle {ev['oracle_lines']:.2f} "
-            f"({ev['ratio_pct']:.1f}%), AST size {ev['total_size']}")
+            f"DONE — holdout: EML {ev['eml_lines']:.2f} vs oracle "
+            f"{ev['oracle_lines']:.2f} ({ev['ratio_pct']:.1f}%), "
+            f"AST size {ev['total_size']}")
+        if 'val_lines' in ev:
+            self._log_write(
+                f"       selection val {ev['val_lines']:.2f} — biased upward, "
+                f"report the holdout figure")
         if ev.get('run_dir'):
             self._log_write(f"Run archive -> {ev['run_dir']}")
         for a, f in enumerate(ev['formulas']):
@@ -1612,9 +1623,12 @@ class FormulasTab:
 
         self._btn_cmp.config(state=tk.DISABLED)
         self._lbl_status.config(text="comparing…", fg=YELLOW)
+        # One game per seed, seed..seed+n_games-1: every formula in the
+        # comparison plays exactly the same games.
+        seeds = list(range(seed, seed + n_games))
         self._results_write(f"— comparing {len(paths)} formula(s), "
                             f"{n_games} games × {max_pl} placements, "
-                            f"seed {seed}\n")
+                            f"seeds {seeds[0]}..{seeds[-1]}\n")
 
         def _run():
             rows = []
@@ -1623,9 +1637,8 @@ class FormulasTab:
                 try:
                     trees, _ = storage.load_formulas(EMLNode, p)
                     _check_formula_compat(trees)
-                    lines, steps = play_episodes(
-                        trees[0], n_games=n_games,
-                        max_placements=max_pl, seed=seed)
+                    ep = score_episodes(trees[0], seeds, max_pl)
+                    lines, steps = ep['avg_lines'], ep['avg_steps']
                     size = trees[0].size()
                     rows.append((lines, steps, size, name, None))
                     self._q.put(('row', (lines, steps, size, name, None)))

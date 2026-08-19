@@ -300,11 +300,14 @@ def collect_dataset(
         n_episodes = config.EML_DATASET_EPISODES
     if max_frames is None:
         max_frames = config.GA_MAX_FRAMES
-    env = FlappyEnv()
     states_list = []
     targets_list = []
 
-    for _ in range(n_episodes):
+    # One env per episode with its own seed: reproducible, and the layouts stay
+    # clear of the TRAIN/VAL/TEST pools, so no evaluation ever runs on pipes the
+    # formula was distilled from.
+    for ep in range(n_episodes):
+        env = FlappyEnv(seed=config.EML_DATA_SEED * 100_000 + ep)
         state = env.reset()
         frames = 0
         while not env.done and frames < max_frames:
@@ -420,32 +423,65 @@ class EMLAgent:
         return self.tree.to_string()
 
 
-def _ingame_fitness(tree: EMLNode, n_games: int = 3,
-                    max_frames: int | None = None) -> float:
+def pool_slice(pool: list[int], n_games: int, offset: int = 0) -> list[int]:
+    """n_games seeds from the pool, starting at offset (wraps around)."""
+    if not pool:
+        raise ValueError("empty seed pool")
+    return [pool[(offset + i) % len(pool)] for i in range(n_games)]
+
+
+def play_episodes(tree: EMLNode, seeds,
+                  max_frames: int | None = None) -> tuple[list[int], list[int]]:
     """
-    In-game fitness: run the formula in FlappyEnv and compute the score.
-    fitness = avg_score * 100 + avg_frames (as for the GA).
+    Play one game per seed. Returns (score_per_game, frames_per_game).
+
+    A fresh FlappyEnv per seed: every formula meets exactly the same pipe
+    layouts, which is what makes two fitness values comparable.
     """
     if max_frames is None:
         max_frames = config.GA_MAX_FRAMES
-    env = FlappyEnv()
     agent = EMLAgent(tree)
-    total_score = 0
-    total_frames = 0
-
-    for _ in range(n_games):
+    scores: list[int] = []
+    frames: list[int] = []
+    for s in seeds:
+        env = FlappyEnv(seed=int(s))
         state = env.reset()
         f = 0
         while not env.done and f < max_frames:
             action = agent.get_action(state)
             state, _, _ = env.step(action)
             f += 1
-        total_score += env.score
-        total_frames += f
+        scores.append(env.score)
+        frames.append(f)
+    return scores, frames
 
-    avg_score = total_score / n_games
-    avg_frames = total_frames / n_games
-    return avg_score * 100.0 + avg_frames
+
+def score_episodes(tree: EMLNode, seeds, max_frames: int | None = None) -> dict:
+    """play_episodes + the aggregates every caller needs (mean/std/fitness)."""
+    scores, frames = play_episodes(tree, seeds, max_frames)
+    sc = np.asarray(scores, dtype=np.float64)
+    fr = np.asarray(frames, dtype=np.float64)
+    return {
+        'scores': scores, 'frames': frames, 'seeds': [int(s) for s in seeds],
+        'avg_score': float(sc.mean()),
+        'std_score': float(sc.std(ddof=1)) if len(sc) > 1 else 0.0,
+        'avg_frames': float(fr.mean()),
+        'fitness': float(sc.mean() * 100.0 + fr.mean()),
+    }
+
+
+def _ingame_fitness(tree: EMLNode, seeds=None,
+                    max_frames: int | None = None) -> float:
+    """
+    In-game fitness: run the formula in FlappyEnv and compute the score.
+    fitness = avg_score * 100 + avg_frames (as for the GA).
+
+    seeds: the layouts to play. Defaults to the head of the TRAIN pool; callers
+    that evolve should rotate the offset per generation.
+    """
+    if seeds is None:
+        seeds = pool_slice(config.EML_SEED_POOL_TRAIN, config.EML_INGAME_GAMES)
+    return score_episodes(tree, seeds, max_frames)['fitness']
 
 
 # ── Main evolution loop ─────────────────────────────────────────────────────
@@ -502,6 +538,13 @@ def evolve_eml(
     patience_counter = 0
     stop_reason = ''
 
+    # Hall of fame (GAME phase): fixed layouts from the VAL pool, never used as
+    # fitness, so they can decide which generation's champion actually wins.
+    max_frames = config.GA_MAX_FRAMES
+    val_seeds = pool_slice(config.EML_SEED_POOL_VAL, config.EML_VAL_GAMES)
+    best_val_fitness = -float('inf')
+    best_val_result = None
+
     subsample_size = min(5000, len(states))
 
     t0 = time.perf_counter()
@@ -528,14 +571,19 @@ def evolve_eml(
 
         # ── Fitness ──────────────────────────────────────────────────────
         if use_ingame:
-            # In-game: every tree plays 3 games
+            # In-game: every tree plays the SAME layouts this generation
+            # (common random numbers), rotated across generations so the
+            # population cannot settle into one lucky set of pipes.
+            n_games = config.EML_INGAME_GAMES
+            gen_seeds = pool_slice(config.EML_SEED_POOL_TRAIN, n_games,
+                                   offset=gen * n_games)
             fitness_scores = []
             for tree in population:
                 n_vars = tree.n_unique_vars()
                 if n_vars == 0:
                     fitness_scores.append(0.0)
                 else:
-                    f = _ingame_fitness(tree, n_games=3)
+                    f = _ingame_fitness(tree, gen_seeds)
                     # Depth penalty (milder than in dataset mode)
                     f = max(0.0, f - dp * tree.depth() * 50.0)
                     fitness_scores.append(f)
@@ -577,9 +625,23 @@ def evolve_eml(
         }
         history.append(gen_stats)
 
-        # Save the best
-        if best_fitness > best_fitness_ever:
-            best_fitness_ever = best_fitness
+        # Save the best. In the GAME phase the champion is re-scored on the
+        # disjoint VAL pool first: training fitness now comes from a different
+        # set of layouts every generation, so a running max over it would keep
+        # whichever generation drew the kindest pipes, not the best formula.
+        if use_ingame:
+            val_res = score_episodes(best_tree, val_seeds, max_frames)
+            gen_stats['val_score'] = val_res['avg_score']
+            gen_stats['val_fitness'] = val_res['fitness']
+            improved = val_res['fitness'] > best_val_fitness
+            if improved:
+                best_val_fitness = val_res['fitness']
+                best_val_result = val_res
+        else:
+            improved = best_fitness > best_fitness_ever
+
+        if improved:
+            best_fitness_ever = max(best_fitness_ever, best_fitness)
             best_tree_ever = best_tree.clone()
             patience_counter = 0
         else:
@@ -634,6 +696,9 @@ def evolve_eml(
     if best_tree_ever is None:
         best_tree_ever = population[0]
 
+    if best_val_result is None:
+        best_val_result = score_episodes(best_tree_ever, val_seeds, max_frames)
+
     return {
         'best_tree': best_tree_ever,
         'best_agent': EMLAgent(best_tree_ever),
@@ -641,6 +706,9 @@ def evolve_eml(
         'elapsed': elapsed,
         'stopped_early': bool(stop_reason),
         'stop_reason': stop_reason,
+        # Selection metric. The reportable number comes from the TEST pool.
+        'val_result': best_val_result,
+        'val_score': best_val_result['avg_score'],
     }
 
 

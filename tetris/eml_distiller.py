@@ -302,6 +302,7 @@ def evolve_formula(
     patience: int,
     depth_penalty: float,
     subsample: int | None = None,
+    val_data: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
     verbose: bool = False,
     label: str = 'PLACE',
     should_stop=None,
@@ -310,20 +311,32 @@ def evolve_formula(
     """
     GA evolution of an EML formula (symbolic regression to the target y).
 
+    The fitness subsample is redrawn every generation, so per-generation fitness
+    values are NOT comparable to each other: a running max over them selects the
+    tree that met the friendliest subsample. val_data (rows held out by group)
+    breaks that tie honestly — the generation champion is re-scored there and the
+    returned tree is the best by validation.
+
     on_event: an optional callback(dict) for progress (GUI). Invoked every
     generation with {'type':'data_gen', ...}.
 
-    Returns: {'best_tree', 'best_fitness', 'history'}.
+    Returns: {'best_tree', 'best_fitness', 'best_val_fitness', 'history',
+              'val_history'}.
     """
     if subsample is None:
         subsample = config.EML_DATA_SUBSAMPLE
     elitism = max(1, min(elitism, population_size))
 
-    rng = np.random.default_rng(0)
+    # Derived from the seeded global RNG: reproducible per run, yet actually
+    # different across runs (a hardcoded default_rng(0) handed every "seed" the
+    # very same subsample sequence).
+    rng = np.random.default_rng(random.randrange(2 ** 63))
     population = [random_tree(max_depth=3, force_eml=True)
                  for _ in range(population_size)]
     history: list[float] = []
+    val_history: list[float] = []
     best_fitness_ever = -1.0
+    best_val_fitness = -math.inf
     best_tree_ever: EMLNode | None = None
     patience_counter = 0
 
@@ -350,9 +363,20 @@ def evolve_formula(
 
         best_fitness = fitness_scores[0]
         history.append(best_fitness)
+        best_fitness_ever = max(best_fitness_ever, best_fitness)
 
-        if best_fitness > best_fitness_ever:
-            best_fitness_ever = best_fitness
+        # Hall of fame on held-out groups (falls back to train fitness when no
+        # validation split was supplied, e.g. tiny debug datasets).
+        if val_data is not None:
+            val_fitness = _regression_fitness(
+                population[0], val_data[0], val_data[1], val_data[2],
+                depth_penalty)
+        else:
+            val_fitness = best_fitness
+        val_history.append(val_fitness)
+
+        if val_fitness > best_val_fitness:
+            best_val_fitness = val_fitness
             best_tree_ever = population[0].clone()
             patience_counter = 0
         else:
@@ -361,12 +385,14 @@ def evolve_formula(
         bt = population[0]
         if verbose and (gen % 25 == 0 or gen == generations - 1):
             print(f"      [{label}] gen {gen:>4} | fit {best_fitness:10.2f} | "
+                  f"val {val_fitness:10.2f} | "
                   f"D{bt.depth()} S{bt.size()} V{bt.n_unique_vars()} | "
                   f"i={intensity:.2f}")
         if on_event is not None:
             on_event({'type': 'data_gen', 'action': 0, 'name': label,
                       'gen': gen, 'generations': generations,
-                      'fitness': best_fitness, 'depth': bt.depth(),
+                      'fitness': best_fitness, 'val_fitness': val_fitness,
+                      'depth': bt.depth(),
                       'size': bt.size(), 'nvars': bt.n_unique_vars()})
 
         if patience > 0 and patience_counter >= patience:
@@ -398,7 +424,9 @@ def evolve_formula(
         best_tree_ever = population[0]
     return {'best_tree': best_tree_ever,
             'best_fitness': best_fitness_ever,
-            'history': history}
+            'best_val_fitness': best_val_fitness,
+            'history': history,
+            'val_history': val_history}
 
 
 # ── EML policy (one formula, argmax over placements) ──────────────────────────
@@ -446,14 +474,28 @@ class EMLPolicy:
 
 # ── GAME phase: in-game evolution of the formula ──────────────────────────────
 
-def play_episodes(tree, n_games: int, max_placements: int,
-                  seed: int) -> tuple[float, float]:
-    """Play n_games with the formula. Returns (avg_lines, avg_placements)."""
-    env = TetrisEnv(seed=seed)
+def pool_slice(pool: list[int], n_games: int, offset: int = 0) -> list[int]:
+    """n_games seeds from the pool, starting at offset (wraps around)."""
+    if not pool:
+        raise ValueError("empty seed pool")
+    return [pool[(offset + i) % len(pool)] for i in range(n_games)]
+
+
+def play_episodes(tree, seeds, max_placements: int) -> tuple[list[int], list[int]]:
+    """
+    Play exactly one game per seed. Returns (lines_per_game, placements_per_game).
+
+    A FRESH TetrisEnv per seed — this is what makes the comparison fair.
+    TetrisEnv.reset() does NOT re-seed self.rng, so reusing one env across games
+    means game k starts wherever game k-1 left the bag stream, i.e. at a position
+    that depends on how long the formula survived. Only the first game of such a
+    run is comparable across formulas; the rest silently differ per individual.
+    """
     policy = EMLPolicy(tree)
-    total_lines = 0
-    total_steps = 0
-    for _ in range(n_games):
+    lines: list[int] = []
+    steps: list[int] = []
+    for s in seeds:
+        env = TetrisEnv(seed=int(s))
         obs = env.reset()
         f = 0
         while not env.done and f < max_placements:
@@ -462,15 +504,31 @@ def play_episodes(tree, n_games: int, max_placements: int,
                 break
             obs, _, _, _ = env.step_placement(a)
             f += 1
-        total_lines += env.score
-        total_steps += f
-    return total_lines / n_games, total_steps / n_games
+        lines.append(env.score)
+        steps.append(f)
+    return lines, steps
 
 
-def _ingame_fitness(tree, n_games, max_placements, seed) -> float:
+def score_episodes(tree, seeds, max_placements: int) -> dict:
+    """play_episodes + the aggregates every caller needs (mean/std/fitness)."""
+    lines, steps = play_episodes(tree, seeds, max_placements)
+    la = np.asarray(lines, dtype=np.float64)
+    sa = np.asarray(steps, dtype=np.float64)
+    return {
+        'lines': lines,
+        'steps': steps,
+        'seeds': list(seeds),
+        'avg_lines': float(la.mean()),
+        'std_lines': float(la.std(ddof=1)) if len(la) > 1 else 0.0,
+        'avg_steps': float(sa.mean()),
+        'fitness': float(la.mean() * 100.0 + sa.mean()),
+    }
+
+
+def _ingame_fitness(tree, seeds, max_placements) -> float:
     """fitness = avg_lines * 100 + avg_placements (survival is the tie-breaker)."""
-    avg_lines, avg_steps = play_episodes(tree, n_games, max_placements, seed)
-    return avg_lines * 100.0 + avg_steps
+    lines, steps = play_episodes(tree, seeds, max_placements)
+    return sum(lines) / len(lines) * 100.0 + sum(steps) / len(steps)
 
 
 def evolve_ingame(
@@ -482,7 +540,9 @@ def evolve_ingame(
     patience: int | None = None,
     n_games: int | None = None,
     max_placements: int | None = None,
-    eval_seed: int = 1000,
+    train_pool: list[int] | None = None,
+    val_pool: list[int] | None = None,
+    val_games: int | None = None,
     verbose: bool = True,
     should_stop=None,
     on_event=None,
@@ -491,10 +551,23 @@ def evolve_ingame(
     In-game evolution of the formula: fitness = the actual score in TetrisEnv.
     Seeded with the best formula of the DATA phase.
 
+    Seed discipline (this is the part that decides whether the final number
+    means anything):
+      - every generation draws n_games seeds from train_pool at a rotating
+        offset, so the population cannot memorise one piece sequence;
+      - inside a generation all individuals share those seeds (common random
+        numbers), so ranking compares formulas, not luck;
+      - the generation champion is re-scored on the disjoint val_pool, and the
+        returned tree is the best BY VALIDATION. Taking a max of train fitness
+        across generations would select the luckiest rotation instead of the
+        best formula — the rotation makes that failure mode certain, so the
+        hall-of-fame is not optional here.
+
     on_event: an optional callback(dict), {'type':'joint_gen', ...} every
     generation.
 
-    Returns: {'best_tree', 'best_fitness', 'best_lines', 'history'}.
+    Returns: {'best_tree', 'best_fitness', 'best_lines', 'val_result',
+              'history', 'val_history'}.
     """
     if generations is None:     generations = config.EML_JOINT_GENERATIONS
     if population_size is None:  population_size = config.EML_JOINT_POPULATION
@@ -502,7 +575,12 @@ def evolve_ingame(
     if patience is None:        patience = config.EML_JOINT_PATIENCE
     if n_games is None:         n_games = config.EML_INGAME_GAMES
     if max_placements is None:  max_placements = config.EML_INGAME_MAX_PLACEMENTS
+    if train_pool is None:      train_pool = config.EML_SEED_POOL_TRAIN
+    if val_pool is None:        val_pool = config.EML_SEED_POOL_VAL
+    if val_games is None:       val_games = config.EML_VAL_GAMES
     elitism = max(1, min(elitism, population_size))
+
+    val_seeds = pool_slice(val_pool, val_games)
 
     # Population: the original plus mutants of the seed formula.
     population = [seed_tree.clone()]
@@ -510,7 +588,9 @@ def evolve_ingame(
         population.append(mutate_tree(seed_tree, intensity=0.7))
 
     history: list[float] = []
-    best_fitness_ever = -math.inf
+    val_history: list[float] = []
+    best_val_fitness = -math.inf
+    best_val_result: dict | None = None
     best_tree_ever: EMLNode | None = None
     patience_counter = 0
 
@@ -519,8 +599,9 @@ def evolve_ingame(
             break
 
         intensity = max(0.15, 1.0 - gen / (generations * 0.8))
-        # All formulas are evaluated on THE SAME seeds -> a fair comparison.
-        fitness_scores = [_ingame_fitness(t, n_games, max_placements, eval_seed)
+        # Rotate the seeds every generation, share them within the generation.
+        gen_seeds = pool_slice(train_pool, n_games, offset=gen * n_games)
+        fitness_scores = [_ingame_fitness(t, gen_seeds, max_placements)
                           for t in population]
 
         ranked = sorted(zip(fitness_scores, population),
@@ -531,8 +612,12 @@ def evolve_ingame(
         best_fitness = fitness_scores[0]
         history.append(best_fitness)
 
-        if best_fitness > best_fitness_ever:
-            best_fitness_ever = best_fitness
+        # Hall of fame: the champion is judged on seeds it never trained on.
+        val_res = score_episodes(population[0], val_seeds, max_placements)
+        val_history.append(val_res['fitness'])
+        if val_res['fitness'] > best_val_fitness:
+            best_val_fitness = val_res['fitness']
+            best_val_result = val_res
             best_tree_ever = population[0].clone()
             patience_counter = 0
         else:
@@ -540,11 +625,13 @@ def evolve_ingame(
 
         best_lines = best_fitness / 100.0
         if verbose:
-            print(f"    [GAME] gen {gen:>3} | fit {best_fitness:9.1f} | "
-                  f"~{best_lines:.1f} lines | i={intensity:.2f}")
+            print(f"    [GAME] gen {gen:>3} | train {best_fitness:9.1f} "
+                  f"(~{best_lines:.1f} lines) | val {val_res['avg_lines']:6.2f}"
+                  f"±{val_res['std_lines']:.2f} lines | i={intensity:.2f}")
         if on_event is not None:
             on_event({'type': 'joint_gen', 'gen': gen, 'generations': generations,
-                      'fitness': best_fitness, 'lines': best_lines})
+                      'fitness': best_fitness, 'lines': best_lines,
+                      'val_lines': val_res['avg_lines']})
 
         if patience > 0 and patience_counter >= patience:
             if verbose:
@@ -570,12 +657,62 @@ def evolve_ingame(
 
     if best_tree_ever is None:
         best_tree_ever = population[0]
+        best_val_result = score_episodes(best_tree_ever, val_seeds, max_placements)
     return {
         'best_tree': best_tree_ever,
-        'best_fitness': best_fitness_ever,
-        'best_lines': best_fitness_ever / 100.0,
+        'best_fitness': best_val_result['fitness'],
+        'best_lines': best_val_result['avg_lines'],
+        'val_result': best_val_result,
         'history': history,
+        'val_history': val_history,
     }
+
+
+def static_metrics(tree: EMLNode) -> dict:
+    """
+    Cheap resource proxies, readable without any hardware.
+
+    Every 'eml' node compiles to exactly one expf + one logf + one fabsf in the
+    generated C, so the transcendental call count — the number that decides
+    whether this runs on a Cortex-M without an FPU — is just the operator count.
+    """
+    n_eml = n_var = n_const = 0
+    for node in _collect_nodes(tree):
+        if node.kind == 'eml':
+            n_eml += 1
+        elif node.kind == 'var':
+            n_var += 1
+        else:
+            n_const += 1
+    return {
+        'nodes': n_eml + n_var + n_const,
+        'depth': tree.depth(),
+        'n_eml': n_eml,
+        'n_exp': n_eml,
+        'n_log': n_eml,
+        'n_leaves': n_var + n_const,
+        'n_const': n_const,
+        'n_vars_unique': tree.n_unique_vars(),
+    }
+
+
+def split_groups(groups: np.ndarray, val_fraction: float,
+                 rng) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Row masks for a GROUP-wise train/val split of the distillation dataset.
+
+    The split has to be by group (= one board state with all its legal
+    placements), not by row: the formula is only ever asked to rank placements
+    within one step, so a step split across train and val would make validation
+    almost free and useless as a check.
+    """
+    uniq = np.unique(groups)
+    n_val = int(round(len(uniq) * val_fraction))
+    if n_val < 1 or n_val >= len(uniq):
+        return np.ones(len(groups), dtype=bool), np.zeros(len(groups), dtype=bool)
+    val_groups = rng.choice(uniq, size=n_val, replace=False)
+    val_mask = np.isin(groups, val_groups)
+    return ~val_mask, val_mask
 
 
 def _standardize_per_group(y: np.ndarray, groups: np.ndarray) -> np.ndarray:
@@ -637,6 +774,7 @@ def distill(
     dp = DEPTH_PENALTIES[depth_penalty_name]
     X = np.ascontiguousarray(features, dtype=np.float64)
     y = np.asarray(logits, dtype=np.float64).reshape(-1)
+    w = np.asarray(weights, dtype=np.float64).reshape(-1)
 
     # Target normalization. The absolute scale of the oracle logits is arbitrary
     # (mean -46, std 48 on a real dataset) — only the RANKING of placements
@@ -648,19 +786,32 @@ def distill(
     else:
         y = (y - y.mean()) / (y.std() + 1e-8)
 
+    # Group-wise train/val split of the dataset (see split_groups).
+    if groups is not None:
+        split_rng = np.random.default_rng(random.randrange(2 ** 63))
+        tr_mask, va_mask = split_groups(
+            np.asarray(groups), config.EML_DATA_VAL_FRACTION, split_rng)
+        val_data = (X[va_mask], y[va_mask], w[va_mask]) if va_mask.any() else None
+        X_tr, y_tr, w_tr = X[tr_mask], y[tr_mask], w[tr_mask]
+    else:
+        val_data = None
+        X_tr, y_tr, w_tr = X, y, w
+
     # ── DATA phase: regression of a single formula ───────────────────────────
     _emit({'type': 'phase', 'phase': 'data', 'n_actions': 1})
     if verbose:
+        n_val = 0 if val_data is None else len(val_data[0])
         print(f"  [DATA] evolving placement-value formula "
-              f"({len(X):,} samples)")
+              f"({len(X_tr):,} train / {n_val:,} val samples)")
     _emit({'type': 'data_action_start', 'action': 0, 'name': 'PLACE'})
     res = evolve_formula(
-        X, y, weights,
+        X_tr, y_tr, w_tr,
         generations=data_generations,
         population_size=data_population,
         elitism=config.EML_ELITISM,
         patience=config.EML_PATIENCE,
         depth_penalty=dp,
+        val_data=val_data,
         verbose=verbose,
         label='PLACE',
         should_stop=should_stop,
@@ -676,12 +827,16 @@ def distill(
            'size': data_tree.size(), 'nvars': data_tree.n_unique_vars(),
            'formula': data_tree.to_string()})
 
-    # Baseline in-game score of the DATA phase formula (before in-game tuning).
-    base_lines, _ = play_episodes(
-        data_tree, config.EML_INGAME_GAMES,
-        config.EML_INGAME_MAX_PLACEMENTS, seed=1000)
+    # Baseline in-game score of the DATA phase formula (before in-game tuning),
+    # measured on the VAL pool — the same seeds the GAME phase champion will be
+    # judged on, so the two phases are actually comparable.
+    val_seeds = pool_slice(config.EML_SEED_POOL_VAL, config.EML_VAL_GAMES)
+    base_val = score_episodes(data_tree, val_seeds,
+                              config.EML_INGAME_MAX_PLACEMENTS)
+    base_lines = base_val['avg_lines']
     if verbose:
-        print(f"  DATA-phase in-game score: {base_lines:.2f} lines/game")
+        print(f"  DATA-phase val score: {base_lines:.2f}±{base_val['std_lines']:.2f} "
+              f"lines/game ({len(val_seeds)} games)")
     _emit({'type': 'base_score', 'base_lines': base_lines})
 
     # ── GAME phase: in-game tuning ──────────────────────────────────────────
@@ -692,18 +847,19 @@ def distill(
         jres = evolve_ingame(data_tree, verbose=verbose,
                              should_stop=should_stop, on_event=on_event)
         final_tree = jres['best_tree']
-        joint_lines = jres['best_lines']
-        # Do not let the GAME phase make the result worse than DATA.
-        if joint_lines < base_lines:
+        val_result = jres['val_result']
+        # Do not let the GAME phase make the result worse than DATA (both
+        # numbers now come from the same val seeds).
+        if val_result['avg_lines'] < base_lines:
             if verbose:
-                print(f"  GAME ({joint_lines:.2f}) < DATA ({base_lines:.2f}) "
-                      f"-> keep DATA tree")
+                print(f"  GAME ({val_result['avg_lines']:.2f}) < "
+                      f"DATA ({base_lines:.2f}) -> keep DATA tree")
             final_tree = data_tree
-            joint_lines = base_lines
+            val_result = base_val
     else:
         jres = None
         final_tree = data_tree
-        joint_lines = base_lines
+        val_result = base_val
 
     return {
         'trees': [final_tree],
@@ -711,7 +867,13 @@ def distill(
         'data_results': [res],
         'joint_result': jres,
         'base_lines': base_lines,
-        'final_lines': joint_lines,
+        'base_val': base_val,
+        # Selection metric. NOT the number to report: the winner of a batch is
+        # picked by it, so it is biased upward. The report comes from the TEST
+        # pool (pipeline.evaluate_holdout), which nothing selects on.
+        'val_lines': val_result['avg_lines'],
+        'val_result': val_result,
+        'static': static_metrics(final_tree),
         'depth_penalty': depth_penalty_name,
         'dataset_size': len(features),
     }

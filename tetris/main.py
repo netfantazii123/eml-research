@@ -408,9 +408,12 @@ def cmd_test_distill():
         (config.EML_JOINT_GENERATIONS, config.EML_JOINT_POPULATION,
          config.EML_INGAME_GAMES, config.EML_INGAME_MAX_PLACEMENTS) = config_backup
     _check(len(res['trees']) == 1, "distill trees count")
-    lines, steps = play_episodes(
-        res['trees'][0], n_games=2, max_placements=40, seed=7)
-    print(f"  distilled formula: {lines:.1f} lines, {steps:.0f} placements/game")
+    _check('val_lines' in res and 'static' in res, "distill result keys")
+    lines, steps = play_episodes(res['trees'][0], [7, 8], max_placements=40)
+    st = res['static']
+    print(f"  distilled formula: {np.mean(lines):.1f} lines, "
+          f"{np.mean(steps):.0f} placements/game, "
+          f"{st['nodes']} nodes / {st['n_exp']} expf+logf pairs")
 
     print("\n" + "=" * 56)
     print("  [OK] Distillation smoke test passed!")
@@ -424,39 +427,39 @@ def cmd_distill():
     import config
 
     # Flags: --reuse-data (dataset cache), --no-joint (without the GAME phase),
-    #        --batch [N] (a batch of formulas), --spread X (parameter spread).
+    #        --batch (grid mode), --configs N, --seeds N, --spread X.
     args = [a.lower() for a in sys.argv[2:]]
     reuse_data = '--reuse-data' in args
     do_joint = '--no-joint' not in args
 
-    batch_n = None
-    if '--batch' in args:
-        batch_n = config.EML_BATCH_VARIANTS
-        idx = args.index('--batch')
-        if idx + 1 < len(args):
-            try:
-                batch_n = int(args[idx + 1])
-            except ValueError:
-                pass
-    spread = config.EML_BATCH_SPREAD
-    if '--spread' in args:
-        idx = args.index('--spread')
-        if idx + 1 < len(args):
-            try:
-                spread = float(args[idx + 1])
-            except ValueError:
-                pass
+    def _num(flag, default, cast=int):
+        if flag in args:
+            idx = args.index(flag)
+            if idx + 1 < len(args):
+                try:
+                    return cast(args[idx + 1])
+                except ValueError:
+                    pass
+        return default
+
+    do_batch = '--batch' in args or '--configs' in args or '--seeds' in args
+    n_configs = _num('--configs', config.EML_BATCH_CONFIGS)
+    # `--batch N` keeps working and now means N replicate seeds of one config,
+    # which is what the old flag should have meant all along.
+    n_seeds = _num('--seeds', _num('--batch', config.EML_BATCH_SEEDS))
+    spread = _num('--spread', config.EML_BATCH_SPREAD, float)
 
     print("=" * 56)
     print("   EML Distillation — TetrisCNN -> formula")
     print("=" * 56)
-    mode = f"batch x{batch_n} (spread ±{spread:.0%})" if batch_n else "single"
+    mode = (f"batch {n_configs} configs x {n_seeds} seeds (spread ±{spread:.0%})"
+            if do_batch else "single")
     print(f"  Device: {get_device()}  | {mode}  reuse_data={reuse_data}  "
           f"joint={do_joint}")
 
-    if batch_n:
+    if do_batch:
         summary = batch_distill(
-            n_variants=batch_n, spread=spread,
+            n_configs=n_configs, n_seeds=n_seeds, spread=spread,
             reuse_data=reuse_data, joint=do_joint, verbose=True)
     else:
         summary = full_distill(
@@ -466,23 +469,34 @@ def cmd_distill():
     print("   Distillation summary")
     print("=" * 56)
     if 'variants' in summary:
-        print(f"  {'#':<3}{'lines':>8}{'size':>6}{'depth':>7}"
-              f"{'dp':>8}{'gen':>6}{'pop':>6}")
-        for v in sorted(summary['variants'],
-                        key=lambda x: -x['final_lines']):
+        print(f"  {'run':<10}{'cfg':>4}{'seed':>6}{'val':>8}{'size':>6}"
+              f"{'depth':>7}{'dp':>8}{'gen':>6}{'pop':>6}")
+        for v in sorted(summary['variants'], key=lambda x: -x['val_lines']):
             p = v['params']
-            print(f"  {v['variant']:<3}{v['final_lines']:>8.1f}"
-                  f"{v['size']:>6}{v['depth']:>7}{p['depth_penalty']:>8}"
-                  f"{p['generations']:>6}{p['population']:>6}")
+            print(f"  {v['label']:<10}{v['config_id']:>4}{v['ga_seed']:>6}"
+                  f"{v['val_lines']:>8.1f}{v['size']:>6}{v['depth']:>7}"
+                  f"{p['depth_penalty']:>8}{p['generations']:>6}"
+                  f"{p['population']:>6}")
+        # Seed spread within a configuration: if it swamps the gap between
+        # configurations, the ranking above is noise.
+        print(f"\n  {'cfg':<5}{'seeds':>6}{'val mean':>10}{'std':>8}"
+              f"{'min':>8}{'max':>8}")
+        for row in summary['per_config']:
+            print(f"  {row['config_id']:<5}{row['n_seeds']:>6}"
+                  f"{row['val_mean']:>10.2f}{row['val_std']:>8.2f}"
+                  f"{row['val_min']:>8.2f}{row['val_max']:>8.2f}")
         print(f"  Run dir: {summary['run_dir']}")
     t = summary['trees'][0]
     print(f"\n  BEST f[PLACE]  D{t.depth()} S{t.size()} V{t.n_unique_vars()}:")
     print(f"    {t.to_string()[:200]}")
-    print(f"\n  EML lines/game:    {summary['eml_lines']:.2f}")
-    print(f"  Oracle lines/game: {summary['oracle_lines']:.2f}")
+    print(f"\n  Selection (val):   {summary['val_lines']:.2f} lines/game")
+    print(f"  HOLDOUT EML:       {summary['eml_lines']:.2f} lines/game")
+    print(f"  HOLDOUT oracle:    {summary['oracle_lines']:.2f} lines/game")
     print(f"  EML / Oracle:      {summary['ratio_pct']:.1f}%  (target >= 50%)")
     print(f"  AST size:          {summary['total_size']} nodes")
     print(f"  Saved formula ->   {summary['path']}")
+    print("\n  Report the HOLDOUT numbers: they come from seeds nothing was")
+    print("  selected on. The val figure is a maximum over runs and is biased.")
 
 
 def cmd_bench():

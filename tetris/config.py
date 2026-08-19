@@ -152,12 +152,19 @@ EML_VAR_BONUS = 0.03              # fitness bonus per unique variable used
 EML_DATA_TOP_WEIGHT = 3.0         # extra weight for examples the oracle is sure of
 
 # ── Batch distillation ───────────────────────────────────────────────────────
-# Distill a whole batch of formulas at once with a controlled spread of GA
-# parameters (generations, population, depth penalty, depth, var bonus,
-# evolution seed). The dataset is collected ONCE for the whole batch. The best
-# formula -> best_eml.json, all variants + summary -> runs/<date>_distill/.
-EML_BATCH_VARIANTS = 5      # formulas per batch
+# A batch is a grid: EML_BATCH_CONFIGS configurations x EML_BATCH_SEEDS GA seeds.
+# The dataset is collected ONCE for the whole batch. The best run (by VAL) ->
+# best_eml.json, every run + per-config spread -> runs/<date>_distill_batch/.
+#
+# The two axes are kept apart deliberately. Jittering hyper-parameters and the
+# seed together — as the old EML_BATCH_VARIANTS did — produces runs that differ
+# in everything at once, so the seed-to-seed spread cannot be separated from the
+# effect of the parameters, and a batch can only rank runs it cannot distinguish.
+# Default shape: one configuration, five seeds (a replicate study).
+EML_BATCH_CONFIGS = 1       # GA configurations per batch
+EML_BATCH_SEEDS = 5         # GA seeds per configuration (replicates)
 EML_BATCH_SPREAD = 0.3      # parameter spread: ±30% on numeric values
+EML_GA_SEED_BASE = 20       # GA seeds are BASE, BASE+1, ... (not env seeds)
 
 # ── Joint (in-game) distillation phase ───────────────────────────────────────
 # The DATA phase regresses the formula to the oracle logits, the GAME phase
@@ -168,6 +175,30 @@ EML_JOINT_POPULATION = 60         # GAME phase population size
 EML_JOINT_GENERATIONS = 40        # GAME phase generations
 EML_JOINT_ELITISM = 6             # elite formulas
 EML_JOINT_PATIENCE = 12           # generations without improvement -> stop
+
+# ── Environment seed pools (disjoint) ────────────────────────────────────────
+# Fitness, selection and reporting must not share environment seeds. Selecting a
+# formula by the same number that is later reported turns the report into a
+# maximum over noise, and the reported score is then biased upward regardless of
+# how many episodes it averages. Three disjoint pools, mirroring train/val/test:
+#
+#   TRAIN — GA fitness only. Rotated across generations so no single piece
+#           sequence can be memorised; inside one generation every individual
+#           gets the SAME seeds (common random numbers), otherwise selection
+#           compares formulas across different games and becomes a lottery.
+#   VAL   — hall-of-fame re-scoring and picking the best batch variant. Never
+#           enters a fitness function.
+#   TEST  — the final reported score. Touched once per run, on the winner only.
+#
+# The distillation dataset uses its own stream (dataset_collector seed=0), which
+# is disjoint from all three.
+EML_SEED_POOL_TRAIN = list(range(1000, 1064))   # 64 seeds, rotated per generation
+EML_SEED_POOL_VAL = list(range(3000, 3032))     # 32 seeds
+EML_SEED_POOL_TEST = list(range(5000, 5064))    # 64 seeds, reporting only
+
+EML_VAL_GAMES = 8        # games per hall-of-fame re-scoring (VAL pool)
+EML_TEST_GAMES = 30      # games in the final holdout report (TEST pool)
+EML_DATA_VAL_FRACTION = 0.15   # fraction of dataset GROUPS held out for DATA val
 
 DEPTH_PENALTIES = {
     'weak':   0.01,
