@@ -650,11 +650,31 @@ class DistillTab:
         om["menu"].config(bg=BG3, fg=FG, font=("Consolas", 8))
         om.pack(side=tk.LEFT, padx=(2, 0))
 
+        # Basis: the control-group switch. 'classic' runs the identical pipeline
+        # on + - * / exp log tanh, which is what makes an EML number mean
+        # something rather than just exist.
+        basis_row = tk.Frame(p, bg=BG2)
+        basis_row.pack(fill=tk.X, padx=6, pady=2)
+        tk.Label(basis_row, text="basis", bg=BG2, fg=FG2,
+                 font=("Consolas", 8), width=13, anchor="w").pack(side=tk.LEFT)
+        self._basis_var = tk.StringVar(value=config.EML_BASIS)
+        bm = tk.OptionMenu(basis_row, self._basis_var, "eml", "classic")
+        bm.config(bg=BG3, fg=FG, font=("Consolas", 8), relief=tk.FLAT,
+                  highlightthickness=0, activebackground=BG3, width=8)
+        bm["menu"].config(bg=BG3, fg=FG, font=("Consolas", 8))
+        bm.pack(side=tk.LEFT, padx=(2, 0))
+
+        # Hard node budget. 0 = unbounded (NSGA-II spreads over sizes by
+        # itself); a positive value is a fixed-K anchor run.
+        self._hp["k_budget"] = ParamRow(p, "node budget K", 0, fmt=int)
+
         # Checkboxes.
         self._reuse_var = tk.BooleanVar(value=False)
         self._joint_var = tk.BooleanVar(value=True)
+        self._refine_var = tk.BooleanVar(value=config.EML_PARETO_REFINE)
         for var, text in [(self._reuse_var, "reuse cached dataset"),
-                          (self._joint_var, "run GAME phase")]:
+                          (self._joint_var, "run GAME phase"),
+                          (self._refine_var, "refine R(K) points (slow)")]:
             tk.Checkbutton(
                 p, text=text, variable=var, bg=BG2, fg=FG2,
                 selectcolor=BG3, activebackground=BG2, activeforeground=FG,
@@ -745,8 +765,17 @@ class DistillTab:
         dp_name = self._dp_var.get()
         reuse = self._reuse_var.get()
         joint = self._joint_var.get()
+        basis_name = self._basis_var.get()
+        # 0 in the field means "no budget", which the pipeline spells as None.
+        k_budget = self._hp["k_budget"].get() or 0
+        max_nodes = k_budget if k_budget > 0 else None
+        refine = self._refine_var.get()
         n_configs = max(1, hp.get("configs", 1))
         n_seeds = max(1, hp.get("seeds", 1))
+        self._log_write(
+            f"basis={basis_name}  K={max_nodes or 'unbounded'}  "
+            f"{n_configs} config(s) x {n_seeds} seed(s)  "
+            f"R(K) points {'refined' if refine else 'unrefined (fitness only)'}")
         spread = max(0.0, hp.get("spread", 0.0))
 
         def _run():
@@ -755,6 +784,7 @@ class DistillTab:
             config.EML_JOINT_GENERATIONS = hp["joint_gen"]
             config.EML_JOINT_POPULATION = hp["joint_pop"]
             config.EML_INGAME_GAMES = hp["joint_games"]
+            config.EML_PARETO_REFINE = refine
             try:
                 common = dict(
                     n_episodes=hp["episodes"],
@@ -762,6 +792,8 @@ class DistillTab:
                     data_generations=hp["data_gen"],
                     data_population=hp["data_pop"],
                     joint=joint,
+                    basis_name=basis_name,
+                    max_nodes=max_nodes,
                     # eval_games is the HOLDOUT size and stays at
                     # config.EML_TEST_GAMES: it must not shrink to the 3 games
                     # the GAME phase uses for fitness.
@@ -854,6 +886,20 @@ class DistillTab:
         elif t == 'base_score':
             self._log_write(f"DATA phase val score: {ev['base_lines']:.2f} lines/game")
             sv['eml'].set(f"{ev['base_lines']:.2f}")
+        elif t == 'pareto':
+            pts = ev.get('points') or []
+            if pts:
+                self._log_write(f"R(K) over {len(pts)} node budgets "
+                                f"(full curve -> results/pareto_curve.csv):")
+                for row in pts:
+                    # val_lines is only a game result when the points were
+                    # refined; otherwise these are DATA-phase trees and the
+                    # meaningful column is the fitness.
+                    self._log_write(
+                        f"   K={row['k']:>4}  {row['val_lines']:6.2f} lines  "
+                        f"fit {row['val_fitness']:7.2f}  "
+                        f"{row['n_transcendental']:>3} exp+log"
+                        + ("" if row.get('refined') else "   [unrefined]"))
         elif t == 'joint_gen':
             # Plot the validation score, not the training fitness: the training
             # seeds rotate every generation, so that curve is mostly rotation.
@@ -941,7 +987,7 @@ class DistillTab:
     def _read_hp(self) -> dict | None:
         out = {}
         for k in ["episodes", "data_gen", "data_pop",
-                  "joint_gen", "joint_pop", "joint_games", "variants"]:
+                  "joint_gen", "joint_pop", "joint_games", "configs", "seeds"]:
             v = self._hp[k].get()
             if v is None or v <= 0:
                 messagebox.showerror("Bad value", f"Invalid value for: {k}")
