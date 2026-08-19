@@ -9,271 +9,57 @@ Pipeline:
 EML operator: eml(x, y) = exp(x) - ln(|y| + eps)
 """
 
+import os
+import sys
 import math
-import copy
 import time
 import random
+
 import numpy as np
 
+# emlcore lives at the repository root, one level above this task directory.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import config
-from config import EML_EPSILON, DEPTH_PENALTIES
+from config import DEPTH_PENALTIES
 from env import FlappyEnv
 from ga_net import GANet
 
-
-# ── EML operator ────────────────────────────────────────────────────────────
-
-def eml_op(x: float, y: float) -> float:
-    """eml(x, y) = exp(clamp(x)) - ln(|y| + eps). NaN-safe."""
-    x_clamped = max(-10.0, min(10.0, x))
-    return math.exp(x_clamped) - math.log(abs(y) + EML_EPSILON)
+from emlcore import Node, eml_basis, search, static_metrics, pool_slice
 
 
-# ── AST tree ────────────────────────────────────────────────────────────────
+# ── Basis ────────────────────────────────────────────────────────────────────
 
-class EMLNode:
-    """
-    A node of the EML formula AST.
+VAR_NAMES = ('y', 'vel', 'dx', 'gap')
 
-    Kinds:
-        'eml'   — eml(left, right)
-        'var'   — input variable (index 0..3)
-        'const' — numeric constant
-    """
 
-    __slots__ = ('kind', 'left', 'right', 'var_idx', 'value')
+def make_basis(max_depth: int | None = None,
+               max_nodes: int | None = None):
+    """The basis this task searches in, built from config at call time."""
+    return eml_basis(
+        config.STATE_SIZE, VAR_NAMES,
+        max_depth=config.EML_MAX_DEPTH if max_depth is None else max_depth,
+        epsilon=config.EML_EPSILON,
+        clamp=config.EML_CLAMP,
+        max_nodes=max_nodes,
+    )
 
-    def __init__(self, kind: str, left=None, right=None,
-                 var_idx: int = 0, value: float = 1.0):
-        self.kind = kind
-        self.left = left
-        self.right = right
-        self.var_idx = var_idx
-        self.value = value
 
-    def evaluate(self, inputs: np.ndarray) -> float:
-        """Evaluate the formula for the given state."""
-        if self.kind == 'const':
-            return self.value
-        elif self.kind == 'var':
-            return float(inputs[self.var_idx])
-        elif self.kind == 'eml':
-            lv = self.left.evaluate(inputs)
-            rv = self.right.evaluate(inputs)
-            return eml_op(lv, rv)
-        return 0.0
+TASK_BASIS = make_basis()
 
-    def depth(self) -> int:
-        """Tree depth."""
-        if self.kind in ('const', 'var'):
-            return 0
-        return 1 + max(self.left.depth(), self.right.depth())
 
-    def size(self) -> int:
-        """Number of nodes in the tree."""
-        if self.kind in ('const', 'var'):
-            return 1
-        return 1 + self.left.size() + self.right.size()
-
-    def count_vars(self) -> int:
-        """Which unique variables are used (as a bit mask)."""
-        if self.kind == 'var':
-            return 1 << self.var_idx  # bit mask
-        elif self.kind == 'const':
-            return 0
-        elif self.kind == 'eml':
-            return self.left.count_vars() | self.right.count_vars()
-        return 0
-
-    def n_unique_vars(self) -> int:
-        """Number of unique variables."""
-        mask = self.count_vars()
-        return bin(mask).count('1')
-
-    def to_string(self) -> str:
-        """Human-readable formula."""
-        VAR_NAMES = ['y', 'vel', 'dx', 'gap']
-        if self.kind == 'const':
-            return f"{self.value:.3f}"
-        elif self.kind == 'var':
-            return VAR_NAMES[self.var_idx] if self.var_idx < len(VAR_NAMES) \
-                else f"x{self.var_idx}"
-        elif self.kind == 'eml':
-            return f"eml({self.left.to_string()}, {self.right.to_string()})"
-        return "?"
-
-    def clone(self) -> "EMLNode":
-        """Deep copy of the tree."""
-        if self.kind in ('const', 'var'):
-            return EMLNode(self.kind, var_idx=self.var_idx, value=self.value)
-        return EMLNode('eml',
-                       left=self.left.clone(),
-                       right=self.right.clone())
-
-    def to_dict(self) -> dict:
-        """JSON serialization of the tree."""
-        if self.kind == 'const':
-            return {'kind': 'const', 'value': self.value}
-        if self.kind == 'var':
-            return {'kind': 'var', 'var_idx': self.var_idx}
-        return {
-            'kind': 'eml',
-            'left': self.left.to_dict(),
-            'right': self.right.to_dict(),
-        }
+class EMLNode(Node):
+    """Node bound to this task's basis (keeps one-argument from_dict working)."""
 
     @classmethod
-    def from_dict(cls, d: dict) -> "EMLNode":
-        """Restore a tree from a dict."""
-        kind = d['kind']
-        if kind == 'const':
-            return cls('const', value=float(d['value']))
-        if kind == 'var':
-            return cls('var', var_idx=int(d['var_idx']))
-        if kind == 'eml':
-            return cls('eml',
-                       left=cls.from_dict(d['left']),
-                       right=cls.from_dict(d['right']))
-        raise ValueError(f"Unknown node kind: {kind}")
+    def from_dict(cls, d: dict, basis=None) -> Node:
+        return Node.from_dict(d, basis or TASK_BASIS)
 
 
-# ── Random tree generation ───────────────────────────────────────────────────
+def eml_op(x: float, y: float) -> float:
+    """eml(x, y) for a single pair — kept for tests and quick checks."""
+    return TASK_BASIS.default_op.scalar(x, y)
 
-def _random_leaf() -> EMLNode:
-    """Random leaf: a variable (70%) or a constant (30%)."""
-    if random.random() < 0.7:
-        return EMLNode('var', var_idx=random.randint(0, 3))
-    else:
-        return EMLNode('const', value=random.uniform(-2.0, 2.0))
-
-
-def random_tree(max_depth: int = 3, force_eml: bool = False) -> EMLNode:
-    """
-    A random EML tree.
-
-    Args:
-        max_depth: maximum depth.
-        force_eml: if True, the root is always an eml node (guarantees depth >= 1).
-    """
-    if force_eml and max_depth >= 1:
-        return EMLNode('eml',
-                       left=random_tree(max_depth - 1, force_eml=False),
-                       right=random_tree(max_depth - 1, force_eml=False))
-    if max_depth <= 0 or random.random() < 0.3:
-        return _random_leaf()
-    return EMLNode('eml',
-                   left=random_tree(max_depth - 1),
-                   right=random_tree(max_depth - 1))
-
-
-# ── Mutation ─────────────────────────────────────────────────────────────────
-
-def _collect_nodes(node: EMLNode) -> list[EMLNode]:
-    """Collect all tree nodes into a flat list."""
-    nodes = [node]
-    if node.kind == 'eml':
-        nodes.extend(_collect_nodes(node.left))
-        nodes.extend(_collect_nodes(node.right))
-    return nodes
-
-
-def mutate_tree(root: EMLNode, intensity: float = 1.0) -> EMLNode:
-    """
-    Tree mutation with adaptive intensity.
-
-    Args:
-        root: the tree to mutate.
-        intensity: 0..1; the higher it is, the more aggressive the mutations.
-            1.0 = start of evolution (wild mutations)
-            0.1 = end (fine tuning)
-    """
-    tree = root.clone()
-
-    # Number of mutations at once: more at a high intensity
-    n_mutations = 1 + int(intensity * 2 * random.random())
-
-    for _ in range(n_mutations):
-        nodes = _collect_nodes(tree)
-        target = random.choice(nodes)
-
-        r = random.random()
-
-        if r < 0.2 and target.kind == 'const':
-            # Nudge the constant (harder at a high intensity)
-            noise_std = 0.2 + intensity * 1.0
-            target.value += random.gauss(0, noise_std)
-            target.value = max(-5.0, min(5.0, target.value))
-
-        elif r < 0.35 and target.kind == 'var':
-            # Switch the variable
-            target.var_idx = random.randint(0, 3)
-
-        elif r < 0.6 and target.kind in ('const', 'var'):
-            # Grow: leaf -> eml(leaf, leaf)
-            if tree.depth() < config.EML_MAX_DEPTH:
-                target.kind = 'eml'
-                target.left = _random_leaf()
-                target.right = _random_leaf()
-
-        elif r < 0.7 and target.kind == 'eml':
-            # Replace one branch
-            if random.random() < 0.5:
-                target.left = random_tree(max_depth=2)
-            else:
-                target.right = random_tree(max_depth=2)
-
-        elif r < 0.8 and target.kind == 'eml' and intensity < 0.5:
-            # Simplification: subtree -> leaf (only at a low intensity)
-            leaf = _random_leaf()
-            target.kind = leaf.kind
-            target.left = None
-            target.right = None
-            target.var_idx = leaf.var_idx
-            target.value = leaf.value
-
-        else:
-            # Full subtree replacement
-            depth = 1 + int(intensity * 2)
-            new_sub = random_tree(max_depth=depth, force_eml=True)
-            target.kind = new_sub.kind
-            target.left = new_sub.left
-            target.right = new_sub.right
-            target.var_idx = new_sub.var_idx
-            target.value = new_sub.value
-
-    return tree
-
-
-def _prune_tree(node: EMLNode, max_depth: int | None = None) -> EMLNode:
-    """Trim the tree to max_depth — deep subtrees are replaced by leaves."""
-    if max_depth is None:
-        max_depth = config.EML_MAX_DEPTH
-    if node.kind in ('const', 'var'):
-        return node
-    if max_depth <= 0:
-        # Replace with a leaf
-        return _random_leaf()
-    node.left = _prune_tree(node.left, max_depth - 1)
-    node.right = _prune_tree(node.right, max_depth - 1)
-    return node
-
-
-def crossover(parent1: EMLNode, parent2: EMLNode) -> EMLNode:
-    """Crossover: replace a random subtree of parent1 with one from parent2."""
-    child = parent1.clone()
-    nodes1 = _collect_nodes(child)
-    nodes2 = _collect_nodes(parent2)
-
-    target = random.choice(nodes1)
-    donor = random.choice(nodes2).clone()
-
-    target.kind = donor.kind
-    target.left = donor.left
-    target.right = donor.right
-    target.var_idx = donor.var_idx
-    target.value = donor.value
-
-    return child
 
 
 # ── Dataset collection ───────────────────────────────────────────────────────
@@ -423,13 +209,6 @@ class EMLAgent:
         return self.tree.to_string()
 
 
-def pool_slice(pool: list[int], n_games: int, offset: int = 0) -> list[int]:
-    """n_games seeds from the pool, starting at offset (wraps around)."""
-    if not pool:
-        raise ValueError("empty seed pool")
-    return [pool[(offset + i) % len(pool)] for i in range(n_games)]
-
-
 def play_episodes(tree: EMLNode, seeds,
                   max_frames: int | None = None) -> tuple[list[int], list[int]]:
     """
@@ -523,6 +302,8 @@ def evolve_eml(
     if patience is None:        patience = config.EML_PATIENCE
 
     dp = DEPTH_PENALTIES[depth_penalty_name]
+    # One basis for the whole run: both phases search the same language.
+    basis = make_basis()
     # 10% of the generations go to the DATA phase (a quick warm-up), the rest to
     # GAME. With narrow oracle targets the DATA fitness is noise and drives the
     # population toward degenerate trees, so the warm-up is kept short and the
@@ -530,7 +311,7 @@ def evolve_eml(
     phase_switch = max(1, int(generations * 0.1))
 
     # Initialization
-    population = [random_tree(max_depth=3, force_eml=True)
+    population = [search.random_tree(basis, max_depth=3, force_op=True)
                   for _ in range(population_size)]
     history = []
     best_fitness_ever = -1.0
@@ -667,29 +448,10 @@ def evolve_eml(
             break
 
         # New generation
-        new_pop = []
-        for i in range(elitism):
-            new_pop.append(population[i].clone())
-
-        while len(new_pop) < population_size:
-            r = random.random()
-            if r < 0.45:
-                idx = _tournament_select(fitness_scores, k=5)
-                child = mutate_tree(population[idx], intensity=intensity)
-            elif r < 0.75:
-                i1 = _tournament_select(fitness_scores, k=5)
-                i2 = _tournament_select(fitness_scores, k=5)
-                child = crossover(population[i1], population[i2])
-                if random.random() < 0.3:
-                    child = mutate_tree(child, intensity=intensity * 0.5)
-            else:
-                child = random_tree(max_depth=2 + int(intensity * 2),
-                                    force_eml=True)
-            # Trim if it grew too large
-            child = _prune_tree(child)
-            new_pop.append(child)
-
-        population = new_pop
+        population = search.breed(
+            population, fitness_scores, basis,
+            size=population_size, elitism=elitism, intensity=intensity,
+            p_mutate=0.45, p_cross=0.75, p_cross_mutate=0.3, tournament_k=5)
 
     elapsed = time.perf_counter() - t0
 
@@ -710,13 +472,6 @@ def evolve_eml(
         'val_result': best_val_result,
         'val_score': best_val_result['avg_score'],
     }
-
-
-def _tournament_select(fitness_scores: list[float], k: int = 5) -> int:
-    """Tournament selection: pick the best of k random candidates."""
-    n = len(fitness_scores)
-    candidates = random.sample(range(n), min(k, n))
-    return max(candidates, key=lambda i: fitness_scores[i])
 
 
 # ── Full distillation pipeline ───────────────────────────────────────────────

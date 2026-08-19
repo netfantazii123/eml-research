@@ -36,9 +36,10 @@ def cmd_test():
     from env import FlappyEnv
     from ga_net import GANet, train_ga
     from eml_distiller import (
-        EMLNode, random_tree, eml_op, mutate_tree,
+        EMLNode, eml_op, make_basis,
         collect_dataset, evolve_eml, EMLAgent,
     )
+    from emlcore import search
 
     def _check(cond: bool, msg: str):
         if not cond:
@@ -102,7 +103,8 @@ def cmd_test():
     print("   EML AST Smoke Test")
     print("=" * 50)
 
-    tree = random_tree(max_depth=3)
+    basis = make_basis()
+    tree = search.random_tree(basis, max_depth=3)
     print(f"  Random tree: {tree.to_string()}")
     print(f"  Depth: {tree.depth()}, Size: {tree.size()}")
 
@@ -110,7 +112,7 @@ def cmd_test():
     _check(not (val != val), f"NaN detected: {val}")
     print(f"  evaluate([0.5, 0, 0.3, 0.5]) = {val:.4f}")
 
-    mutated = mutate_tree(tree)
+    mutated = search.mutate_tree(tree, basis)
     _check(mutated.to_string() is not None, "mutated tree is None")
     print(f"  Mutated:     {mutated.to_string()}")
 

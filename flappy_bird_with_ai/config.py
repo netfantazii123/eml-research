@@ -37,6 +37,10 @@ EML_MAX_DEPTH = 5       # maximum depth at initialization
 EML_PATIENCE = 100       # generations without improvement -> stop
 EML_DATASET_EPISODES = 500  # episodes for dataset collection
 EML_EPSILON = 1e-10     # guard against ln(0)
+# exp() clamp. Both guards belong to THIS operator rather than to the EML
+# operator of the literature, and the clamp dominates eps by orders of
+# magnitude — it is the one worth a sensitivity sweep.
+EML_CLAMP = 10.0
 
 # ── Environment seed pools (disjoint) ────────────────────────────────────────
 # Same discipline as tetris/config.py: fitness, selection and reporting never

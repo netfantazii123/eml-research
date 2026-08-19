@@ -17,252 +17,73 @@ Two phases:
 
 EML operator:  eml(x, y) = exp(clamp(x, -10, 10)) - ln(|y| + eps).
 
-The AST engine is ported from flappy_bird_with_ai/eml_distiller.py; differences:
-  - n_vars = 19 (afterstate features), names from config.FEATURE_NAMES;
-  - a vectorized evaluate_batch() for fast evaluation over the dataset;
-  - one formula instead of six — the argmax is now over placements rather than
-    actions.
+The AST, the basis of primitives and the genetic search live in emlcore/; this
+module only supplies what is specific to Tetris: the afterstate features, the
+two fitness functions and the two-phase pipeline.
 """
 
 import math
+import os
+import sys
 import time
 import random
 
 import numpy as np
 
+# emlcore lives at the repository root, one level above this task directory.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import config
-from config import EML_EPSILON, DEPTH_PENALTIES, FEATURE_NAMES, N_FEATURES
+from config import DEPTH_PENALTIES, FEATURE_NAMES, N_FEATURES
 from env import TetrisEnv
 
-
-# ── EML operator ──────────────────────────────────────────────────────────────
-
-def eml_op(x: float, y: float) -> float:
-    """eml(x, y) = exp(clamp(x)) - ln(|y| + eps). Scalar (numpy-free) version."""
-    x_clamped = -10.0 if x < -10.0 else (10.0 if x > 10.0 else x)
-    return math.exp(x_clamped) - math.log(abs(y) + EML_EPSILON)
+from emlcore import Node, eml_basis, search, static_metrics, pool_slice
 
 
-# ── AST tree ──────────────────────────────────────────────────────────────────
+# ── Basis ─────────────────────────────────────────────────────────────────────
 
-class EMLNode:
+def make_basis(max_depth: int | None = None,
+               max_nodes: int | None = None) -> "object":
     """
-    A node of the EML formula AST.
+    The basis this task searches in, built from config at call time.
 
-    Kinds:
-        'eml'   — eml(left, right)
-        'var'   — input feature (index 0..N_FEATURES-1)
-        'const' — numeric constant
+    Built per call rather than once at import: batch_distill varies
+    EML_MAX_DEPTH between runs, and a basis captured at import would silently
+    ignore that. max_nodes is the node budget K — unset for now, and the hook
+    the K sweep will use.
     """
+    return eml_basis(
+        N_FEATURES, FEATURE_NAMES,
+        max_depth=config.EML_MAX_DEPTH if max_depth is None else max_depth,
+        epsilon=config.EML_EPSILON,
+        clamp=config.EML_CLAMP,
+        max_nodes=max_nodes,
+    )
 
-    __slots__ = ('kind', 'left', 'right', 'var_idx', 'value')
 
-    def __init__(self, kind: str, left=None, right=None,
-                 var_idx: int = 0, value: float = 1.0):
-        self.kind = kind
-        self.left = left
-        self.right = right
-        self.var_idx = var_idx
-        self.value = value
+# Basis used for deserialising saved formulas. Only the operator definitions and
+# the variable names matter there, so the search limits are irrelevant.
+TASK_BASIS = make_basis()
 
-    # ── Evaluation ────────────────────────────────────────────────────────
-    def evaluate(self, inputs) -> float:
-        """Scalar evaluation for a single feature vector (inference)."""
-        if self.kind == 'const':
-            return self.value
-        if self.kind == 'var':
-            return float(inputs[self.var_idx])
-        # eml
-        lv = self.left.evaluate(inputs)
-        rv = self.right.evaluate(inputs)
-        return eml_op(lv, rv)
 
-    def evaluate_batch(self, X: np.ndarray) -> np.ndarray:
-        """
-        Vectorized evaluation over the whole dataset X (N, 19) -> (N,).
+class EMLNode(Node):
+    """
+    Node bound to this task's basis.
 
-        All operations are closed and numerically bounded (clamp + eps), so the
-        result is always finite.
-        """
-        if self.kind == 'const':
-            return np.full(X.shape[0], self.value, dtype=np.float64)
-        if self.kind == 'var':
-            return X[:, self.var_idx].astype(np.float64)
-        lv = self.left.evaluate_batch(X)
-        rv = self.right.evaluate_batch(X)
-        return np.exp(np.clip(lv, -10.0, 10.0)) - np.log(np.abs(rv) + EML_EPSILON)
-
-    # ── Metrics ───────────────────────────────────────────────────────────
-    def depth(self) -> int:
-        if self.kind in ('const', 'var'):
-            return 0
-        return 1 + max(self.left.depth(), self.right.depth())
-
-    def size(self) -> int:
-        if self.kind in ('const', 'var'):
-            return 1
-        return 1 + self.left.size() + self.right.size()
-
-    def _var_mask(self) -> int:
-        if self.kind == 'var':
-            return 1 << self.var_idx
-        if self.kind == 'eml':
-            return self.left._var_mask() | self.right._var_mask()
-        return 0
-
-    def n_unique_vars(self) -> int:
-        return bin(self._var_mask()).count('1')
-
-    # ── Serialization / printing ──────────────────────────────────────────
-    def to_string(self) -> str:
-        if self.kind == 'const':
-            return f"{self.value:.3f}"
-        if self.kind == 'var':
-            return (FEATURE_NAMES[self.var_idx]
-                    if self.var_idx < len(FEATURE_NAMES)
-                    else f"x{self.var_idx}")
-        return f"eml({self.left.to_string()}, {self.right.to_string()})"
-
-    def clone(self) -> "EMLNode":
-        if self.kind in ('const', 'var'):
-            return EMLNode(self.kind, var_idx=self.var_idx, value=self.value)
-        return EMLNode('eml', left=self.left.clone(), right=self.right.clone())
-
-    def to_dict(self) -> dict:
-        if self.kind == 'const':
-            return {'kind': 'const', 'value': self.value}
-        if self.kind == 'var':
-            return {'kind': 'var', 'var_idx': self.var_idx}
-        return {'kind': 'eml',
-                'left': self.left.to_dict(),
-                'right': self.right.to_dict()}
+    Exists so that storage.load_formulas(EMLNode, path) and the GUI keep calling
+    from_dict() with one argument. Files written before the core was extracted
+    load unchanged.
+    """
 
     @classmethod
-    def from_dict(cls, d: dict) -> "EMLNode":
-        kind = d['kind']
-        if kind == 'const':
-            return cls('const', value=float(d['value']))
-        if kind == 'var':
-            return cls('var', var_idx=int(d['var_idx']))
-        if kind == 'eml':
-            return cls('eml',
-                       left=cls.from_dict(d['left']),
-                       right=cls.from_dict(d['right']))
-        raise ValueError(f"Unknown node kind: {kind}")
+    def from_dict(cls, d: dict, basis=None) -> Node:
+        return Node.from_dict(d, basis or TASK_BASIS)
 
 
-# ── Random tree generation ────────────────────────────────────────────────────
+def eml_op(x: float, y: float) -> float:
+    """eml(x, y) for a single pair — kept for tests and quick checks."""
+    return TASK_BASIS.default_op.scalar(x, y)
 
-def _random_leaf() -> EMLNode:
-    """Random leaf: a variable (70%) or a constant (30%)."""
-    if random.random() < 0.7:
-        return EMLNode('var', var_idx=random.randint(0, N_FEATURES - 1))
-    return EMLNode('const', value=random.uniform(-2.0, 2.0))
-
-
-def random_tree(max_depth: int = 3, force_eml: bool = False) -> EMLNode:
-    """Random EML tree. force_eml -> the root is always eml (depth >= 1)."""
-    if force_eml and max_depth >= 1:
-        return EMLNode('eml',
-                       left=random_tree(max_depth - 1, force_eml=False),
-                       right=random_tree(max_depth - 1, force_eml=False))
-    if max_depth <= 0 or random.random() < 0.3:
-        return _random_leaf()
-    return EMLNode('eml',
-                   left=random_tree(max_depth - 1),
-                   right=random_tree(max_depth - 1))
-
-
-# ── Mutation / crossover ──────────────────────────────────────────────────────
-
-def _collect_nodes(node: EMLNode) -> list[EMLNode]:
-    nodes = [node]
-    if node.kind == 'eml':
-        nodes.extend(_collect_nodes(node.left))
-        nodes.extend(_collect_nodes(node.right))
-    return nodes
-
-
-def mutate_tree(root: EMLNode, intensity: float = 1.0) -> EMLNode:
-    """Mutation with adaptive intensity (1.0 = wild, 0.1 = fine)."""
-    tree = root.clone()
-    n_mutations = 1 + int(intensity * 2 * random.random())
-
-    for _ in range(n_mutations):
-        nodes = _collect_nodes(tree)
-        target = random.choice(nodes)
-        r = random.random()
-
-        if r < 0.2 and target.kind == 'const':
-            noise_std = 0.2 + intensity * 1.0
-            target.value += random.gauss(0, noise_std)
-            target.value = max(-5.0, min(5.0, target.value))
-
-        elif r < 0.35 and target.kind == 'var':
-            target.var_idx = random.randint(0, N_FEATURES - 1)
-
-        elif r < 0.6 and target.kind in ('const', 'var'):
-            if tree.depth() < config.EML_MAX_DEPTH:
-                target.kind = 'eml'
-                target.left = _random_leaf()
-                target.right = _random_leaf()
-
-        elif r < 0.7 and target.kind == 'eml':
-            if random.random() < 0.5:
-                target.left = random_tree(max_depth=2)
-            else:
-                target.right = random_tree(max_depth=2)
-
-        elif r < 0.8 and target.kind == 'eml' and intensity < 0.5:
-            leaf = _random_leaf()
-            target.kind = leaf.kind
-            target.left = None
-            target.right = None
-            target.var_idx = leaf.var_idx
-            target.value = leaf.value
-
-        else:
-            depth = 1 + int(intensity * 2)
-            new_sub = random_tree(max_depth=depth, force_eml=True)
-            target.kind = new_sub.kind
-            target.left = new_sub.left
-            target.right = new_sub.right
-            target.var_idx = new_sub.var_idx
-            target.value = new_sub.value
-
-    return _prune_tree(tree)
-
-
-def _prune_tree(node: EMLNode, max_depth: int | None = None) -> EMLNode:
-    """Trim the tree to max_depth — deep subtrees become leaves."""
-    if max_depth is None:
-        max_depth = config.EML_MAX_DEPTH
-    if node.kind in ('const', 'var'):
-        return node
-    if max_depth <= 0:
-        return _random_leaf()
-    node.left = _prune_tree(node.left, max_depth - 1)
-    node.right = _prune_tree(node.right, max_depth - 1)
-    return node
-
-
-def crossover(parent1: EMLNode, parent2: EMLNode) -> EMLNode:
-    """Replace a random subtree of parent1 with a subtree from parent2."""
-    child = parent1.clone()
-    target = random.choice(_collect_nodes(child))
-    donor = random.choice(_collect_nodes(parent2)).clone()
-    target.kind = donor.kind
-    target.left = donor.left
-    target.right = donor.right
-    target.var_idx = donor.var_idx
-    target.value = donor.value
-    return _prune_tree(child)
-
-
-def _tournament_select(fitness_scores: list[float], k: int = 5) -> int:
-    n = len(fitness_scores)
-    candidates = random.sample(range(n), min(k, n))
-    return max(candidates, key=lambda i: fitness_scores[i])
 
 
 # ── DATA phase: regression of the formula to the oracle logits ────────────────
@@ -303,6 +124,7 @@ def evolve_formula(
     depth_penalty: float,
     subsample: int | None = None,
     val_data: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
+    basis=None,
     verbose: bool = False,
     label: str = 'PLACE',
     should_stop=None,
@@ -325,14 +147,15 @@ def evolve_formula(
     """
     if subsample is None:
         subsample = config.EML_DATA_SUBSAMPLE
+    if basis is None:
+        basis = make_basis()
     elitism = max(1, min(elitism, population_size))
 
     # Derived from the seeded global RNG: reproducible per run, yet actually
     # different across runs (a hardcoded default_rng(0) handed every "seed" the
     # very same subsample sequence).
     rng = np.random.default_rng(random.randrange(2 ** 63))
-    population = [random_tree(max_depth=3, force_eml=True)
-                 for _ in range(population_size)]
+    population = search.seed_population(basis, population_size, max_depth=3)
     history: list[float] = []
     val_history: list[float] = []
     best_fitness_ever = -1.0
@@ -402,23 +225,10 @@ def evolve_formula(
             break
 
         # New generation.
-        new_pop = [population[i].clone() for i in range(elitism)]
-        while len(new_pop) < population_size:
-            r = random.random()
-            if r < 0.45:
-                i = _tournament_select(fitness_scores, k=5)
-                child = mutate_tree(population[i], intensity=intensity)
-            elif r < 0.75:
-                i1 = _tournament_select(fitness_scores, k=5)
-                i2 = _tournament_select(fitness_scores, k=5)
-                child = crossover(population[i1], population[i2])
-                if random.random() < 0.3:
-                    child = mutate_tree(child, intensity=intensity * 0.5)
-            else:
-                child = random_tree(max_depth=2 + int(intensity * 2),
-                                    force_eml=True)
-            new_pop.append(child)
-        population = new_pop
+        population = search.breed(
+            population, fitness_scores, basis,
+            size=population_size, elitism=elitism, intensity=intensity,
+            p_mutate=0.45, p_cross=0.75, p_cross_mutate=0.3, tournament_k=5)
 
     if best_tree_ever is None:
         best_tree_ever = population[0]
@@ -473,13 +283,6 @@ class EMLPolicy:
 
 
 # ── GAME phase: in-game evolution of the formula ──────────────────────────────
-
-def pool_slice(pool: list[int], n_games: int, offset: int = 0) -> list[int]:
-    """n_games seeds from the pool, starting at offset (wraps around)."""
-    if not pool:
-        raise ValueError("empty seed pool")
-    return [pool[(offset + i) % len(pool)] for i in range(n_games)]
-
 
 def play_episodes(tree, seeds, max_placements: int) -> tuple[list[int], list[int]]:
     """
@@ -543,6 +346,7 @@ def evolve_ingame(
     train_pool: list[int] | None = None,
     val_pool: list[int] | None = None,
     val_games: int | None = None,
+    basis=None,
     verbose: bool = True,
     should_stop=None,
     on_event=None,
@@ -578,14 +382,14 @@ def evolve_ingame(
     if train_pool is None:      train_pool = config.EML_SEED_POOL_TRAIN
     if val_pool is None:        val_pool = config.EML_SEED_POOL_VAL
     if val_games is None:       val_games = config.EML_VAL_GAMES
+    if basis is None:           basis = make_basis()
     elitism = max(1, min(elitism, population_size))
 
     val_seeds = pool_slice(val_pool, val_games)
 
     # Population: the original plus mutants of the seed formula.
-    population = [seed_tree.clone()]
-    while len(population) < population_size:
-        population.append(mutate_tree(seed_tree, intensity=0.7))
+    population = search.seed_population(basis, population_size,
+                                        seed_tree=seed_tree, intensity=0.7)
 
     history: list[float] = []
     val_history: list[float] = []
@@ -638,22 +442,15 @@ def evolve_ingame(
                 print(f"    [GAME] early stop @ gen {gen}")
             break
 
-        new_pop = [population[i].clone() for i in range(elitism)]
-        while len(new_pop) < population_size:
-            r = random.random()
-            if r < 0.5:
-                i = _tournament_select(fitness_scores, k=4)
-                child = mutate_tree(population[i], intensity=intensity)
-            elif r < 0.85:
-                i1 = _tournament_select(fitness_scores, k=4)
-                i2 = _tournament_select(fitness_scores, k=4)
-                child = crossover(population[i1], population[i2])
-                if random.random() < 0.4:
-                    child = mutate_tree(child, intensity=intensity * 0.5)
-            else:
-                child = mutate_tree(seed_tree, intensity=intensity)
-            new_pop.append(child)
-        population = new_pop
+        # Immigrants here are mutants of the DATA-phase formula rather than
+        # random trees: a random tree scores zero in-game and would only waste
+        # evaluations.
+        population = search.breed(
+            population, fitness_scores, basis,
+            size=population_size, elitism=elitism, intensity=intensity,
+            p_mutate=0.5, p_cross=0.85, p_cross_mutate=0.4, tournament_k=4,
+            fresh=lambda: search.mutate_tree(seed_tree, basis,
+                                             intensity=intensity))
 
     if best_tree_ever is None:
         best_tree_ever = population[0]
@@ -665,34 +462,6 @@ def evolve_ingame(
         'val_result': best_val_result,
         'history': history,
         'val_history': val_history,
-    }
-
-
-def static_metrics(tree: EMLNode) -> dict:
-    """
-    Cheap resource proxies, readable without any hardware.
-
-    Every 'eml' node compiles to exactly one expf + one logf + one fabsf in the
-    generated C, so the transcendental call count — the number that decides
-    whether this runs on a Cortex-M without an FPU — is just the operator count.
-    """
-    n_eml = n_var = n_const = 0
-    for node in _collect_nodes(tree):
-        if node.kind == 'eml':
-            n_eml += 1
-        elif node.kind == 'var':
-            n_var += 1
-        else:
-            n_const += 1
-    return {
-        'nodes': n_eml + n_var + n_const,
-        'depth': tree.depth(),
-        'n_eml': n_eml,
-        'n_exp': n_eml,
-        'n_log': n_eml,
-        'n_leaves': n_var + n_const,
-        'n_const': n_const,
-        'n_vars_unique': tree.n_unique_vars(),
     }
 
 
@@ -772,6 +541,9 @@ def distill(
             weights = np.ones(len(logits), dtype=np.float64)
 
     dp = DEPTH_PENALTIES[depth_penalty_name]
+    # One basis for the whole run: both phases must search the same language,
+    # and it is recorded in the result so a formula can be rebuilt later.
+    basis = make_basis()
     X = np.ascontiguousarray(features, dtype=np.float64)
     y = np.asarray(logits, dtype=np.float64).reshape(-1)
     w = np.asarray(weights, dtype=np.float64).reshape(-1)
@@ -806,6 +578,7 @@ def distill(
     _emit({'type': 'data_action_start', 'action': 0, 'name': 'PLACE'})
     res = evolve_formula(
         X_tr, y_tr, w_tr,
+        basis=basis,
         generations=data_generations,
         population_size=data_population,
         elitism=config.EML_ELITISM,
@@ -844,7 +617,7 @@ def distill(
         if verbose:
             print("  [GAME] in-game evolution...")
         _emit({'type': 'phase', 'phase': 'joint'})
-        jres = evolve_ingame(data_tree, verbose=verbose,
+        jres = evolve_ingame(data_tree, basis=basis, verbose=verbose,
                              should_stop=should_stop, on_event=on_event)
         final_tree = jres['best_tree']
         val_result = jres['val_result']
@@ -874,6 +647,7 @@ def distill(
         'val_lines': val_result['avg_lines'],
         'val_result': val_result,
         'static': static_metrics(final_tree),
+        'basis': basis.name,
         'depth_penalty': depth_penalty_name,
         'dataset_size': len(features),
     }

@@ -142,6 +142,12 @@ EML_MAX_DEPTH = 7           # maximum tree depth
 EML_PATIENCE = 120          # generations without improvement -> stop
 EML_DATASET_EPISODES = 40   # oracle episodes for dataset collection
 EML_EPSILON = 1e-10         # guard against ln(0)
+# exp() clamp. Both guards are parameters of THIS operator, not of the EML
+# operator in the literature: exp(x) - ln(y) is complete over the complex
+# numbers, exp(clamp(x)) - ln(|y| + eps) is a different, real-computable
+# function. Named here so the gap can be swept and reported rather than assumed
+# away; the clamp dominates eps by orders of magnitude, so sweep this one.
+EML_CLAMP = 10.0
 EML_PHASE_SWITCH = 0.15     # fraction of generations for the DATA phase (warm-up)
 
 # ── Dataset collection ─────────────────────────────────────────────────────
