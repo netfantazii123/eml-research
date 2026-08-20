@@ -44,10 +44,6 @@ tetris/results/benchmark_*.csv
 aerial_classifier/results/*.png
 aerial_classifier/results/overlay_*.png
 
-# BUT the exported C stays: it is a deliverable, not a by-product.
-!tetris/results/eml_formula.h
-!aerial_classifier/results/c_export/
-
 # Raw experiment log: one row per episode, one point per node budget K. Every
 # figure is a groupby over these, so they are regenerated rather than authored —
 # and they grow on every run, debug ones included. The per-run copies live in
@@ -59,6 +55,20 @@ tetris/results/pareto_curve.csv
 # as results — an ignore rule does not touch files git already tracks. This only
 # stops NEW runs from adding themselves.
 aerial_classifier/models/library/
+
+# Canonical formulas. Every distillation rewrites them, so keeping them under
+# version control meant a dirty tree after every experiment and a diff of a
+# 40-node AST that nobody reads. They are outputs, not sources: the repository
+# holds the code that produces them.
+#
+# The consequence is deliberate but worth remembering: together with runs/ and
+# the raw logs above, NOTHING experimental is backed up by git any more. A
+# formula worth citing in the thesis has to be copied out by hand.
+*/models/best_eml*.json
+
+# Generated from the formulas above, and only as current as the last export.
+tetris/results/eml_formula.h
+aerial_classifier/results/c_export/
 
 # Datasets (tens to hundreds of MB of images) — see aerial_classifier/README.md.
 # With a wildcard, because the class folder is now selected by the user, and
@@ -75,8 +85,7 @@ aerial_classifier/cache/
 
 # The selected dataset and safety copies of the active models are machine-local:
 # dataset.json holds this machine's path, .prev.json the previous version of the
-# active model in case of a rollback. The models themselves (best_eml_*.json)
-# stay in the repository: they are the final artifact of the project.
+# active model in case of a rollback.
 aerial_classifier/models/dataset.json
 *.prev.json
 
