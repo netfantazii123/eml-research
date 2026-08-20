@@ -23,6 +23,43 @@ runs/
 !flappy_bird_with_ai/models/best_ga.pt
 *.npz
 
+# ── Run outputs ──────────────────────────────────────────────────────────────
+# The rule: the repository keeps the FINAL artifacts (the canonical formula of
+# each task, the exported C, the raw experiment log). Everything a run
+# regenerates or stamps with a date does not belong here — it piles up, it
+# dirties `git status` after every experiment, and none of it is a source.
+
+# Timestamped run outputs: a new pair appears on every benchmark.
+flappy_bird_with_ai/results/benchmark_*.json
+flappy_bird_with_ai/results/benchmark_*.png
+flappy_bird_with_ai/results/benchmark_plot.png
+# Per-run formulas and oracle metadata; the canonical ones are best_*.
+flappy_bird_with_ai/models/eml-*_*.json
+flappy_bird_with_ai/models/ga_*.meta.json
+
+# Plots and histories rewritten by every distillation / training run.
+tetris/results/*.png
+tetris/results/*_history.json
+tetris/results/benchmark_*.csv
+aerial_classifier/results/*.png
+aerial_classifier/results/overlay_*.png
+
+# BUT the exported C stays: it is a deliverable, not a by-product.
+!tetris/results/eml_formula.h
+!aerial_classifier/results/c_export/
+
+# Raw experiment log: one row per episode, one point per node budget K. Every
+# figure is a groupby over these, so they are regenerated rather than authored —
+# and they grow on every run, debug ones included. The per-run copies live in
+# runs/<date>/, which is also ignored: back these up by hand before they matter.
+tetris/results/raw_episodes.csv
+tetris/results/pareto_curve.csv
+
+# The aerial model library. The batches already committed stay in the repository
+# as results — an ignore rule does not touch files git already tracks. This only
+# stops NEW runs from adding themselves.
+aerial_classifier/models/library/
+
 # Datasets (tens to hundreds of MB of images) — see aerial_classifier/README.md.
 # With a wildcard, because the class folder is now selected by the user, and
 # copies and subsets appear next to it: `dataset - copy`, `dataset_2class`.
