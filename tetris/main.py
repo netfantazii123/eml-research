@@ -466,6 +466,20 @@ def cmd_distill():
     n_seeds = _num('--seeds', _num('--batch', config.EML_BATCH_SEEDS))
     spread = _num('--spread', config.EML_BATCH_SPREAD, float)
 
+    # --resume DIR      : continue an earlier run (its run dir or checkpoints/)
+    # --from P          : latest | best | <generation> (DATA phase point)
+    # --extra-gens N    : run N generations past the saved end (fine-tuning)
+    # --allow-new-data  : continue although the dataset changed (e.g. DAgger)
+    raw = sys.argv[2:]
+    resume = None
+    if '--resume' in args:
+        i = args.index('--resume')
+        if i + 1 < len(raw):
+            resume = raw[i + 1]          # not lower-cased: it is a path
+    resume_point = _flagval('--from', 'latest')
+    extra_gens = _num('--extra-gens', 0)
+    allow_changes = ('data', 'val') if '--allow-new-data' in args else ()
+
     print("=" * 56)
     print("   EML Distillation — TetrisCNN -> formula")
     print("=" * 56)
@@ -482,12 +496,15 @@ def cmd_distill():
             n_configs=n_configs, n_seeds=n_seeds, spread=spread,
             basis_name=basis_name, max_nodes=max_nodes,
             multi_objective=multi_objective,
-            reuse_data=reuse_data, joint=do_joint, verbose=True)
+            reuse_data=reuse_data, joint=do_joint, verbose=True,
+            resume=resume)
     else:
         summary = full_distill(
             basis_name=basis_name, max_nodes=max_nodes,
             multi_objective=multi_objective,
-            reuse_data=reuse_data, joint=do_joint, verbose=True)
+            reuse_data=reuse_data, joint=do_joint, verbose=True,
+            resume=resume, resume_point=resume_point,
+            extra_generations=extra_gens, allow_changes=allow_changes)
 
     print("\n" + "=" * 56)
     print("   Distillation summary")
@@ -739,6 +756,37 @@ def cmd_export():
     print("  an MCU in a few microseconds; a CNN oracle does not fit there.")
 
 
+def cmd_points():
+    """List the resumable states and the hall of fame of a run."""
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from emlcore import checkpoint
+
+    if len(sys.argv) < 3:
+        print("Usage: python main.py points <run dir | checkpoints dir>")
+        return
+    root = sys.argv[2]
+    if os.path.isdir(os.path.join(root, 'checkpoints')):
+        root = os.path.join(root, 'checkpoints')
+    phases = [d for d in ('data', 'game') if os.path.isdir(os.path.join(root, d))]
+    if not phases:      # a batch: one sub-directory per variant
+        phases = sorted(os.path.join(v, ph) for v in os.listdir(root)
+                        for ph in ('data', 'game')
+                        if os.path.isdir(os.path.join(root, v, ph)))
+    for ph in phases:
+        d = os.path.join(root, ph)
+        print(f"\n[{ph}]")
+        for p in checkpoint.list_points(d):
+            print(f"  gen {p['generation']:>5}  {p['kind']:<9} {p['path']}")
+        try:
+            hof = checkpoint.load_hall_of_fame(d)
+        except (OSError, ValueError):
+            hof = []
+        for r in hof[:5]:
+            print(f"  hof  {r['score']:10.3f}  gen {r['generation']:>4}  "
+                  f"S{r['nodes']}  {r['formula'][:60]}")
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python main.py "
@@ -752,6 +800,9 @@ def main():
         print("                 [--reuse-data] [--no-joint]")
         print("                 [--basis eml|classic] [--k N] "
               "[--single-objective]")
+        print("                 [--resume DIR [--from latest|best|GEN] "
+              "[--extra-gens N] [--allow-new-data]]")
+        print("  points DIR  — resumable GA states and hall of fame of a run")
         print("  bench [N]   — CNN vs EML over N games (+CSV in results/)")
         print("  export [f]  — export the EML formula to inline C "
               "(results/eml_formula.h)")
@@ -785,6 +836,8 @@ def main():
         cmd_export()
     elif cmd == 'checkc':
         cmd_checkc()
+    elif cmd == 'points':
+        cmd_points()
     else:
         print(f"Command '{cmd}' not found (see python main.py).")
 

@@ -137,99 +137,183 @@ def tournament_select(fitness_scores: list[float], k: int = 5) -> int:
     return max(candidates, key=lambda i: fitness_scores[i])
 
 
-def breed(population: list[Node], fitness_scores: list[float], basis: Basis, *,
-          size: int, elitism: int, intensity: float,
-          p_mutate: float = 0.45, p_cross: float = 0.75,
-          p_cross_mutate: float = 0.3,
-          tournament_k: int = 5, fresh=None) -> list[Node]:
+def fold_constants(node: Node) -> Node:
     """
-    Build the next generation: elites, then mutation / crossover / fresh blood.
+    Replace every variable-free subtree by the constant it evaluates to.
 
-    `fresh` is a callable producing an immigrant tree; it defaults to a random
-    tree, and the GAME phase passes a mutant of the seed formula instead.
+    eml(0.7, -1.2) is a constant spelled with three nodes. The search breeds
+    such subtrees all the time, and under a node budget — or with size as an
+    NSGA-II objective — each one is pure waste: it costs nodes, exp/log calls on
+    the microcontroller and readability, and buys nothing a single constant
+    would not. Folding is exact up to float rounding, so the folded tree scores
+    the same. Returns a new tree; the input is not touched.
+    """
+    if node.kind != 'op':
+        return node.clone()
+    kids = tuple(fold_constants(c) for c in node.children)
+    if all(k.kind == 'const' for k in kids):
+        try:
+            v = node.op.scalar(*(k.value for k in kids))
+        except (OverflowError, ValueError, ZeroDivisionError):
+            v = float('nan')
+        if v == v and abs(v) <= 1e6:          # finite and sane
+            return Node.const(node.basis, v)
+    return Node('op', node.basis, op=node.op, children=kids)
+
+
+def tune_constants(tree: Node, score, *, steps: int = 8,
+                   sigma: float = 0.3, current: float | None = None):
+    """
+    (1+1)-ES on the constants of one tree: perturb them all, keep if better.
+
+    The GA moves constants by blind Gaussian mutation of one node at a time,
+    and each attempt costs a whole child slot; a formula with the right shape
+    and slightly wrong constants can sit unimproved for many generations.
+    A few cheap local steps on the elites close that gap. score(tree) -> float
+    is maximised. Returns (tree, score).
+    """
+    consts = [n for n in collect_nodes(tree) if n.kind == 'const']
+    best = tree
+    best_score = score(tree) if current is None else current
+    if not consts:
+        return best, best_score
+    lim = tree.basis.const_abs_max
+    for _ in range(steps):
+        cand = best.clone()
+        for n in collect_nodes(cand):
+            if n.kind == 'const':
+                v = n.value + random.gauss(0, sigma * (abs(n.value) + 0.1))
+                n.value = max(-lim, min(lim, v))
+        s = score(cand)
+        if s > best_score:
+            best, best_score = cand, s
+        else:
+            sigma *= 0.7
+    return best, best_score
+
+
+def _default_fresh(basis: Basis, intensity: float):
+    def fresh():
+        return random_tree(basis, max_depth=2 + int(intensity * 2),
+                           force_op=True)
+    return fresh
+
+
+def _offspring(population: list[Node], select, basis: Basis, *, out: list,
+               size: int, intensity: float, p_mutate: float, p_cross: float,
+               p_cross_mutate: float, fresh, unique: bool,
+               simplify: bool, seen: set | None = None) -> list[Node]:
+    """
+    Fill `out` up to `size` with mutants, crossovers and immigrants.
+
+    The one place both breeders draw children from (they used to be two copies
+    of this loop). select() returns a parent index.
 
     Children that violate the basis budget are rejected and re-drawn rather than
     trimmed: cutting a tree down to size destroys whatever structure made it
     worth keeping, and the search then spends generations rebuilding it.
+
+    unique: also reject a child identical to one already in the generation
+    (or in `seen`, extra keys to treat as taken). Without it, late generations
+    fill up with copies of the elites — every copy costs an evaluation and adds
+    nothing to the search.
+    """
+    if unique:
+        seen = set(seen or ()) | {t.key() for t in out}
+    else:
+        seen = None
+    attempts = 0
+    max_attempts = size * 20
+    while len(out) < size:
+        attempts += 1
+        r = random.random()
+        if r < p_mutate:
+            child = mutate_tree(population[select()], basis, intensity=intensity)
+        elif r < p_cross:
+            i1 = select()
+            i2 = select()
+            child = crossover(population[i1], population[i2], basis)
+            if random.random() < p_cross_mutate:
+                child = mutate_tree(child, basis, intensity=intensity * 0.5)
+        else:
+            child = fresh()
+        if simplify:
+            child = fold_constants(child)
+
+        give_up = attempts > max_attempts
+        if not within_budget(child, basis) and not give_up:
+            continue
+        if seen is not None:
+            k = child.key()
+            if k in seen and not give_up:
+                continue
+            seen.add(k)
+        # The give-up fallback keeps a too-tight budget from hanging the run;
+        # a budget that trips it is reported by the caller, not silenced.
+        out.append(child)
+    return out
+
+
+def breed(population: list[Node], fitness_scores: list[float], basis: Basis, *,
+          size: int, elitism: int, intensity: float,
+          p_mutate: float = 0.45, p_cross: float = 0.75,
+          p_cross_mutate: float = 0.3,
+          tournament_k: int = 5, fresh=None,
+          unique: bool = False, simplify: bool = False) -> list[Node]:
+    """
+    Build the next generation: elites, then mutation / crossover / fresh blood.
+
+    `population` must be sorted best first (elites are its head).
+    `fresh` is a callable producing an immigrant tree; it defaults to a random
+    tree, and the GAME phase passes a mutant of the seed formula instead.
+    With unique=False and simplify=False the random stream is consumed exactly
+    as before these options existed, so old seeds reproduce old runs.
     """
     if fresh is None:
-        def fresh():
-            return random_tree(basis, max_depth=2 + int(intensity * 2),
-                               force_op=True)
+        fresh = _default_fresh(basis, intensity)
 
     # Elites are budget-checked too: a survivor that violates the budget would
     # otherwise carry the violation forward for the rest of the run.
     new_pop = [population[i].clone()
                for i in range(min(elitism, len(population)))
                if within_budget(population[i], basis)]
-    attempts = 0
-    max_attempts = size * 20
-    while len(new_pop) < size:
-        attempts += 1
-        r = random.random()
-        if r < p_mutate:
-            i = tournament_select(fitness_scores, k=tournament_k)
-            child = mutate_tree(population[i], basis, intensity=intensity)
-        elif r < p_cross:
-            i1 = tournament_select(fitness_scores, k=tournament_k)
-            i2 = tournament_select(fitness_scores, k=tournament_k)
-            child = crossover(population[i1], population[i2], basis)
-            if random.random() < p_cross_mutate:
-                child = mutate_tree(child, basis, intensity=intensity * 0.5)
-        else:
-            child = fresh()
-
-        if within_budget(child, basis) or attempts > max_attempts:
-            # The fallback keeps a too-tight budget from hanging the run; a
-            # budget that trips it is reported by the caller, not silenced.
-            new_pop.append(child)
-    return new_pop
+    return _offspring(
+        population, lambda: tournament_select(fitness_scores, k=tournament_k),
+        basis, out=new_pop, size=size, intensity=intensity,
+        p_mutate=p_mutate, p_cross=p_cross, p_cross_mutate=p_cross_mutate,
+        fresh=fresh, unique=unique, simplify=simplify)
 
 
 def breed_nsga2(population: list[Node], ranks, crowd, basis: Basis, *,
                 size: int, intensity: float,
                 p_mutate: float = 0.45, p_cross: float = 0.75,
                 p_cross_mutate: float = 0.3, tournament_k: int = 3,
-                fresh=None) -> list[Node]:
+                fresh=None, unique: bool = False,
+                simplify: bool = False) -> list[Node]:
     """
     Offspring for an NSGA-II generation.
 
     No elites are copied here: survivors are decided afterwards by
     environmental selection over parents + offspring, which is what preserves
-    the whole front rather than only its best-quality end.
+    the whole front rather than only its best-quality end. With unique, an
+    offspring identical to a parent is rejected too — it would only enter the
+    (mu + lambda) pool as a duplicate of a point already there.
     """
     from .nsga2 import crowded_tournament
 
     if fresh is None:
-        def fresh():
-            return random_tree(basis, max_depth=2 + int(intensity * 2),
-                               force_op=True)
-
-    offspring: list[Node] = []
-    attempts = 0
-    max_attempts = size * 20
-    while len(offspring) < size:
-        attempts += 1
-        r = random.random()
-        if r < p_mutate:
-            i = crowded_tournament(ranks, crowd, k=tournament_k)
-            child = mutate_tree(population[i], basis, intensity=intensity)
-        elif r < p_cross:
-            i1 = crowded_tournament(ranks, crowd, k=tournament_k)
-            i2 = crowded_tournament(ranks, crowd, k=tournament_k)
-            child = crossover(population[i1], population[i2], basis)
-            if random.random() < p_cross_mutate:
-                child = mutate_tree(child, basis, intensity=intensity * 0.5)
-        else:
-            child = fresh()
-
-        if within_budget(child, basis) or attempts > max_attempts:
-            offspring.append(child)
-    return offspring
+        fresh = _default_fresh(basis, intensity)
+    return _offspring(
+        population, lambda: crowded_tournament(ranks, crowd, k=tournament_k),
+        basis, out=[], size=size, intensity=intensity,
+        p_mutate=p_mutate, p_cross=p_cross, p_cross_mutate=p_cross_mutate,
+        fresh=fresh, unique=unique, simplify=simplify,
+        seen={t.key() for t in population} if unique else None)
 
 
 def seed_population(basis: Basis, size: int, *, seed_tree: Node | None = None,
-                    max_depth: int = 3, intensity: float = 0.7) -> list[Node]:
+                    max_depth: int = 3, intensity: float = 0.7,
+                    seed_trees: list[Node] | None = None) -> list[Node]:
     """
     Initial population: random trees, or mutants around a seed formula.
 
@@ -237,13 +321,27 @@ def seed_population(basis: Basis, size: int, *, seed_tree: Node | None = None,
     fixed-K runs: mutation grows trees, so a population seeded from a K-node
     formula starts above K and every later generation inherits the violation
     through the elites.
-    """
-    def _draw():
-        if seed_tree is None:
-            return random_tree(basis, max_depth=max_depth, force_op=True)
-        return mutate_tree(seed_tree, basis, intensity=intensity)
 
-    pop = [seed_tree.clone()] if seed_tree is not None else []
+    seed_trees: several formulas to start from (e.g. the hall of fame of an
+    earlier run). All of them enter unchanged, the rest are mutants of a random
+    one — fine-tuning around a set of best performers rather than one.
+    """
+    if seed_trees:
+        seeds = [t for t in seed_trees if within_budget(t, basis)][:size]
+        if not seeds:
+            seeds = list(seed_trees[:1])
+    elif seed_tree is not None:
+        seeds = [seed_tree]
+    else:
+        seeds = []
+
+    def _draw():
+        if not seeds:
+            return random_tree(basis, max_depth=max_depth, force_op=True)
+        src = seeds[0] if len(seeds) == 1 else random.choice(seeds)
+        return mutate_tree(src, basis, intensity=intensity)
+
+    pop = [t.clone() for t in seeds]
     attempts = 0
     max_attempts = size * 20
     while len(pop) < size:

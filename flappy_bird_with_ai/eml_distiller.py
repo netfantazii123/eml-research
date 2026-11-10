@@ -25,7 +25,8 @@ from config import DEPTH_PENALTIES
 from env import FlappyEnv
 from ga_net import GANet
 
-from emlcore import Node, eml_basis, search, static_metrics, pool_slice
+from emlcore import (Node, eml_basis, search, static_metrics, pool_slice,
+                     FitnessCache)
 
 
 # ── Basis ────────────────────────────────────────────────────────────────────
@@ -138,35 +139,16 @@ def _compute_fitness(
     if n_vars == 0:
         return 1e-6
 
-    errors = 0.0
-    # For balanced accuracy
-    tp = 0  # true positive (target=1, pred=1)
-    tn = 0  # true negative (target=0, pred=0)
-    fp = 0  # false positive
-    fn = 0  # false negative
-
-    for i in range(n):
-        try:
-            pred = tree.evaluate(states[i])
-        except (OverflowError, ValueError, ZeroDivisionError):
-            return 1e-6
-
-        if math.isnan(pred) or math.isinf(pred):
-            return 1e-6
-
-        if mode == 'sigmoid':
-            errors += (pred - targets[i]) ** 2
-        else:
-            action = 1 if pred > 0.5 else 0
-            t = int(targets[i])
-            if action == 1 and t == 1:
-                tp += 1
-            elif action == 0 and t == 0:
-                tn += 1
-            elif action == 1 and t == 0:
-                fp += 1
-            else:
-                fn += 1
+    # One vectorised pass over the dataset instead of a Python loop calling
+    # tree.evaluate() per row: same numbers (the scalar and batch forms of every
+    # operator carry the same guards, and a non-finite output anywhere sinks
+    # the tree in both), roughly two orders of magnitude faster on 5000 rows.
+    try:
+        pred = tree.evaluate_batch(np.asarray(states, dtype=np.float64))
+    except (OverflowError, ValueError, ZeroDivisionError, FloatingPointError):
+        return 1e-6
+    if not np.all(np.isfinite(pred)):
+        return 1e-6
 
     depth = tree.depth()
 
@@ -174,16 +156,22 @@ def _compute_fitness(
     var_bonus = 1.0 + 0.05 * n_vars
 
     if mode == 'sigmoid':
-        mse = errors / n
+        mse = float(np.mean((pred - targets) ** 2))
         base = 1.0 / (mse + depth_penalty * depth + 1e-8)
         return base * var_bonus
-    else:
-        # Balanced accuracy = (TPR + TNR) / 2
-        tpr = tp / max(1, tp + fn)  # sensitivity (recall class 1)
-        tnr = tn / max(1, tn + fp)  # specificity (recall class 0)
-        balanced_acc = (tpr + tnr) / 2.0
-        base = max(0.0, balanced_acc - depth_penalty * depth)
-        return base * var_bonus
+
+    # Balanced accuracy = (TPR + TNR) / 2
+    act = pred > 0.5
+    t = np.asarray(targets).astype(int) == 1
+    tp = int(np.sum(act & t))
+    tn = int(np.sum(~act & ~t))
+    fp = int(np.sum(act & ~t))
+    fn = int(np.sum(~act & t))
+    tpr = tp / max(1, tp + fn)  # sensitivity (recall class 1)
+    tnr = tn / max(1, tn + fp)  # specificity (recall class 0)
+    balanced_acc = (tpr + tnr) / 2.0
+    base = max(0.0, balanced_acc - depth_penalty * depth)
+    return base * var_bonus
 
 
 # ── EML agent ────────────────────────────────────────────────────────────────
@@ -327,6 +315,11 @@ def evolve_eml(
     best_val_result = None
 
     subsample_size = min(5000, len(states))
+    # Exact memoisation (see emlcore/cache.py): the champion's VAL re-scoring
+    # is usually a replay of last generation's champion, and duplicates within
+    # a generation would replay the same pipes.
+    cache = FitnessCache()
+    val_ctx = ('val', tuple(int(s) for s in val_seeds), max_frames)
 
     t0 = time.perf_counter()
 
@@ -358,16 +351,15 @@ def evolve_eml(
             n_games = config.EML_INGAME_GAMES
             gen_seeds = pool_slice(config.EML_SEED_POOL_TRAIN, n_games,
                                    offset=gen * n_games)
-            fitness_scores = []
-            for tree in population:
-                n_vars = tree.n_unique_vars()
-                if n_vars == 0:
-                    fitness_scores.append(0.0)
-                else:
-                    f = _ingame_fitness(tree, gen_seeds)
-                    # Depth penalty (milder than in dataset mode)
-                    f = max(0.0, f - dp * tree.depth() * 50.0)
-                    fitness_scores.append(f)
+            def _game_fit(tree):
+                if tree.n_unique_vars() == 0:
+                    return 0.0
+                f = _ingame_fitness(tree, gen_seeds)
+                # Depth penalty (milder than in dataset mode)
+                return max(0.0, f - dp * tree.depth() * 50.0)
+            fitness_scores = cache.map(
+                population, ('game', tuple(int(s) for s in gen_seeds)),
+                _game_fit)
         else:
             # Dataset: fast screening
             if len(states) > subsample_size:
@@ -411,7 +403,8 @@ def evolve_eml(
         # set of layouts every generation, so a running max over it would keep
         # whichever generation drew the kindest pipes, not the best formula.
         if use_ingame:
-            val_res = score_episodes(best_tree, val_seeds, max_frames)
+            val_res = cache.get(best_tree, val_ctx, lambda t: score_episodes(
+                t, val_seeds, max_frames))
             gen_stats['val_score'] = val_res['avg_score']
             gen_stats['val_fitness'] = val_res['fitness']
             improved = val_res['fitness'] > best_val_fitness

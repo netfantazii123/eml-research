@@ -22,11 +22,13 @@ from .basis import (Basis, Op, eml_basis, classic_basis, make_basis,
 from .node import Node
 from .metrics import static_metrics, estimate_cost, pool_slice
 from .nsga2 import ParetoArchive
-from . import search, cexport, nsga2
+from .cache import FitnessCache
+from . import search, cexport, nsga2, checkpoint, cache, parallel
 
 __all__ = [
     'Basis', 'Op', 'eml_basis', 'classic_basis', 'make_basis',
     'make_eml_op', 'make_classic_ops', 'BASES',
     'Node', 'static_metrics', 'estimate_cost', 'pool_slice',
-    'ParetoArchive', 'search', 'cexport', 'nsga2',
+    'ParetoArchive', 'FitnessCache', 'search', 'cexport', 'nsga2',
+    'checkpoint', 'cache',
 ]

@@ -305,6 +305,14 @@ def _save_reports(result, run_dir, emit, meta):
 
 # ── Single distillation ───────────────────────────────────────────────────────
 
+def _checkpoints_root(path: str | None) -> str | None:
+    """Accept either a run dir or its checkpoints/ subdir."""
+    if not path:
+        return None
+    sub = os.path.join(path, 'checkpoints')
+    return sub if os.path.isdir(sub) else path
+
+
 def full_distill(
     *,
     oracle=None,
@@ -324,9 +332,17 @@ def full_distill(
     on_event=None,
     should_stop=None,
     verbose: bool = False,
+    resume: str | None = None,
+    resume_point='latest',
+    extra_generations: int = 0,
+    allow_changes: tuple = (),
 ) -> dict:
     """
     The full single-distillation pipeline. None parameters -> from config.
+
+    GA states are saved under <run_dir>/checkpoints. resume=<an earlier run's
+    checkpoints dir> continues that run (see eml_distiller.distill); the new
+    run still gets its own run_dir, so the earlier one is never overwritten.
 
     The 'done' event carries the final metrics; the function also returns them.
     """
@@ -368,6 +384,9 @@ def full_distill(
         multi_objective=multi_objective,
         verbose=verbose,
         should_stop=should_stop, on_event=on_event,
+        checkpoint_dir=os.path.join(run_dir, 'checkpoints'),
+        resume=_checkpoints_root(resume), resume_point=resume_point,
+        extra_generations=extra_generations, allow_changes=allow_changes,
     )
 
     # ── Evaluation vs the oracle + saving ────────────────────────────────
@@ -492,6 +511,7 @@ def batch_distill(
     on_event=None,
     should_stop=None,
     verbose: bool = False,
+    resume: str | None = None,
 ) -> dict:
     """
     A batch of GA runs over one dataset: n_configs configurations x n_seeds seeds.
@@ -580,6 +600,13 @@ def batch_distill(
                     multi_objective=multi_objective,
                     verbose=verbose,
                     should_stop=should_stop, on_event=on_event,
+                    # Every variant keeps its own GA states, so a batch that
+                    # dies on run 7 of 10 restarts at run 7 (resume=<the old
+                    # run dir>): finished variants replay from their final
+                    # state without evolving again.
+                    checkpoint_dir=os.path.join(run_dir, 'checkpoints', label),
+                    resume=(os.path.join(_checkpoints_root(resume), label)
+                            if resume else None),
                 )
                 tree = result['trees'][0]
                 fpath = os.path.join(run_dir, f"formula_{label}.json")
