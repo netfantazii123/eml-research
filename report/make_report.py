@@ -77,7 +77,9 @@ def fmt(m, s=None, nd=1):
     return f"{m:.{nd}f}" if s is None else f"{m:.{nd}f} ± {s:.{nd}f}"
 
 
-def summary_table(rows, metric, metric_name, oracle_key=None, order=()):
+def summary_table(rows, metric, metric_name, oracle_key=None, order=(),
+                  names=None):
+    names = {**METHOD_RU, **(names or {})}
     by = defaultdict(list)
     for r in rows:
         by[r['method']].append(r)
@@ -96,7 +98,7 @@ def summary_table(rows, metric, metric_name, oracle_key=None, order=()):
         nm, _ = mean_std(nodes)
         tm, _ = mean_std(tr)
         n_games = rs[0].get('n_games') or rs[0].get('test_games') or ''
-        out.append(f"| {METHOD_RU.get(m, m)} | {fmt(vm, vs, 2)} | "
+        out.append(f"| {names.get(m, m)} | {fmt(vm, vs, 2)} | "
                    f"{fmt(pm, ps)} | {fmt(max(vals), nd=2)} | {fmt(nm, nd=0)} | "
                    f"{fmt(tm, nd=0)} | {len(rs)} | {n_games} |")
     return "\n".join(out)
@@ -152,6 +154,11 @@ def replace_block(text, name, body):
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--compare', default=COMPARE_MD,
+                    help='distill_compare/REPORT.md, or a copy of it')
+    compare_md = ap.parse_args().compare
     with open(REPORT, encoding='utf-8') as fh:
         text = fh.read()
 
@@ -221,14 +228,18 @@ def main():
         r['n_games'] = '30'
     if f_sum:
         text = replace_block(text, 'flappy-summary', summary_table(
-            f_sum, 'test_pipes', 'труб за игру', order=order))
+            f_sum, 'test_pipes', 'труб за игру', order=order,
+            # In Flappy the current pipeline starts from random trees; the
+            # +GAME rows are the same GAME phase warm-started from BC / DAgger.
+            names={'BC+GAME': 'BC + GAME (тёплый старт от BC)',
+                   'DAgger+GAME': 'DAgger + GAME (тёплый старт от DAgger)'}))
     f_it = read_csv(os.path.join(FLAPPY_DIR, 'dagger_iterations.csv'))
     if f_it:
         text = replace_block(text, 'flappy-iterations',
                              iteration_table(f_it, 'val_avg_pipes', 'труб'))
 
-    if os.path.exists(COMPARE_MD):
-        with open(COMPARE_MD, encoding='utf-8') as fh:
+    if os.path.exists(compare_md):
+        with open(compare_md, encoding='utf-8') as fh:
             cmp_text = fh.read()
         m = re.search(r"<!-- tables:start -->(.*?)<!-- tables:end -->",
                       cmp_text, re.S)

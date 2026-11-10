@@ -1,0 +1,29 @@
+{
+  "seeds": [
+    2
+  ],
+  "iters": 5,
+  "beta": "exp",
+  "beta_p": 0.5,
+  "bc_episodes": 40,
+  "dagger_episodes": 10,
+  "generations": 600,
+  "population": 600,
+  "game_generations": 15,
+  "game_population": 30,
+  "test_games": 30,
+  "depth_penalty": "medium",
+  "oracle": null,
+  "tag": "",
+  "out": "results/dagger/seed2",
+  "oracle_meta": {
+    "total_steps": 876544,
+    "best_avg_lines": 103.0,
+    "stop_reason": "target_lines>=100",
+    "elapsed_min": 28.4
+  },
+  "d0_rows": 249552,
+  "d0_steps": 10872,
+  "ingame_max_placements": 300,
+  "multi_objective": true
+}
