@@ -121,6 +121,28 @@ def iteration_table(rows, metric, name):
     return "\n".join(out)
 
 
+def sign_test(wins: int, losses: int) -> float:
+    """Two-sided exact sign test over non-tied pairs."""
+    n = wins + losses
+    if n == 0:
+        return 1.0
+    k = min(wins, losses)
+    p = sum(math.comb(n, i) for i in range(k + 1)) / 2 ** n
+    return min(1.0, 2 * p)
+
+
+def boot_ci(xs, n_boot: int = 10000, seed: int = 0) -> str:
+    """Percentile bootstrap 95% CI of the mean."""
+    import random
+    xs = [x for x in xs if not math.isnan(x)]
+    if len(xs) < 2:
+        return '—'
+    rng = random.Random(seed)
+    ms = sorted(sum(rng.choice(xs) for _ in xs) / len(xs)
+                for _ in range(n_boot))
+    return f"[{ms[int(0.025 * n_boot)]:+.1f}; {ms[int(0.975 * n_boot)]:+.1f}]"
+
+
 def replace_block(text, name, body):
     pat = re.compile(rf"(<!-- {name}:start -->)(.*?)(<!-- {name}:end -->)",
                      re.S)
@@ -142,6 +164,39 @@ def main():
     if t_main:
         text = replace_block(text, 'tetris-summary', summary_table(
             t_main, 'test_lines', 'линий за игру', order=order))
+    if t_main:
+        methods = [m for m in order if any(r['method'] == m for r in t_main)]
+        cell = {(r['ga_seed'], r['method']): _f(r['test_lines']) for r in t_main}
+        seeds = sorted({r['ga_seed'] for r in t_main}, key=int)
+        out = ["| Сид ГА | " + " | ".join(METHOD_RU.get(m, m) for m in methods)
+               + " | Δ (DAgger+GAME − BC+GAME) |",
+               "|---" * (len(methods) + 2) + "|"]
+        deltas = []
+        for sd in seeds:
+            d = cell.get((sd, 'DAgger+GAME'), math.nan) - \
+                cell.get((sd, 'BC+GAME'), math.nan)
+            deltas.append(d)
+            out.append(f"| {sd} | " + " | ".join(
+                fmt(cell.get((sd, m), math.nan), nd=1) for m in methods)
+                + f" | {d:+.1f} |")
+        dm, ds = mean_std(deltas)
+        wins = sum(1 for d in deltas if d > 0)
+        losses = sum(1 for d in deltas if d < 0)
+        out.append(f"\nΔ в среднем {dm:+.1f} ± {ds:.1f} линий "
+                   f"(95% бутстрэп-интервал среднего {boot_ci(deltas)}); "
+                   f"DAgger+GAME лучше в {wins} из {len(deltas)} сидов, хуже в "
+                   f"{losses}, точный знаковый тест p = "
+                   f"{sign_test(wins, losses):.2f}.")
+        d2 = [cell.get((sd, 'DAgger'), math.nan) - cell.get((sd, 'BC'), math.nan)
+              for sd in seeds]
+        m2, s2 = mean_std(d2)
+        w2 = sum(1 for d in d2 if d > 0)
+        l2 = sum(1 for d in d2 if d < 0)
+        out.append(f"\nБез GAME-фазы: DAgger − BC в среднем {m2:+.1f} ± {s2:.1f}"
+                   f" линий (95% бутстрэп {boot_ci(d2)}); DAgger лучше в {w2}, "
+                   f"хуже в {l2} из {len(d2)}, знаковый тест p = "
+                   f"{sign_test(w2, l2):.3f}.")
+        text = replace_block(text, 'tetris-perseed', "\n".join(out))
     t_it = [r for r in read_csv(os.path.join(TETRIS_DIR, 'dagger_iterations.csv'))
             if not r.get('tag')]
     if t_it:

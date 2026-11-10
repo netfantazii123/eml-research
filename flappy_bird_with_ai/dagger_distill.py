@@ -237,7 +237,8 @@ def _test(tree, max_frames, n_games):
 def run(seeds=(0, 1, 2), n_iters=6, generations=200, population=300,
         bc_episodes=60, dagger_episodes=30, max_frames=None, dp_name='medium',
         test_games=None, with_game_baseline=True, out_dir=RESULTS,
-        oracle_path=None, chunk_balance=True, verbose=True):
+        oracle_path=None, chunk_balance=True, game_generations=150,
+        game_population=200, verbose=True):
     max_frames = max_frames or config.GA_MAX_FRAMES
     test_games = test_games or config.EML_TEST_GAMES
     dp = DEPTH_PENALTIES[dp_name]
@@ -339,13 +340,26 @@ def run(seeds=(0, 1, 2), n_iters=6, generations=200, population=300,
                  'rows': res.history[-1].n_total}, elapsed)
 
         if with_game_baseline:
+            # BC+GAME / DAgger+GAME: the same GAME pipeline, warm-started from
+            # the supervised formula — the comparison that matters in Tetris.
+            for name, seed_tree in (('BC+GAME', res.students[0]),
+                                    ('DAgger+GAME', res.best_student)):
+                random.seed(gs); np.random.seed(gs)
+                t0 = time.perf_counter()
+                g = evolve_eml(X0, 1 / (1 + np.exp(-d0[1])), mode='sigmoid',
+                               depth_penalty_name=dp_name,
+                               generations=game_generations,
+                               population_size=game_population,
+                               init_trees=[seed_tree], verbose=False)
+                _record(name, gs, g['best_tree'], {'iterations': 1},
+                        time.perf_counter() - t0)
             random.seed(gs); np.random.seed(gs)
             t0 = time.perf_counter()
             # The reference pipeline exactly as the thesis runs it: sigmoid
             # targets, its own DATA warm-up and GAME phase.
             g = evolve_eml(X0, 1 / (1 + np.exp(-d0[1])), mode='sigmoid', depth_penalty_name=dp_name,
-                           generations=generations, population_size=population,
-                           verbose=False)
+                           generations=game_generations,
+                           population_size=game_population, verbose=False)
             _record('EML-GAME', gs, g['best_tree'], {'iterations': 1},
                     time.perf_counter() - t0)
 
@@ -356,7 +370,9 @@ def run(seeds=(0, 1, 2), n_iters=6, generations=200, population=300,
         json.dump({'oracle_test_pipes': oracle_avg, 'test_games': test_games,
                    'max_frames': max_frames, 'seeds': list(seeds),
                    'n_iters': n_iters, 'generations': generations,
-                   'population': population, 'bc_episodes': bc_episodes,
+                   'population': population, 'game_generations': game_generations,
+                   'game_population': game_population, 'loss': LOSS,
+                   'chunk_balance': chunk_balance, 'bc_episodes': bc_episodes,
                    'dagger_episodes': dagger_episodes, 'depth_penalty': dp_name,
                    'beta': 'exp p=0.5'}, fh, indent=2)
     return rows, iter_rows

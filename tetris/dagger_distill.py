@@ -112,11 +112,19 @@ FIT_INFO: dict[int, dict] = {}
 
 
 def fit_data_phase(chunks, warm, *, generations, population, dp_name,
-                   basis_name=None):
+                   basis_name=None, chunk_balance=False):
     X = np.concatenate([c[0] for c in chunks]).astype(np.float64)
     z = np.concatenate([c[1] for c in chunks])
     g = np.concatenate([c[2] for c in chunks])
     w = compute_sample_weights(z, g)
+    if chunk_balance and len(chunks) > 1:
+        # Each iteration's chunk carries the same total weight. Without it the
+        # ~11k oracle steps of D_0 outweigh the few hundred steps a failing
+        # formula survives 20:1, and later iterations barely move the fit.
+        cw = np.concatenate([np.full(len(c[0]), 1.0 / max(1, len(c[0])))
+                             for c in chunks])
+        w = w * cw
+        w = w / w.mean()
     y = _standardize_per_group(z.astype(np.float64), g)
     tr, va = split_groups(g, config.EML_DATA_VAL_FRACTION,
                           np.random.default_rng(random.randrange(2 ** 63)))
@@ -131,35 +139,17 @@ def fit_data_phase(chunks, warm, *, generations, population, dp_name,
     t = res['best_tree']
     FIT_INFO[id(t)] = {'data_val_fitness': res['best_val_fitness'],
                        'nodes': t.size(), 'depth': t.depth(),
-                       'generations_run': len(res['history']),
-                       'top1_agree_val': top1_agreement(t, val) if val else None}
+                       'generations_run': len(res['history'])}
     return t
 
 
-def top1_agreement(tree, val) -> float:
-    """
-    Fraction of VAL steps where the formula's argmax placement is the oracle's.
-
-    The quantity DAgger's guarantee is about (per-step imitation error under
-    the student's own state distribution), so it is worth reporting next to
-    lines — the regression fitness is not it.
-    """
-    X, y, _ = val
-    # Groups are not passed with val; recover them from the per-group z-score
-    # boundaries is fragile, so the caller-side split keeps them contiguous and
-    # a group is a maximal run of rows sharing the same standardized ranking.
-    return float('nan') if X is None else _top1(tree, X, y)
-
-
-def _top1(tree, X, y):
-    # y was standardized per group: a group boundary is where the running row
-    # index resets, which we cannot see here. Used only through
-    # top1_agreement_groups below.
-    return float('nan')
-
-
 def top1_agreement_groups(tree, chunk) -> float:
-    """Top-1 agreement on a labelled chunk (features, logits, groups)."""
+    """
+    Fraction of steps where the formula's argmax placement is the oracle's.
+
+    This is the per-step imitation error DAgger's guarantee is about, so it is
+    reported next to lines; the regression fitness is not it.
+    """
     X, z, g = chunk
     if len(X) == 0:
         return float('nan')
@@ -203,7 +193,8 @@ def run_seed(ga_seed: int, *, oracle, device, d0, n_iters: int,
              beta_kind: str, beta_p: float, dagger_episodes: int,
              generations: int, population: int, dp_name: str,
              game_generations: int, game_population: int, test_games: int,
-             probe, out_dir: str, tag: str = '', verbose=True):
+             probe, out_dir: str, tag: str = '', chunk_balance=False,
+             verbose=True):
     random.seed(ga_seed)
     np.random.seed(ga_seed)
     rng = np.random.default_rng(ga_seed)
@@ -222,11 +213,11 @@ def run_seed(ga_seed: int, *, oracle, device, d0, n_iters: int,
 
     def fit(chunks, warm):
         return fit_data_phase(chunks, warm, generations=generations,
-                              population=population, dp_name=dp_name)
+                              population=population, dp_name=dp_name,
+                              chunk_balance=chunk_balance)
 
     def info(t):
         d = dict(FIT_INFO.get(id(t), {}))
-        d.pop('top1_agree_val', None)
         # Imitation error on boards the formula itself reaches (probe set,
         # collected once from the BC student) and on the oracle's own boards.
         d['top1_oracle_states'] = top1_agreement_groups(t, probe['oracle'])
@@ -321,6 +312,8 @@ def main():
     ap.add_argument('--depth-penalty', default='medium')
     ap.add_argument('--oracle', default=None)
     ap.add_argument('--tag', default='')
+    ap.add_argument('--chunk-balance', action='store_true',
+                    help='equal total weight per DAgger iteration')
     ap.add_argument('--out', default=RESULTS)
     a = ap.parse_args()
 
@@ -364,7 +357,7 @@ def main():
                  game_generations=a.game_generations,
                  game_population=a.game_population,
                  test_games=a.test_games, probe=probe, out_dir=a.out,
-                 tag=a.tag)
+                 tag=a.tag, chunk_balance=a.chunk_balance)
 
 
 if __name__ == '__main__':
