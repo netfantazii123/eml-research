@@ -130,6 +130,7 @@ def evolve_formula(
     basis=None,
     multi_objective: bool | None = None,
     archive: ParetoArchive | None = None,
+    init_trees: list | None = None,
     verbose: bool = False,
     label: str = 'PLACE',
     should_stop=None,
@@ -147,6 +148,10 @@ def evolve_formula(
     on_event: an optional callback(dict) for progress (GUI). Invoked every
     generation with {'type':'data_gen', ...}.
 
+    init_trees: optional warm start (DAgger refits on a grown dataset). Half of
+    the initial population become mutants of these trees, the trees themselves
+    included; the rest stays random so a poor warm start cannot capture the run.
+
     Returns: {'best_tree', 'best_fitness', 'best_val_fitness', 'history',
               'val_history'}.
     """
@@ -161,6 +166,14 @@ def evolve_formula(
     # very same subsample sequence).
     rng = np.random.default_rng(random.randrange(2 ** 63))
     population = search.seed_population(basis, population_size, max_depth=3)
+    if init_trees:
+        n_warm = population_size // 2
+        warm: list = []
+        for i, t in enumerate(init_trees):
+            share = n_warm // len(init_trees) + (i < n_warm % len(init_trees))
+            warm += search.seed_population(basis, share, seed_tree=t,
+                                           intensity=0.5)
+        population = warm[:n_warm] + population[:population_size - n_warm]
     history: list[float] = []
     val_history: list[float] = []
     best_fitness_ever = -1.0
