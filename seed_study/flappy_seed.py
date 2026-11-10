@@ -56,6 +56,7 @@ def main(argv=None):
     p.add_argument('--penalty', default='medium')
     p.add_argument('--test-games', type=int, default=config.EML_TEST_GAMES)
     a = p.parse_args(argv)
+    a.out = os.path.abspath(a.out)   # before the chdir below
     os.makedirs(a.out, exist_ok=True)
     res_path = os.path.join(a.out, f'seed_{a.seed}.json')
     if os.path.exists(res_path):

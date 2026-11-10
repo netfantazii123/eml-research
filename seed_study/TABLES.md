@@ -4,15 +4,20 @@
 
 | seed | source | VAL | TEST (lines, 30 games) | % of ceiling | nodes |
 |---|---|---|---|---|---|
+| 25 | new | 117.2 | 115.1 ± 8.4 | 96 % | 21 |
+| 26 | new | 117.8 | 117.2 ± 1.4 | 98 % | 17 |
+| 27 | new | 118.5 | 117.9 ± 1.2 | 98 % | 25 |
+| 28 | new | 114.4 | 109.6 ± 15.0 | 91 % | 17 |
+| 29 | new | 117.9 | 115.7 ± 2.7 | 96 % | 7 |
 | 20 | tetris_2026-08-20_batch | 118.4 | 116.4 ± 3.7 | 97 % | 47 |
 | 21 | tetris_2026-08-20_batch | 116.8 | 116.1 ± 2.4 | 97 % | 55 |
 | 22 | tetris_2026-08-20_batch | 118.1 | 114.6 ± 9.0 | 96 % | 53 |
 | 23 | tetris_2026-08-20_batch | 115.9 | 78.1 ± 36.0 | 65 % | 17 |
 | 24 | tetris_2026-08-20_batch | 116.9 | 114.6 ± 9.9 | 95 % | 47 |
 
-**All 5 seeds:** 108.0 ± 16.7 (95 % CI ± 20.8), median 114.6, min 78.1, max 116.4; nodes 44 on average.
-Best by VAL (seed 20): TEST 116.4 — shown for contrast only, not the method's number.
-Seeds below 80 % of the ceiling: 1 of 5.
+**All 10 seeds:** 111.5 ± 12.0 (95 % CI ± 8.5), median 115.4, min 78.1, max 117.9; nodes 31 on average.
+Best by VAL (seed 27): TEST 117.9 — shown for contrast only, not the method's number.
+Seeds below 80 % of the ceiling: 1 of 10.
 
 #### Tetris, 2026-07-12 batch (old seed scheme: seed and hyper-parameters jittered together; historical)
 
@@ -26,6 +31,25 @@ Seeds below 80 % of the ceiling: 1 of 5.
 
 **All 5 seeds:** 105.4 ± 15.8 (95 % CI ± 19.6), median 111.5, min 77.6, max 115.8; nodes 53 on average.
 Seeds below 80 % of the ceiling: 1 of 5.
+
+#### Flappy Bird, fixed oracle best_ga.pt, penalty medium
+
+| seed | source | VAL | TEST (pipes, 30 games) | % of ceiling | nodes |
+|---|---|---|---|---|---|
+| 0 | new | 32.0 | 55.0 ± 0.0 | 100 % | 25 |
+| 1 | new | 27.0 | 33.9 ± 17.4 | 62 % | 17 |
+| 2 | new | 32.0 | 45.7 ± 17.3 | 83 % | 21 |
+| 3 | new | 32.0 | 49.0 ± 12.5 | 89 % | 31 |
+| 4 | new | 32.0 | 55.0 ± 0.0 | 100 % | 7 |
+| 5 | new | 32.0 | 52.7 ± 8.9 | 96 % | 27 |
+| 6 | new | 32.0 | 54.5 ± 2.6 | 99 % | 15 |
+| 7 | new | 32.0 | 55.0 ± 0.0 | 100 % | 21 |
+| 8 | new | 32.0 | 50.6 ± 12.3 | 92 % | 19 |
+| 9 | new | 32.0 | 53.6 ± 7.7 | 97 % | 19 |
+
+**All 10 seeds:** 50.5 ± 6.6 (95 % CI ± 4.7), median 53.1, min 33.9, max 55.0; nodes 20 on average.
+Best by VAL (seed 0): TEST 55.0 — shown for contrast only, not the method's number.
+Seeds below 80 % of the ceiling: 1 of 10.
 
 #### Flappy Bird, benchmark.py runs of 2026-05-29 and 2026-08-19 (each run trains its own oracle; weak/medium/strong)
 
