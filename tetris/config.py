@@ -237,7 +237,7 @@ EML_HOF_SIZE = 20              # distinct best formulas kept in hall_of_fame.jso
 # Caching and parallel games change only how long a run takes, never its result,
 # so they are on / free to raise. The three search options DO change the
 # trajectory (and so the numbers already reported); they stay off until the
-# effect is measured on the real dataset — see results/ga_search_options.md.
+# effect is measured on the real dataset — see tetris/results/ga_search_options.md.
 EML_FITNESS_CACHE = True       # memoise fitness by (formula, data) — exact
 EML_INGAME_WORKERS = 1         # processes for GAME-phase games (0 = all cores)
 EML_UNIQUE_CHILDREN = False    # reject children identical to one already bred
