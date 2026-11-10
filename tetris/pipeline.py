@@ -655,6 +655,28 @@ def batch_distill(
     orc_lines = holdout['oracle_lines']
     ratio = holdout['ratio_pct']
 
+    # Every seed on TEST, not just the winner. The winner's holdout is the
+    # number for the formula that ships; the method's number is the mean over
+    # ALL seeds, bad ones included. Eight VAL games do not catch a seed that
+    # collapses on other layouts (2026-08-20 batch, seed 23: VAL 115.9,
+    # TEST 78.1), so a winner-only report hides exactly the runs that matter.
+    # The oracle already played these seeds above; only the formulas play here.
+    test_seeds = holdout['seeds']
+    max_pl = config.EML_INGAME_MAX_PLACEMENTS
+    for v in variants:
+        if v is best:
+            t = holdout['eml']
+        else:
+            t = score_episodes(v['result']['trees'][0], test_seeds, max_pl)
+            write_rows(run_dir, episode_rows(
+                t, pool='test', policy='eml', static=v['result'].get('static'),
+                basis=v['result'].get('basis', 'eml'),
+                k_budget=v['result'].get('max_nodes'),
+                config_id=v['config_id'], ga_seed=v['ga_seed'],
+                variant=v['label'], prov=prov, run_dir=run_dir))
+        v['test_lines'] = t['avg_lines']
+        v['test_std'] = t['std_lines']
+
     per_config = summarize_by_config(variants)
     _emit({'type': 'log', 'msg':
            f"Winner {best['label']} — val {best['val_lines']:.2f}, "
@@ -664,7 +686,9 @@ def batch_distill(
         _emit({'type': 'log', 'msg':
                f"  config {row['config_id']}: val {row['val_mean']:.2f}"
                f"±{row['val_std']:.2f} over {row['n_seeds']} seeds "
-               f"(min {row['val_min']:.2f}, max {row['val_max']:.2f})"})
+               f"(min {row['val_min']:.2f}, max {row['val_max']:.2f}); "
+               f"TEST over all seeds {row['test_mean']:.2f}"
+               f"±{row['test_std']:.2f} (min {row['test_min']:.2f})"})
 
     meta = {
         'final_lines': eml_lines,          # holdout mean — the reportable number
@@ -747,6 +771,16 @@ def summarize_by_config(variants: list[dict]) -> list[dict]:
     for c_id, group in sorted(by_cfg.items()):
         vals = np.asarray([g['val_lines'] for g in group], dtype=np.float64)
         sizes = np.asarray([g['size'] for g in group], dtype=np.float64)
+        tests = np.asarray([g['test_lines'] for g in group
+                            if g.get('test_lines') is not None], dtype=np.float64)
+        test_stats = {}
+        if len(tests):
+            test_stats = {
+                'test_mean': float(tests.mean()),
+                'test_std': float(tests.std(ddof=1)) if len(tests) > 1 else 0.0,
+                'test_min': float(tests.min()),
+                'test_max': float(tests.max()),
+            }
         rows.append({
             'config_id': c_id,
             'n_seeds': len(group),
@@ -757,6 +791,7 @@ def summarize_by_config(variants: list[dict]) -> list[dict]:
             'val_max': float(vals.max()),
             'size_mean': float(sizes.mean()),
             'params': group[0]['params'],
+            **test_stats,
         })
     return rows
 
