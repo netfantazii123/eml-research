@@ -1,0 +1,193 @@
+{
+  "trees": [
+    {
+      "kind": "op",
+      "op": "eml",
+      "children": [
+        {
+          "kind": "var",
+          "var_idx": 17
+        },
+        {
+          "kind": "op",
+          "op": "eml",
+          "children": [
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "op",
+                  "op": "eml",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "const",
+                          "value": -1.78694336508334
+                        },
+                        {
+                          "kind": "var",
+                          "var_idx": 10
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "var",
+                      "var_idx": 15
+                    }
+                  ]
+                },
+                {
+                  "kind": "var",
+                  "var_idx": 11
+                }
+              ]
+            },
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "op",
+                  "op": "eml",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "const",
+                          "value": 0.9362277420582545
+                        },
+                        {
+                          "kind": "var",
+                          "var_idx": 24
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "var",
+                          "var_idx": 11
+                        },
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 5
+                                },
+                                {
+                                  "kind": "const",
+                                  "value": -1.78694336508334
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 7
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 8
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "var",
+                  "var_idx": 8
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "feature_names": [
+    "h0",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h8",
+    "h9",
+    "holes",
+    "bumpiness",
+    "agg_h",
+    "max_h",
+    "wells",
+    "row_trans",
+    "col_trans",
+    "cleared",
+    "landing_h",
+    "next_I",
+    "next_O",
+    "next_T",
+    "next_S",
+    "next_Z",
+    "next_J",
+    "next_L"
+  ],
+  "meta": {
+    "ga_seed": 27,
+    "params": {
+      "generations": 600,
+      "population": 600,
+      "depth_penalty": "medium",
+      "max_depth": 7,
+      "var_bonus": 0.03
+    },
+    "basis": "eml",
+    "val_lines": 118.5,
+    "static": {
+      "nodes": 25,
+      "depth": 7,
+      "n_ops": 12,
+      "ops": {
+        "eml": 12
+      },
+      "n_leaves": 13,
+      "n_const": 3,
+      "n_vars_unique": 8,
+      "n_exp": 12,
+      "n_log": 12,
+      "n_transcendental": 24,
+      "n_eml": 12,
+      "est_code_bytes": 204,
+      "est_stack_floats": 8,
+      "est_stack_bytes": 32
+    },
+    "provenance": {
+      "commit": "940e777",
+      "dirty": false,
+      "branch": "HEAD",
+      "config_hash": "35edcf8759c3",
+      "timestamp": "2026-11-10 11:32:59"
+    }
+  }
+}

@@ -224,6 +224,27 @@ EML_VAL_GAMES = 8        # games per hall-of-fame re-scoring (VAL pool)
 EML_TEST_GAMES = 30      # games in the final holdout report (TEST pool)
 EML_DATA_VAL_FRACTION = 0.15   # fraction of dataset GROUPS held out for DATA val
 
+# ── GA run state: checkpoints and resume (emlcore/checkpoint.py) ─────────────
+# A run with a checkpoint directory can be stopped and resumed from 'latest',
+# from the state of the generation that produced a best performer ('best'), or
+# from any saved generation. See README "Resuming a distillation".
+EML_CHECKPOINT_EVERY = 10      # rewrite latest.json every N generations
+EML_SNAPSHOT_EVERY = 50        # keep a resumable snapshot every N generations
+EML_KEEP_BEST_STATES = 5       # full states kept for the last N new bests
+EML_HOF_SIZE = 20              # distinct best formulas kept in hall_of_fame.json
+
+# ── GA search efficiency ────────────────────────────────────────────────────
+# Caching and parallel games change only how long a run takes, never its result,
+# so they are on / free to raise. The three search options DO change the
+# trajectory (and so the numbers already reported); they stay off until the
+# effect is measured on the real dataset — see tetris/results/ga_search_options.md.
+EML_FITNESS_CACHE = True       # memoise fitness by (formula, data) — exact
+EML_INGAME_WORKERS = 1         # processes for GAME-phase games (0 = all cores)
+EML_UNIQUE_CHILDREN = False    # reject children identical to one already bred
+EML_FOLD_CONSTANTS = False     # collapse variable-free subtrees into a constant
+EML_TUNE_CONSTANTS_TOP = 0     # elites whose constants get a local (1+1)-ES
+EML_TUNE_CONSTANTS_STEPS = 6   # ES steps per tuned elite per generation
+
 DEPTH_PENALTIES = {
     'weak':   0.01,
     'medium': 0.05,

@@ -1,0 +1,273 @@
+{
+  "saved_at": "2026-08-20 02:17:40",
+  "oracle_lines": 113.33333333333333,
+  "best_variant": 0,
+  "best_label": "c00s20",
+  "best_ratio_pct": 102.6764705882353,
+  "holdout": {
+    "n_games": 30,
+    "seeds": [
+      5000,
+      5001,
+      5002,
+      5003,
+      5004,
+      5005,
+      5006,
+      5007,
+      5008,
+      5009,
+      5010,
+      5011,
+      5012,
+      5013,
+      5014,
+      5015,
+      5016,
+      5017,
+      5018,
+      5019,
+      5020,
+      5021,
+      5022,
+      5023,
+      5024,
+      5025,
+      5026,
+      5027,
+      5028,
+      5029
+    ],
+    "eml_lines": 116.36666666666666,
+    "eml_std": 3.7461090925563463,
+    "oracle_lines": 113.33333333333333,
+    "oracle_std": 3.294021055282385,
+    "ratio_pct": 102.6764705882353,
+    "paired_diff_mean": 3.033333333333333,
+    "paired_diff_std": 4.483558726120883
+  },
+  "per_config": [
+    {
+      "config_id": 0,
+      "n_seeds": 5,
+      "seeds": [
+        20,
+        21,
+        22,
+        23,
+        24
+      ],
+      "val_mean": 117.2,
+      "val_std": 1.036822067666386,
+      "val_min": 115.875,
+      "val_max": 118.375,
+      "size_mean": 43.8,
+      "params": {
+        "generations": 600,
+        "population": 600,
+        "depth_penalty": "medium",
+        "max_depth": 7,
+        "var_bonus": 0.03
+      }
+    }
+  ],
+  "provenance": {
+    "commit": "59e5720",
+    "dirty": true,
+    "branch": "eml-seed-discipline",
+    "config_hash": "35edcf8759c3",
+    "timestamp": "2026-08-20 00:50:20"
+  },
+  "variants": [
+    {
+      "variant": 0,
+      "label": "c00s20",
+      "config_id": 0,
+      "ga_seed": 20,
+      "params": {
+        "generations": 600,
+        "population": 600,
+        "depth_penalty": "medium",
+        "max_depth": 7,
+        "var_bonus": 0.03
+      },
+      "val_lines": 118.375,
+      "val_std": 0.7440238091428449,
+      "base_lines": 2.625,
+      "size": 47,
+      "depth": 7,
+      "nvars": 10,
+      "static": {
+        "nodes": 47,
+        "depth": 7,
+        "n_ops": 23,
+        "ops": {
+          "eml": 23
+        },
+        "n_leaves": 24,
+        "n_const": 8,
+        "n_vars_unique": 10,
+        "n_exp": 23,
+        "n_log": 23,
+        "n_transcendental": 46,
+        "n_eml": 23,
+        "est_code_bytes": 400,
+        "est_stack_floats": 8,
+        "est_stack_bytes": 32
+      },
+      "path": "runs\\2026-08-20_00-50-20_distill_batch\\formula_c00s20.json"
+    },
+    {
+      "variant": 1,
+      "label": "c00s21",
+      "config_id": 0,
+      "ga_seed": 21,
+      "params": {
+        "generations": 600,
+        "population": 600,
+        "depth_penalty": "medium",
+        "max_depth": 7,
+        "var_bonus": 0.03
+      },
+      "val_lines": 116.75,
+      "val_std": 1.9820624179302297,
+      "base_lines": 105.0,
+      "size": 55,
+      "depth": 7,
+      "nvars": 20,
+      "static": {
+        "nodes": 55,
+        "depth": 7,
+        "n_ops": 27,
+        "ops": {
+          "eml": 27
+        },
+        "n_leaves": 28,
+        "n_const": 5,
+        "n_vars_unique": 20,
+        "n_exp": 27,
+        "n_log": 27,
+        "n_transcendental": 54,
+        "n_eml": 27,
+        "est_code_bytes": 452,
+        "est_stack_floats": 8,
+        "est_stack_bytes": 32
+      },
+      "path": "runs\\2026-08-20_00-50-20_distill_batch\\formula_c00s21.json"
+    },
+    {
+      "variant": 2,
+      "label": "c00s22",
+      "config_id": 0,
+      "ga_seed": 22,
+      "params": {
+        "generations": 600,
+        "population": 600,
+        "depth_penalty": "medium",
+        "max_depth": 7,
+        "var_bonus": 0.03
+      },
+      "val_lines": 118.125,
+      "val_std": 1.1259916264596033,
+      "base_lines": 0.0,
+      "size": 53,
+      "depth": 7,
+      "nvars": 14,
+      "static": {
+        "nodes": 53,
+        "depth": 7,
+        "n_ops": 26,
+        "ops": {
+          "eml": 26
+        },
+        "n_leaves": 27,
+        "n_const": 6,
+        "n_vars_unique": 14,
+        "n_exp": 26,
+        "n_log": 26,
+        "n_transcendental": 52,
+        "n_eml": 26,
+        "est_code_bytes": 440,
+        "est_stack_floats": 8,
+        "est_stack_bytes": 32
+      },
+      "path": "runs\\2026-08-20_00-50-20_distill_batch\\formula_c00s22.json"
+    },
+    {
+      "variant": 3,
+      "label": "c00s23",
+      "config_id": 0,
+      "ga_seed": 23,
+      "params": {
+        "generations": 600,
+        "population": 600,
+        "depth_penalty": "medium",
+        "max_depth": 7,
+        "var_bonus": 0.03
+      },
+      "val_lines": 115.875,
+      "val_std": 1.6420805617960927,
+      "base_lines": 0.0,
+      "size": 17,
+      "depth": 5,
+      "nvars": 6,
+      "static": {
+        "nodes": 17,
+        "depth": 5,
+        "n_ops": 8,
+        "ops": {
+          "eml": 8
+        },
+        "n_leaves": 9,
+        "n_const": 1,
+        "n_vars_unique": 6,
+        "n_exp": 8,
+        "n_log": 8,
+        "n_transcendental": 16,
+        "n_eml": 8,
+        "est_code_bytes": 132,
+        "est_stack_floats": 6,
+        "est_stack_bytes": 24
+      },
+      "path": "runs\\2026-08-20_00-50-20_distill_batch\\formula_c00s23.json"
+    },
+    {
+      "variant": 4,
+      "label": "c00s24",
+      "config_id": 0,
+      "ga_seed": 24,
+      "params": {
+        "generations": 600,
+        "population": 600,
+        "depth_penalty": "medium",
+        "max_depth": 7,
+        "var_bonus": 0.03
+      },
+      "val_lines": 116.875,
+      "val_std": 1.6420805617960927,
+      "base_lines": 1.625,
+      "size": 47,
+      "depth": 7,
+      "nvars": 13,
+      "static": {
+        "nodes": 47,
+        "depth": 7,
+        "n_ops": 23,
+        "ops": {
+          "eml": 23
+        },
+        "n_leaves": 24,
+        "n_const": 6,
+        "n_vars_unique": 13,
+        "n_exp": 23,
+        "n_log": 23,
+        "n_transcendental": 46,
+        "n_eml": 23,
+        "est_code_bytes": 392,
+        "est_stack_floats": 8,
+        "est_stack_bytes": 32
+      },
+      "path": "runs\\2026-08-20_00-50-20_distill_batch\\formula_c00s24.json"
+    }
+  ]
+}

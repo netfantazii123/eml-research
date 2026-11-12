@@ -1,0 +1,173 @@
+{
+  "trees": [
+    {
+      "kind": "op",
+      "op": "eml",
+      "children": [
+        {
+          "kind": "op",
+          "op": "eml",
+          "children": [
+            {
+              "kind": "var",
+              "var_idx": 17
+            },
+            {
+              "kind": "const",
+              "value": -0.8063773961216896
+            }
+          ]
+        },
+        {
+          "kind": "op",
+          "op": "eml",
+          "children": [
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "const",
+                  "value": 1.8036079642112322
+                },
+                {
+                  "kind": "op",
+                  "op": "eml",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "const",
+                          "value": 0.27316581252440564
+                        },
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "var",
+                              "var_idx": 10
+                            },
+                            {
+                              "kind": "var",
+                              "var_idx": 10
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "var",
+                          "var_idx": 11
+                        },
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "var",
+                              "var_idx": 17
+                            },
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 19
+                                },
+                                {
+                                  "kind": "const",
+                                  "value": 0.41246389967899555
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "var",
+              "var_idx": 15
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "feature_names": [
+    "h0",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h8",
+    "h9",
+    "holes",
+    "bumpiness",
+    "agg_h",
+    "max_h",
+    "wells",
+    "row_trans",
+    "col_trans",
+    "cleared",
+    "landing_h",
+    "next_I",
+    "next_O",
+    "next_T",
+    "next_S",
+    "next_Z",
+    "next_J",
+    "next_L"
+  ],
+  "meta": {
+    "ga_seed": 25,
+    "params": {
+      "generations": 600,
+      "population": 600,
+      "depth_penalty": "medium",
+      "max_depth": 7,
+      "var_bonus": 0.03
+    },
+    "basis": "eml",
+    "val_lines": 117.25,
+    "static": {
+      "nodes": 21,
+      "depth": 7,
+      "n_ops": 10,
+      "ops": {
+        "eml": 10
+      },
+      "n_leaves": 11,
+      "n_const": 4,
+      "n_vars_unique": 5,
+      "n_exp": 10,
+      "n_log": 10,
+      "n_transcendental": 20,
+      "n_eml": 10,
+      "est_code_bytes": 176,
+      "est_stack_floats": 8,
+      "est_stack_bytes": 32
+    },
+    "provenance": {
+      "commit": "940e777",
+      "dirty": false,
+      "branch": "HEAD",
+      "config_hash": "35edcf8759c3",
+      "timestamp": "2026-11-10 11:26:25"
+    }
+  }
+}
