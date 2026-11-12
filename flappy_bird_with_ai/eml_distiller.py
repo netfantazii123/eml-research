@@ -25,7 +25,7 @@ from config import DEPTH_PENALTIES
 from env import FlappyEnv
 from ga_net import GANet
 
-from emlcore import (Node, eml_basis, search, static_metrics, pool_slice,
+from emlcore import (Node, eml_basis, classic_basis, search, static_metrics, pool_slice,
                      FitnessCache)
 
 
@@ -36,8 +36,14 @@ VAR_NAMES = ('y', 'vel', 'dx', 'gap')
 
 def make_basis(max_depth: int | None = None,
                max_nodes: int | None = None):
-    """The basis this task searches in, built from config at call time."""
-    return eml_basis(
+    """The basis this task searches in, built from config at call time.
+
+    config.EML_BASIS = 'classic' gives the control basis (+ - * / exp log tanh)
+    with the same guards, so the whole pipeline can run on either.
+    """
+    make = classic_basis if getattr(config, 'EML_BASIS', 'eml') == 'classic' \
+        else eml_basis
+    return make(
         config.STATE_SIZE, VAR_NAMES,
         max_depth=config.EML_MAX_DEPTH if max_depth is None else max_depth,
         epsilon=config.EML_EPSILON,
@@ -265,9 +271,14 @@ def evolve_eml(
     verbose: bool = True,
     should_stop=None,
     init_trees: list | None = None,
+    data_fraction: float | None = None,
 ) -> dict:
     """
     GA evolution of EML trees.
+
+    data_fraction: share of the generations spent in the DATA phase (default
+    0.1). 0 is the no-oracle control: the GAME phase starts from random trees
+    and the oracle's dataset is never looked at.
 
     init_trees: optional warm start (e.g. a DAgger formula): half the initial
     population become mutants of these trees, the rest stays random.
@@ -300,7 +311,10 @@ def evolve_eml(
     # GAME. With narrow oracle targets the DATA fitness is noise and drives the
     # population toward degenerate trees, so the warm-up is kept short and the
     # real evaluation is done by playing.
-    phase_switch = max(1, int(generations * 0.1))
+    if data_fraction is None:
+        data_fraction = 0.1
+    phase_switch = (0 if data_fraction <= 0
+                    else max(1, int(generations * data_fraction)))
 
     # Initialization
     population = [search.random_tree(basis, max_depth=3, force_op=True)

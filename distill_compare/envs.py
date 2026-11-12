@@ -94,7 +94,7 @@ class FlappyAdapter:
         self.max_steps = max_frames
 
     def reset(self, seed):
-        self.env = self._Env(seed=int(seed))
+        self.env = self._Env(seed=int(seed), max_placements=0)  # max_steps caps
         return self.env.reset()
 
     def inputs(self, obs):

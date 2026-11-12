@@ -48,7 +48,7 @@ def oracle_score(oracle, seeds, max_placements: int, device) -> dict:
     lines: list[int] = []
     steps: list[int] = []
     for s in seeds:
-        env = TetrisEnv(seed=int(s))
+        env = TetrisEnv(seed=int(s), max_placements=0)   # the loop is the cap
         obs = env.reset()
         f = 0
         while not env.done and f < max_placements:
@@ -67,6 +67,7 @@ def oracle_score(oracle, seeds, max_placements: int, device) -> dict:
         'avg_lines': float(la.mean()),
         'std_lines': float(la.std(ddof=1)) if len(la) > 1 else 0.0,
         'avg_steps': float(sa.mean()),
+        'n_capped': int((sa >= max_placements).sum()),
     }
 
 

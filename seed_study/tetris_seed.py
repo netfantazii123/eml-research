@@ -36,7 +36,8 @@ import config                                        # noqa: E402
 import storage                                       # noqa: E402
 import runs as runs_mod                              # noqa: E402
 from dataset_collector import load_dataset, compute_sample_weights  # noqa: E402
-from eml_distiller import distill, score_episodes, pool_slice       # noqa: E402
+from eml_distiller import (distill, score_episodes, pool_slice,     # noqa: E402
+                           evolve_ingame, make_basis, static_metrics)
 
 
 def main(argv=None):
@@ -47,6 +48,11 @@ def main(argv=None):
     p.add_argument('--basis', default=config.EML_BASIS)
     p.add_argument('--test-games', type=int, default=config.EML_TEST_GAMES)
     p.add_argument('--resume', action='store_true')
+    p.add_argument('--no-oracle', action='store_true',
+                   help='control: GAME phase from random trees, no DATA phase, '
+                        'the oracle and its dataset are never used')
+    p.add_argument('--game-generations', type=int, default=None,
+                   help='GAME-phase generations (default config)')
     a = p.parse_args(argv)
 
     os.makedirs(a.out, exist_ok=True)
@@ -56,8 +62,8 @@ def main(argv=None):
         return
     ckpt = os.path.join(a.out, f'ckpt_{a.seed}')
 
-    features, logits, groups = load_dataset(a.dataset)
-    weights = compute_sample_weights(logits, groups)
+    if a.game_generations is not None:
+        config.EML_JOINT_GENERATIONS = a.game_generations
 
     # Configuration 0 of batch_distill: the clean base.
     params = {'generations': config.EML_GENERATIONS,
@@ -70,14 +76,29 @@ def main(argv=None):
     if 'checkpoint_dir' in inspect.signature(distill).parameters:
         kw = {'checkpoint_dir': ckpt,
               'resume': ckpt if a.resume and os.path.isdir(ckpt) else None}
+    params['game_generations'] = config.EML_JOINT_GENERATIONS
+    params['game_population'] = config.EML_JOINT_POPULATION
+    params['no_oracle'] = bool(a.no_oracle)
     t0 = time.time()
-    result = distill(features, logits, weights, groups=groups,
-                     depth_penalty_name=params['depth_penalty'],
-                     data_generations=params['generations'],
-                     data_population=params['population'],
-                     joint=True, basis_name=a.basis, verbose=True, **kw)
+    if a.no_oracle:
+        jres = evolve_ingame(None, basis=make_basis(a.basis), verbose=True,
+                             checkpoint_dir=os.path.join(ckpt, 'game'),
+                             resume=(os.path.join(ckpt, 'game')
+                                     if a.resume and os.path.isdir(ckpt) else None))
+        tree = jres['best_tree']
+        result = {'trees': [tree], 'val_lines': jres['val_result']['avg_lines'],
+                  'val_result': jres['val_result'],
+                  'static': static_metrics(tree)}
+    else:
+        features, logits, groups = load_dataset(a.dataset)
+        weights = compute_sample_weights(logits, groups)
+        result = distill(features, logits, weights, groups=groups,
+                         depth_penalty_name=params['depth_penalty'],
+                         data_generations=params['generations'],
+                         data_population=params['population'],
+                         joint=True, basis_name=a.basis, verbose=True, **kw)
+        tree = result['trees'][0]
     fit_sec = time.time() - t0
-    tree = result['trees'][0]
 
     seeds = pool_slice(config.EML_SEED_POOL_TEST, a.test_games)
     test = score_episodes(tree, seeds, config.EML_INGAME_MAX_PLACEMENTS)
@@ -95,6 +116,9 @@ def main(argv=None):
         'test_lines': test['avg_lines'], 'test_std': test['std_lines'],
         'test_per_game': [int(x) for x in test['lines']],
         'test_seeds': [int(s) for s in seeds],
+        'test_steps': [int(x) for x in test['steps']],
+        'test_n_capped': test.get('n_capped'),
+        'max_placements': config.EML_INGAME_MAX_PLACEMENTS,
         'size': tree.size(), 'depth': tree.depth(),
         'nvars': tree.n_unique_vars(), 'static': result['static'],
         'formula': tree.to_string(), 'fit_sec': fit_sec,

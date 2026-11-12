@@ -491,7 +491,7 @@ def play_episodes(tree, seeds, max_placements: int) -> tuple[list[int], list[int
     lines: list[int] = []
     steps: list[int] = []
     for s in seeds:
-        env = TetrisEnv(seed=int(s))
+        env = TetrisEnv(seed=int(s), max_placements=0)   # the loop is the cap
         obs = env.reset()
         f = 0
         while not env.done and f < max_placements:
@@ -518,6 +518,7 @@ def score_episodes(tree, seeds, max_placements: int) -> dict:
         'std_lines': float(la.std(ddof=1)) if len(la) > 1 else 0.0,
         'avg_steps': float(sa.mean()),
         'fitness': float(la.mean() * 100.0 + sa.mean()),
+        'n_capped': int((sa >= max_placements).sum()),
     }
 
 
@@ -646,7 +647,7 @@ def evolve_ingame(
                          lambda t: score_episodes(t, val_seeds, max_placements))
 
     signature = {
-        'seed_tree': seed_tree.key(),
+        'seed_tree': seed_tree.key() if seed_tree is not None else None,
         'population_size': int(population_size), 'elitism': int(elitism),
         'n_games': int(n_games), 'max_placements': int(max_placements),
         'train_pool': [int(s) for s in train_pool],

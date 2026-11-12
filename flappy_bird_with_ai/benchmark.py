@@ -29,7 +29,7 @@ from storage import (
 
 def test_agent_score(agent, env: FlappyEnv | None = None,
                      n_games: int | None = None,
-                     max_frames: int = 5000, seeds=None) -> list[int]:
+                     max_frames: int | None = None, seeds=None) -> list[int]:
     """
     Run the agent once per HOLDOUT seed and return the list of scores.
 
@@ -38,6 +38,8 @@ def test_agent_score(agent, env: FlappyEnv | None = None,
     made every agent play different pipes AND put the comparison on whatever
     layouts came up, which is not a measurement of anything.
     """
+    if max_frames is None:
+        max_frames = config.EML_TEST_MAX_FRAMES
     if n_games is None:
         n_games = config.EML_TEST_GAMES
     if seeds is None:

@@ -194,7 +194,14 @@ EML_GA_SEED_BASE = 20       # GA seeds are BASE, BASE+1, ... (not env seeds)
 # The DATA phase regresses the formula to the oracle logits, the GAME phase
 # refines it by evolution against the actual score in TetrisEnv (placement mode).
 EML_INGAME_GAMES = 3              # games per formula evaluation
-EML_INGAME_MAX_PLACEMENTS = 300   # placement limit per evaluation game (speed)
+# Placement limit per evaluation game. It was 300 "for speed", which allows at
+# most 120 lines: the oracle hit it in all 30 TEST games, so scores measured the
+# limit, not the policy. It is now a safety net only (games end by topping out;
+# the oracle averages ~290 lines / ~760 placements uncapped), and every
+# score_episodes result reports how many games reached it ('n_capped').
+# Scoring envs are built with max_placements=0, so the env's own
+# MAX_EPISODE_PLACEMENTS (1000, for PPO training) does not cut games either.
+EML_INGAME_MAX_PLACEMENTS = 100_000
 EML_JOINT_POPULATION = 60         # GAME phase population size
 EML_JOINT_GENERATIONS = 40        # GAME phase generations
 EML_JOINT_ELITISM = 6             # elite formulas
