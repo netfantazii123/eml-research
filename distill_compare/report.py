@@ -58,12 +58,17 @@ def _f(x):
 
 
 def _ms(vals, fmt='{:.2f}'):
+    vals = list(vals)
     v = np.array([x for x in vals if np.isfinite(x)])
+    # No run may vanish from a statistic silently: a non-finite value (a crashed
+    # or unscored run) is printed next to the mean of the others.
+    miss = len(vals) - len(v)
+    tail = f" (+{miss} без значения)" if miss else ''
     if len(v) == 0:
-        return '—'
+        return '—'           # not applicable to this row (e.g. the teacher)
     if len(v) == 1:
-        return fmt.format(v[0])
-    return f"{fmt.format(v.mean())} ± {fmt.format(v.std(ddof=1))}"
+        return fmt.format(v[0]) + tail
+    return f"{fmt.format(v.mean())} ± {fmt.format(v.std(ddof=1))}" + tail
 
 
 def _group(rows):
@@ -115,7 +120,7 @@ def _summary(all_rows):
         for (t, m), rs in _group(rows).items():
             if m == 'teacher':
                 continue
-            by[m][suite].append(np.nanmean([_f(r['pct_of_teacher']) for r in rs]))
+            by[m][suite].append(np.mean([_f(r['pct_of_teacher']) for r in rs]))
     suites = [s for s in all_rows if all_rows[s]]
     head = ['метод'] + [f'{s}: средний % от оракула' for s in suites]
     out = ['| ' + ' | '.join(head) + ' |', '|' + '---|' * len(head)]

@@ -16,14 +16,14 @@ from __future__ import annotations
 
 import numpy as np
 
-from .basis import Basis
+from .basis import Basis, c_float
 from .node import Node
 
 
 def c_expr(node: Node, var_fmt: str = "f[{idx}]") -> str:
     """The formula as a single C expression."""
     if node.kind == 'const':
-        return f"{node.value:.6f}f"
+        return c_float(node.value)
     if node.kind == 'var':
         return var_fmt.format(idx=node.var_idx,
                               name=node.basis.var_name(node.var_idx))

@@ -22,7 +22,16 @@ TRANSCENDENTAL_CALLS = {
     'exp': ('exp',),
     'log': ('log',),
     'tanh': ('tanh',),
-    'div': ('div',),
+}
+
+# Inline arithmetic each operator compiles to, besides its libm calls (see the
+# C helpers in basis.py): eml = clamp (2 compares) + fabs + add eps + sub;
+# protected div = fabs + add eps + div + sign mul; exp = clamp; log = fabs + add.
+# Division used to be counted as a transcendental call and eml as zero
+# arithmetic, which skewed est_code_bytes between the two bases.
+ARITH_PER_OP = {
+    'eml': 5, 'add': 1, 'sub': 1, 'mul': 1, 'div': 4,
+    'exp': 2, 'log': 2, 'tanh': 0, 'neg': 1,
 }
 
 
@@ -45,6 +54,7 @@ def static_metrics(tree: Node) -> dict:
 
     n_ops = sum(ops.values())
     n_transcendental = sum(calls.values())
+    n_arith = sum(ARITH_PER_OP.get(name, 1) * c for name, c in ops.items())
     return {
         'nodes': n_ops + n_var + n_const,
         'depth': tree.depth(),
@@ -58,7 +68,8 @@ def static_metrics(tree: Node) -> dict:
         'n_transcendental': n_transcendental,
         # Kept for the EML basis, where one operator is one exp and one log.
         'n_eml': ops.get('eml', 0),
-        **estimate_cost(n_ops, n_transcendental, n_const, tree.depth()),
+        'n_arith': n_arith,
+        **estimate_cost(n_arith, n_transcendental, n_const, tree.depth()),
     }
 
 
@@ -71,7 +82,7 @@ _BYTES_PER_ARITH = 4       # one inline FPU/soft-float op
 _BYTES_PER_CONST = 4       # a float literal in .rodata
 
 
-def estimate_cost(n_ops: int, n_transcendental: int, n_const: int,
+def estimate_cost(n_arith: int, n_transcendental: int, n_const: int,
                   depth: int) -> dict:
     """
     Code-size and stack proxies for the exported C.
@@ -81,7 +92,7 @@ def estimate_cost(n_ops: int, n_transcendental: int, n_const: int,
     the node count — which is why a deep 40-node tree can cost more stack than a
     wide 100-node one.
     """
-    arith = max(0, n_ops - n_transcendental)
+    arith = n_arith
     return {
         'est_code_bytes': (n_transcendental * _BYTES_PER_CALL
                            + arith * _BYTES_PER_ARITH

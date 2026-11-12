@@ -62,7 +62,14 @@ def _f(x):
 
 
 def mean_std(xs):
-    xs = [x for x in xs if not math.isnan(x)]
+    xs = list(xs)
+    bad = sum(1 for x in xs if math.isnan(x))
+    if bad:
+        # Dropping them would quietly break the "every seed counts" rule while
+        # the table still printed len(rows) as n.
+        raise ValueError(f'{bad} of {len(xs)} values are NaN (a missing or '
+                         'unscored run); fix the data instead of averaging '
+                         'around it')
     if not xs:
         return math.nan, math.nan
     m = sum(xs) / len(xs)

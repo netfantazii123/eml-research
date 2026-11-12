@@ -37,13 +37,27 @@ from benchmark import test_agent_score                 # noqa: E402
 DEFAULT_ORACLE = os.path.join(TASK, 'models', 'best_ga.pt')
 
 
+def _file_sha(path):
+    import hashlib
+    with open(path, 'rb') as f:
+        return hashlib.sha256(f.read()).hexdigest()[:16]
+
+
 def get_dataset(oracle_path, cache):
+    # The cache is keyed by the oracle file: reusing --out with another --oracle
+    # used to train silently on the old oracle's labels.
+    sha = _file_sha(oracle_path)
     if os.path.exists(cache):
         d = np.load(cache)
+        cached = str(d['oracle_sha']) if 'oracle_sha' in d.files else None
+        if cached is not None and cached != sha:
+            raise SystemExit(f'{cache} was collected with another oracle '
+                             f'({cached} != {sha}); pass a new --dataset')
         return d['states'], d['targets']
     states, targets = collect_dataset(load_ga_model(oracle_path), mode='sigmoid')
     os.makedirs(os.path.dirname(cache) or '.', exist_ok=True)
-    np.savez_compressed(cache, states=states, targets=targets)
+    np.savez_compressed(cache, states=states, targets=targets,
+                        oracle_sha=np.array(sha))
     return states, targets
 
 
