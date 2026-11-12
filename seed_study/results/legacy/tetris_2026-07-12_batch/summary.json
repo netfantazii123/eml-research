@@ -1,0 +1,93 @@
+{
+  "saved_at": "2026-07-12 21:56:45",
+  "oracle_lines": 105.0,
+  "best_variant": 2,
+  "best_ratio_pct": 116.1904761904762,
+  "variants": [
+    {
+      "variant": 0,
+      "params": {
+        "seed": 1000,
+        "generations": 600,
+        "population": 600,
+        "depth_penalty": "medium",
+        "max_depth": 7,
+        "var_bonus": 0.03
+      },
+      "final_lines": 116.66666666666669,
+      "base_lines": 0.0,
+      "size": 81,
+      "depth": 7,
+      "nvars": 20,
+      "path": "runs\\2026-07-12_17-49-26_distill_batch\\formula_00.json"
+    },
+    {
+      "variant": 1,
+      "params": {
+        "seed": 1001,
+        "generations": 502,
+        "population": 534,
+        "depth_penalty": "weak",
+        "max_depth": 6,
+        "var_bonus": 0.03317258407351754
+      },
+      "final_lines": 121.66666666666669,
+      "base_lines": 0.0,
+      "size": 23,
+      "depth": 6,
+      "nvars": 5,
+      "path": "runs\\2026-07-12_17-49-26_distill_batch\\formula_01.json"
+    },
+    {
+      "variant": 2,
+      "params": {
+        "seed": 1002,
+        "generations": 561,
+        "population": 540,
+        "depth_penalty": "strong",
+        "max_depth": 7,
+        "var_bonus": 0.0351292773096378
+      },
+      "final_lines": 122.0,
+      "base_lines": 13.333333333333334,
+      "size": 43,
+      "depth": 6,
+      "nvars": 10,
+      "path": "runs\\2026-07-12_17-49-26_distill_batch\\formula_02.json"
+    },
+    {
+      "variant": 3,
+      "params": {
+        "seed": 1003,
+        "generations": 487,
+        "population": 662,
+        "depth_penalty": "medium",
+        "max_depth": 7,
+        "var_bonus": 0.029822909646837304
+      },
+      "final_lines": 122.0,
+      "base_lines": 2.6666666666666665,
+      "size": 29,
+      "depth": 7,
+      "nvars": 8,
+      "path": "runs\\2026-07-12_17-49-26_distill_batch\\formula_03.json"
+    },
+    {
+      "variant": 4,
+      "params": {
+        "seed": 1004,
+        "generations": 762,
+        "population": 660,
+        "depth_penalty": "weak",
+        "max_depth": 8,
+        "var_bonus": 0.02259201003391097
+      },
+      "final_lines": 122.0,
+      "base_lines": 18.0,
+      "size": 89,
+      "depth": 8,
+      "nvars": 21,
+      "path": "runs\\2026-07-12_17-49-26_distill_batch\\formula_04.json"
+    }
+  ]
+}

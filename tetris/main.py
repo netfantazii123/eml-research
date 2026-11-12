@@ -510,22 +510,29 @@ def cmd_distill():
     print("   Distillation summary")
     print("=" * 56)
     if 'variants' in summary:
-        print(f"  {'run':<10}{'cfg':>4}{'seed':>6}{'val':>8}{'size':>6}"
-              f"{'depth':>7}{'dp':>8}{'gen':>6}{'pop':>6}")
+        print(f"  {'run':<10}{'cfg':>4}{'seed':>6}{'val':>8}{'TEST':>8}"
+              f"{'size':>6}{'depth':>7}{'dp':>8}{'gen':>6}{'pop':>6}")
         for v in sorted(summary['variants'], key=lambda x: -x['val_lines']):
             p = v['params']
             print(f"  {v['label']:<10}{v['config_id']:>4}{v['ga_seed']:>6}"
-                  f"{v['val_lines']:>8.1f}{v['size']:>6}{v['depth']:>7}"
+                  f"{v['val_lines']:>8.1f}"
+                  f"{v.get('test_lines', float('nan')):>8.1f}"
+                  f"{v['size']:>6}{v['depth']:>7}"
                   f"{p['depth_penalty']:>8}{p['generations']:>6}"
                   f"{p['population']:>6}")
         # Seed spread within a configuration: if it swamps the gap between
         # configurations, the ranking above is noise.
         print(f"\n  {'cfg':<5}{'seeds':>6}{'val mean':>10}{'std':>8}"
-              f"{'min':>8}{'max':>8}")
+              f"{'min':>8}{'max':>8}{'TEST mean':>11}{'std':>8}{'min':>8}")
         for row in summary['per_config']:
             print(f"  {row['config_id']:<5}{row['n_seeds']:>6}"
                   f"{row['val_mean']:>10.2f}{row['val_std']:>8.2f}"
-                  f"{row['val_min']:>8.2f}{row['val_max']:>8.2f}")
+                  f"{row['val_min']:>8.2f}{row['val_max']:>8.2f}"
+                  f"{row.get('test_mean', float('nan')):>11.2f}"
+                  f"{row.get('test_std', float('nan')):>8.2f}"
+                  f"{row.get('test_min', float('nan')):>8.2f}")
+        print("  TEST mean is over ALL seeds of a configuration: that is the")
+        print("  method's number. The winner's HOLDOUT below is one formula's.")
         print(f"  Run dir: {summary['run_dir']}")
     t = summary['trees'][0]
     print(f"\n  BEST f[PLACE]  D{t.depth()} S{t.size()} V{t.n_unique_vars()}:")

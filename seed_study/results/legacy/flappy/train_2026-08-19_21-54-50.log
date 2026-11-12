@@ -1,0 +1,46 @@
+=== Run started at 2026-08-19_21-54-50 ===
+
+============================================================
+  [1/4] Training GA Oracle...
+============================================================
+
+  GA Test: avg=42.5, max=55
+  Saved GA -> models\ga_2026-08-19_21-54-50_score-55.pt
+
+============================================================
+  [2/4] Distilling EML-weak...
+============================================================
+
+  EML-weak Test: avg=46.4, max=55
+  Formula: eml(1.010, eml(eml(gap, y), eml(eml(dx, eml(gap, dx)), eml(eml(y, gap), eml(vel, gap)))))
+  Saved   -> models\eml-weak_2026-08-19_21-54-50_score-55.json
+
+============================================================
+  [3/4] Distilling EML-medium...
+============================================================
+
+  EML-medium Test: avg=55.0, max=55
+  Formula: eml(y, eml(eml(gap, 1.548), eml(y, eml(eml(gap, 1.695), eml(y, y)))))
+  Saved   -> models\eml-medium_2026-08-19_21-54-50_score-55.json
+
+============================================================
+  [4/4] Distilling EML-strong...
+============================================================
+
+  EML-strong Test: avg=53.4, max=55
+  Formula: eml(0.214, eml(eml(y, 1.128), eml(eml(eml(gap, -0.831), gap), eml(eml(1.010, dx), eml(1.716, -0.388)))))
+  Saved   -> models\eml-strong_2026-08-19_21-54-50_score-55.json
+
+============================================================
+  BENCHMARK RESULTS
+============================================================
+  Method          Time(s)    Avg    Max
+  -------------------------------------
+  GA                222.4   42.5     55
+  EML-weak         1504.5   46.4     55
+  EML-medium        603.3   55.0     55
+  EML-strong       1760.7   53.4     55
+============================================================
+  Plot saved:    results\benchmark_2026-08-19_21-54-50.png
+  Results saved: results\benchmark_2026-08-19_21-54-50.json
+=== Run finished at 2026-08-19_23-03-15 ===
