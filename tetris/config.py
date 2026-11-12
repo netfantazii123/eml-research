@@ -202,6 +202,26 @@ EML_INGAME_GAMES = 3              # games per formula evaluation
 # Scoring envs are built with max_placements=0, so the env's own
 # MAX_EPISODE_PLACEMENTS (1000, for PPO training) does not cut games either.
 EML_INGAME_MAX_PLACEMENTS = 100_000
+
+# ── Difficulty profiles ──────────────────────────────────────────────────────
+# 'classic' is plain Tetris. Uncapped, GAME-phase formulas survive ~10 000
+# placements (3 757 lines on 10 TEST games for seed-study seed 25, 7x the PPO
+# oracle), which makes every evaluation game seconds long and the GAME phase
+# unaffordable. 'garbage' makes every game end on its own: after every
+# `every` placements a garbage row (full but for one random hole) rises from
+# the bottom, and `every` shrinks by one each `faster_every` placements down to
+# `min_every`. The garbage holes come from their own RNG, so the piece sequence
+# of a seed is the same in both profiles.
+# Select with the environment variable EML_TETRIS_ENV (read at import).
+TETRIS_PROFILES = {
+    'classic': None,
+    'garbage': {'every': 16, 'faster_every': 120, 'min_every': 1},
+}
+import os as _os
+TETRIS_ENV = _os.environ.get('EML_TETRIS_ENV', 'classic')
+if TETRIS_ENV not in TETRIS_PROFILES:
+    raise ValueError(f'EML_TETRIS_ENV={TETRIS_ENV!r}, expected one of '
+                     f'{sorted(TETRIS_PROFILES)}')
 EML_JOINT_POPULATION = 60         # GAME phase population size
 EML_JOINT_GENERATIONS = 40        # GAME phase generations
 EML_JOINT_ELITISM = 6             # elite formulas

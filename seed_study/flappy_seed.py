@@ -69,7 +69,11 @@ def main(argv=None):
     p.add_argument('--dataset', default=None, help='cache .npz (default <out>/dataset.npz)')
     p.add_argument('--penalty', default='medium')
     p.add_argument('--test-games', type=int, default=config.EML_TEST_GAMES)
+    p.add_argument('--basis', default=config.EML_BASIS, choices=['eml', 'classic'])
+    p.add_argument('--no-oracle', action='store_true',
+                   help='control: no DATA phase, GAME from random trees')
     a = p.parse_args(argv)
+    config.EML_BASIS = a.basis
     a.out = os.path.abspath(a.out)   # before the chdir below
     os.makedirs(a.out, exist_ok=True)
     res_path = os.path.join(a.out, f'seed_{a.seed}.json')
@@ -84,7 +88,8 @@ def main(argv=None):
     np.random.seed(a.seed)
     t0 = time.time()
     res = evolve_eml(states.astype(np.float32), targets, mode='sigmoid',
-                     depth_penalty_name=a.penalty, verbose=True)
+                     depth_penalty_name=a.penalty, verbose=True,
+                     data_fraction=0.0 if a.no_oracle else None)
     fit_sec = time.time() - t0
     tree = res['best_tree']
     seeds = pool_slice(config.EML_SEED_POOL_TEST, a.test_games)
@@ -92,6 +97,11 @@ def main(argv=None):
     val = res.get('val_result') or {}
     out = {
         'task': 'flappy', 'ga_seed': a.seed, 'penalty': a.penalty,
+        'profile': config.FLAPPY_ENV, 'basis': a.basis,
+        'no_oracle': bool(a.no_oracle),
+        'max_frames': {'train_val': config.GA_MAX_FRAMES,
+                       'test': config.EML_TEST_MAX_FRAMES},
+        'val_games': config.EML_VAL_GAMES,
         'oracle': os.path.relpath(os.path.abspath(a.oracle), ROOT),
         'budget': {'population': config.EML_POPULATION,
                    'generations': config.EML_GENERATIONS,
