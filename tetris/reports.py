@@ -106,7 +106,7 @@ def save_distill_history(result: dict, meta: dict | None = None,
         'data_fitness': data_hist,
         'game_fitness': joint_hist,
         'base_lines': result.get('base_lines'),
-        'final_lines': result.get('final_lines'),
+        'val_lines': result.get('val_lines'),
         'dataset_size': result.get('dataset_size'),
     }
     with open(path, 'w', encoding='utf-8') as f:

@@ -142,6 +142,30 @@ EML_MAX_DEPTH = 7           # maximum tree depth
 EML_PATIENCE = 120          # generations without improvement -> stop
 EML_DATASET_EPISODES = 40   # oracle episodes for dataset collection
 EML_EPSILON = 1e-10         # guard against ln(0)
+# exp() clamp. Both guards are parameters of THIS operator, not of the EML
+# operator in the literature: exp(x) - ln(y) is complete over the complex
+# numbers, exp(clamp(x)) - ln(|y| + eps) is a different, real-computable
+# function. Named here so the gap can be swept and reported rather than assumed
+# away; the clamp dominates eps by orders of magnitude, so sweep this one.
+EML_CLAMP = 10.0
+
+# Which set of primitives the search may use: 'eml' (the single operator this
+# work is about) or 'classic' (+ - * / exp log tanh). The control basis is not
+# decoration: an EML number means nothing until the same pipeline, at the same
+# budget and the same seeds, has been run on an ordinary one.
+EML_BASIS = 'eml'
+
+# Multi-objective search over (quality, size). It reads the whole quality-vs-K
+# curve off one run instead of needing one run per budget — the difference
+# between ~160 and ~1440 GA runs for the full sweep.
+EML_MULTI_OBJECTIVE = True
+EML_PARETO_MAX_POINTS = 12   # front members evaluated in-game (games cost time)
+# Give each curve point its own short GAME phase before scoring it. Off by
+# default because it costs one in-game evolution per point; ON is what the curve
+# needs to be about game score at all — DATA-phase formulas score near zero
+# lines whatever their regression fitness, which is why the GAME phase exists.
+EML_PARETO_REFINE = False
+EML_PARETO_REFINE_GENERATIONS = 12
 EML_PHASE_SWITCH = 0.15     # fraction of generations for the DATA phase (warm-up)
 
 # ── Dataset collection ─────────────────────────────────────────────────────
@@ -152,12 +176,19 @@ EML_VAR_BONUS = 0.03              # fitness bonus per unique variable used
 EML_DATA_TOP_WEIGHT = 3.0         # extra weight for examples the oracle is sure of
 
 # ── Batch distillation ───────────────────────────────────────────────────────
-# Distill a whole batch of formulas at once with a controlled spread of GA
-# parameters (generations, population, depth penalty, depth, var bonus,
-# evolution seed). The dataset is collected ONCE for the whole batch. The best
-# formula -> best_eml.json, all variants + summary -> runs/<date>_distill/.
-EML_BATCH_VARIANTS = 5      # formulas per batch
+# A batch is a grid: EML_BATCH_CONFIGS configurations x EML_BATCH_SEEDS GA seeds.
+# The dataset is collected ONCE for the whole batch. The best run (by VAL) ->
+# best_eml.json, every run + per-config spread -> runs/<date>_distill_batch/.
+#
+# The two axes are kept apart deliberately. Jittering hyper-parameters and the
+# seed together — as the old EML_BATCH_VARIANTS did — produces runs that differ
+# in everything at once, so the seed-to-seed spread cannot be separated from the
+# effect of the parameters, and a batch can only rank runs it cannot distinguish.
+# Default shape: one configuration, five seeds (a replicate study).
+EML_BATCH_CONFIGS = 1       # GA configurations per batch
+EML_BATCH_SEEDS = 5         # GA seeds per configuration (replicates)
 EML_BATCH_SPREAD = 0.3      # parameter spread: ±30% on numeric values
+EML_GA_SEED_BASE = 20       # GA seeds are BASE, BASE+1, ... (not env seeds)
 
 # ── Joint (in-game) distillation phase ───────────────────────────────────────
 # The DATA phase regresses the formula to the oracle logits, the GAME phase
@@ -168,6 +199,51 @@ EML_JOINT_POPULATION = 60         # GAME phase population size
 EML_JOINT_GENERATIONS = 40        # GAME phase generations
 EML_JOINT_ELITISM = 6             # elite formulas
 EML_JOINT_PATIENCE = 12           # generations without improvement -> stop
+
+# ── Environment seed pools (disjoint) ────────────────────────────────────────
+# Fitness, selection and reporting must not share environment seeds. Selecting a
+# formula by the same number that is later reported turns the report into a
+# maximum over noise, and the reported score is then biased upward regardless of
+# how many episodes it averages. Three disjoint pools, mirroring train/val/test:
+#
+#   TRAIN — GA fitness only. Rotated across generations so no single piece
+#           sequence can be memorised; inside one generation every individual
+#           gets the SAME seeds (common random numbers), otherwise selection
+#           compares formulas across different games and becomes a lottery.
+#   VAL   — hall-of-fame re-scoring and picking the best batch variant. Never
+#           enters a fitness function.
+#   TEST  — the final reported score. Touched once per run, on the winner only.
+#
+# The distillation dataset uses its own stream (dataset_collector seed=0), which
+# is disjoint from all three.
+EML_SEED_POOL_TRAIN = list(range(1000, 1064))   # 64 seeds, rotated per generation
+EML_SEED_POOL_VAL = list(range(3000, 3032))     # 32 seeds
+EML_SEED_POOL_TEST = list(range(5000, 5064))    # 64 seeds, reporting only
+
+EML_VAL_GAMES = 8        # games per hall-of-fame re-scoring (VAL pool)
+EML_TEST_GAMES = 30      # games in the final holdout report (TEST pool)
+EML_DATA_VAL_FRACTION = 0.15   # fraction of dataset GROUPS held out for DATA val
+
+# ── GA run state: checkpoints and resume (emlcore/checkpoint.py) ─────────────
+# A run with a checkpoint directory can be stopped and resumed from 'latest',
+# from the state of the generation that produced a best performer ('best'), or
+# from any saved generation. See README "Resuming a distillation".
+EML_CHECKPOINT_EVERY = 10      # rewrite latest.json every N generations
+EML_SNAPSHOT_EVERY = 50        # keep a resumable snapshot every N generations
+EML_KEEP_BEST_STATES = 5       # full states kept for the last N new bests
+EML_HOF_SIZE = 20              # distinct best formulas kept in hall_of_fame.json
+
+# ── GA search efficiency ────────────────────────────────────────────────────
+# Caching and parallel games change only how long a run takes, never its result,
+# so they are on / free to raise. The three search options DO change the
+# trajectory (and so the numbers already reported); they stay off until the
+# effect is measured on the real dataset — see tetris/results/ga_search_options.md.
+EML_FITNESS_CACHE = True       # memoise fitness by (formula, data) — exact
+EML_INGAME_WORKERS = 1         # processes for GAME-phase games (0 = all cores)
+EML_UNIQUE_CHILDREN = False    # reject children identical to one already bred
+EML_FOLD_CONSTANTS = False     # collapse variable-free subtrees into a constant
+EML_TUNE_CONSTANTS_TOP = 0     # elites whose constants get a local (1+1)-ES
+EML_TUNE_CONSTANTS_STEPS = 6   # ES steps per tuned elite per generation
 
 DEPTH_PENALTIES = {
     'weak':   0.01,

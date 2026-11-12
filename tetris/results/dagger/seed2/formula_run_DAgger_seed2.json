@@ -1,0 +1,85 @@
+{
+  "trees": [
+    {
+      "kind": "op",
+      "op": "eml",
+      "children": [
+        {
+          "kind": "var",
+          "var_idx": 17
+        },
+        {
+          "kind": "op",
+          "op": "eml",
+          "children": [
+            {
+              "kind": "var",
+              "var_idx": 17
+            },
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "var",
+                  "var_idx": 11
+                },
+                {
+                  "kind": "const",
+                  "value": 0.2243902282604412
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "feature_names": [
+    "h0",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h8",
+    "h9",
+    "holes",
+    "bumpiness",
+    "agg_h",
+    "max_h",
+    "wells",
+    "row_trans",
+    "col_trans",
+    "cleared",
+    "landing_h",
+    "next_I",
+    "next_O",
+    "next_T",
+    "next_S",
+    "next_Z",
+    "next_J",
+    "next_L"
+  ],
+  "meta": {
+    "method": "DAgger",
+    "ga_seed": 2,
+    "task": "tetris",
+    "tag": "",
+    "test_lines": 8.5,
+    "test_std": 3.4315975971791213,
+    "oracle_lines": 111.76666666666667,
+    "pct_oracle": 7.60512973456606,
+    "paired_diff": -103.26666666666667,
+    "test_placements": 62.5,
+    "top1_oracle_states": 0.486,
+    "nodes": 7,
+    "depth": 3,
+    "n_transcendental": 6,
+    "dagger_s": 1100,
+    "formula": "eml(cleared, eml(cleared, eml(bumpiness, 0.224)))",
+    "best_iter": 0
+  }
+}

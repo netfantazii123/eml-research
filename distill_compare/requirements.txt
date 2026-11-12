@@ -1,0 +1,5 @@
+# On top of the task requirements (torch, numpy):
+scikit-learn>=1.4
+gymnasium[box2d]>=1.0   # box2d only for LunarLander
+gplearn>=0.4
+pytest

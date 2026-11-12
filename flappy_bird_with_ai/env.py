@@ -31,7 +31,16 @@ class FlappyEnv:
         -1.0  for a collision (death)
     """
 
-    def __init__(self):
+    def __init__(self, seed: int | None = None):
+        """
+        seed: pipe-layout seed. None keeps the old behaviour (a fresh random
+        layout every episode) and is right for interactive play; evaluation must
+        pass an explicit seed. Without one, two formulas compared over N games
+        never play the same pipes, so at the handful of games a GA fitness can
+        afford the ranking is mostly which individual drew the easier layouts.
+        """
+        self.seed = seed
+        self.rng = np.random.default_rng(seed)
         self.bird_y: float = 0.0
         self.bird_vel: float = 0.0
         self.pipes: list[dict] = []
@@ -43,7 +52,15 @@ class FlappyEnv:
     # ── Public interface ─────────────────────────────────────────────────
 
     def reset(self) -> np.ndarray:
-        """Reset the environment to its initial state. Returns the state."""
+        """
+        Reset the environment to its initial state. Returns the state.
+
+        A seeded env restarts its pipe stream here, so every episode of that env
+        is the same episode. Evaluating N different games therefore means N envs
+        with N seeds, not N resets of one env.
+        """
+        if self.seed is not None:
+            self.rng = np.random.default_rng(self.seed)
         self.bird_y = SCREEN_H / 2
         self.bird_vel = 0.0
         self.pipes = []
@@ -115,7 +132,7 @@ class FlappyEnv:
     def _spawn_pipe(self):
         """Create a new pipe with a random gap_y."""
         margin = 80
-        gap_y = np.random.randint(
+        gap_y = self.rng.integers(
             margin + PIPE_GAP // 2,
             SCREEN_H - margin - PIPE_GAP // 2
         )

@@ -12,10 +12,11 @@ import os
 import time
 import numpy as np
 
+import config
 from config import RESULTS_DIR, GA_MAX_FRAMES
 from env import FlappyEnv
 from ga_net import GANet, train_ga
-from eml_distiller import distill
+from eml_distiller import distill, pool_slice
 from storage import (
     RunLogger, make_timestamp,
     save_ga_model, save_eml_formula,
@@ -26,18 +27,31 @@ from storage import (
 
 # ── Agent testing ────────────────────────────────────────────────────────────
 
-def test_agent_score(agent, env: FlappyEnv, n_games: int = 10,
-                     max_frames: int = 5000) -> list[int]:
-    """Run the agent n_games times and return the list of scores."""
+def test_agent_score(agent, env: FlappyEnv | None = None,
+                     n_games: int | None = None,
+                     max_frames: int = 5000, seeds=None) -> list[int]:
+    """
+    Run the agent once per HOLDOUT seed and return the list of scores.
+
+    The `env` argument is ignored and kept only so existing callers keep working:
+    every game now gets its own env seeded from the TEST pool. Reusing one env
+    made every agent play different pipes AND put the comparison on whatever
+    layouts came up, which is not a measurement of anything.
+    """
+    if n_games is None:
+        n_games = config.EML_TEST_GAMES
+    if seeds is None:
+        seeds = pool_slice(config.EML_SEED_POOL_TEST, n_games)
     scores = []
-    for _ in range(n_games):
-        env.reset()
+    for s in seeds:
+        game = FlappyEnv(seed=int(s))
+        game.reset()
         f = 0
-        while not env.done and f < max_frames:
-            action = agent.get_action(env.get_state())
-            env.step(action)
+        while not game.done and f < max_frames:
+            action = agent.get_action(game.get_state())
+            game.step(action)
             f += 1
-        scores.append(env.score)
+        scores.append(game.score)
     return scores
 
 

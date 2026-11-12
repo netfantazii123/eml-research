@@ -19,3 +19,10 @@ python main.py demo   # pygame demo of the trained agent
 ```
 
 Final EML formulas are in `models/*.json`, benchmark plots in `results/`.
+
+## DAgger
+
+`python dagger_distill.py --seeds 3 --iters 6` compares BC, DAgger (supervised
+fit on the aggregated states the formula visits, balanced accuracy of the
+action) and the existing DATA+GAME pipeline. Results go to `results/dagger_*.csv`;
+the summary is in [`report/REPORT.md`](../report/REPORT.md).

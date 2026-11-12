@@ -37,6 +37,25 @@ EML_MAX_DEPTH = 5       # maximum depth at initialization
 EML_PATIENCE = 100       # generations without improvement -> stop
 EML_DATASET_EPISODES = 500  # episodes for dataset collection
 EML_EPSILON = 1e-10     # guard against ln(0)
+# exp() clamp. Both guards belong to THIS operator rather than to the EML
+# operator of the literature, and the clamp dominates eps by orders of
+# magnitude — it is the one worth a sensitivity sweep.
+EML_CLAMP = 10.0
+
+# ── Environment seed pools (disjoint) ────────────────────────────────────────
+# Same discipline as tetris/config.py: fitness, selection and reporting never
+# share pipe layouts. TRAIN rotates across generations with common random
+# numbers inside a generation, VAL judges the champion, TEST is the reported
+# number and is touched once. Dataset collection uses EML_DATA_SEED, disjoint
+# from all three.
+EML_SEED_POOL_TRAIN = list(range(1000, 1064))
+EML_SEED_POOL_VAL = list(range(3000, 3032))
+EML_SEED_POOL_TEST = list(range(5000, 5064))
+EML_DATA_SEED = 7
+
+EML_INGAME_GAMES = 3    # games per fitness evaluation (TRAIN pool)
+EML_VAL_GAMES = 8       # games per hall-of-fame re-scoring (VAL pool)
+EML_TEST_GAMES = 30     # games in the final holdout report (TEST pool)
 
 DEPTH_PENALTIES = {
     'weak':   0.01,

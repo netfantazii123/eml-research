@@ -1,0 +1,329 @@
+{
+  "trees": [
+    {
+      "kind": "eml",
+      "left": {
+        "kind": "eml",
+        "left": {
+          "kind": "eml",
+          "left": {
+            "kind": "var",
+            "var_idx": 24
+          },
+          "right": {
+            "kind": "eml",
+            "left": {
+              "kind": "eml",
+              "left": {
+                "kind": "eml",
+                "left": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "var",
+                    "var_idx": 12
+                  },
+                  "right": {
+                    "kind": "var",
+                    "var_idx": 25
+                  }
+                },
+                "right": {
+                  "kind": "var",
+                  "var_idx": 22
+                }
+              },
+              "right": {
+                "kind": "eml",
+                "left": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "var",
+                    "var_idx": 2
+                  },
+                  "right": {
+                    "kind": "var",
+                    "var_idx": 24
+                  }
+                },
+                "right": {
+                  "kind": "var",
+                  "var_idx": 13
+                }
+              }
+            },
+            "right": {
+              "kind": "eml",
+              "left": {
+                "kind": "eml",
+                "left": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "var",
+                    "var_idx": 7
+                  },
+                  "right": {
+                    "kind": "const",
+                    "value": 0.1199906432297988
+                  }
+                },
+                "right": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "var",
+                    "var_idx": 8
+                  },
+                  "right": {
+                    "kind": "var",
+                    "var_idx": 11
+                  }
+                }
+              },
+              "right": {
+                "kind": "eml",
+                "left": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "var",
+                    "var_idx": 21
+                  },
+                  "right": {
+                    "kind": "const",
+                    "value": 1.738307529893122
+                  }
+                },
+                "right": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "var",
+                    "var_idx": 13
+                  },
+                  "right": {
+                    "kind": "var",
+                    "var_idx": 17
+                  }
+                }
+              }
+            }
+          }
+        },
+        "right": {
+          "kind": "eml",
+          "left": {
+            "kind": "eml",
+            "left": {
+              "kind": "eml",
+              "left": {
+                "kind": "eml",
+                "left": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "const",
+                    "value": 0.05023887330755317
+                  },
+                  "right": {
+                    "kind": "var",
+                    "var_idx": 16
+                  }
+                },
+                "right": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "var",
+                    "var_idx": 5
+                  },
+                  "right": {
+                    "kind": "var",
+                    "var_idx": 17
+                  }
+                }
+              },
+              "right": {
+                "kind": "eml",
+                "left": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "var",
+                    "var_idx": 19
+                  },
+                  "right": {
+                    "kind": "var",
+                    "var_idx": 15
+                  }
+                },
+                "right": {
+                  "kind": "var",
+                  "var_idx": 6
+                }
+              }
+            },
+            "right": {
+              "kind": "eml",
+              "left": {
+                "kind": "var",
+                "var_idx": 20
+              },
+              "right": {
+                "kind": "eml",
+                "left": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "const",
+                    "value": -0.5600635144432697
+                  },
+                  "right": {
+                    "kind": "var",
+                    "var_idx": 18
+                  }
+                },
+                "right": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "const",
+                    "value": 0.9930688643734729
+                  },
+                  "right": {
+                    "kind": "var",
+                    "var_idx": 2
+                  }
+                }
+              }
+            }
+          },
+          "right": {
+            "kind": "eml",
+            "left": {
+              "kind": "eml",
+              "left": {
+                "kind": "eml",
+                "left": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "var",
+                    "var_idx": 16
+                  },
+                  "right": {
+                    "kind": "const",
+                    "value": 0.942485486411409
+                  }
+                },
+                "right": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "var",
+                    "var_idx": 22
+                  },
+                  "right": {
+                    "kind": "var",
+                    "var_idx": 10
+                  }
+                }
+              },
+              "right": {
+                "kind": "eml",
+                "left": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "var",
+                    "var_idx": 3
+                  },
+                  "right": {
+                    "kind": "var",
+                    "var_idx": 11
+                  }
+                },
+                "right": {
+                  "kind": "eml",
+                  "left": {
+                    "kind": "var",
+                    "var_idx": 22
+                  },
+                  "right": {
+                    "kind": "const",
+                    "value": 1.9568602656806453
+                  }
+                }
+              }
+            },
+            "right": {
+              "kind": "var",
+              "var_idx": 16
+            }
+          }
+        }
+      },
+      "right": {
+        "kind": "eml",
+        "left": {
+          "kind": "eml",
+          "left": {
+            "kind": "eml",
+            "left": {
+              "kind": "var",
+              "var_idx": 16
+            },
+            "right": {
+              "kind": "const",
+              "value": 0.942485486411409
+            }
+          },
+          "right": {
+            "kind": "eml",
+            "left": {
+              "kind": "var",
+              "var_idx": 22
+            },
+            "right": {
+              "kind": "var",
+              "var_idx": 10
+            }
+          }
+        },
+        "right": {
+          "kind": "const",
+          "value": -1.8899148224503075
+        }
+      }
+    }
+  ],
+  "feature_names": [
+    "h0",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h8",
+    "h9",
+    "holes",
+    "bumpiness",
+    "agg_h",
+    "max_h",
+    "wells",
+    "row_trans",
+    "col_trans",
+    "cleared",
+    "landing_h",
+    "next_I",
+    "next_O",
+    "next_T",
+    "next_S",
+    "next_Z",
+    "next_J",
+    "next_L"
+  ],
+  "meta": {
+    "variant": 0,
+    "params": {
+      "seed": 1000,
+      "generations": 600,
+      "population": 600,
+      "depth_penalty": "medium",
+      "max_depth": 7,
+      "var_bonus": 0.03
+    },
+    "final_lines": 116.66666666666669,
+    "base_lines": 0.0
+  }
+}

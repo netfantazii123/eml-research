@@ -332,8 +332,9 @@ def cmd_test_distill():
     from cnn_oracle import TetrisCNN, get_device
     from dataset_collector import collect_dataset, compute_sample_weights
     from eml_distiller import (
-        EMLNode, EMLPolicy, random_tree, distill, play_episodes,
+        EMLNode, EMLPolicy, distill, play_episodes, make_basis,
     )
+    from emlcore import search, cexport
     from env import TetrisEnv
     import storage
     import config
@@ -349,7 +350,8 @@ def cmd_test_distill():
     device = get_device()
 
     # ── AST round-trip + vectorized vs scalar eval ───────────────────────
-    tree = random_tree(max_depth=4, force_eml=True)
+    basis = make_basis()
+    tree = search.random_tree(basis, max_depth=4, force_op=True)
     d = tree.to_dict()
     tree2 = EMLNode.from_dict(d)
     X = np.random.uniform(-1, 1, size=(64, config.N_FEATURES)).astype(np.float64)
@@ -408,9 +410,12 @@ def cmd_test_distill():
         (config.EML_JOINT_GENERATIONS, config.EML_JOINT_POPULATION,
          config.EML_INGAME_GAMES, config.EML_INGAME_MAX_PLACEMENTS) = config_backup
     _check(len(res['trees']) == 1, "distill trees count")
-    lines, steps = play_episodes(
-        res['trees'][0], n_games=2, max_placements=40, seed=7)
-    print(f"  distilled formula: {lines:.1f} lines, {steps:.0f} placements/game")
+    _check('val_lines' in res and 'static' in res, "distill result keys")
+    lines, steps = play_episodes(res['trees'][0], [7, 8], max_placements=40)
+    st = res['static']
+    print(f"  distilled formula: {np.mean(lines):.1f} lines, "
+          f"{np.mean(steps):.0f} placements/game, "
+          f"{st['nodes']} nodes / {st['n_exp']} expf+logf pairs")
 
     print("\n" + "=" * 56)
     print("  [OK] Distillation smoke test passed!")
@@ -424,65 +429,122 @@ def cmd_distill():
     import config
 
     # Flags: --reuse-data (dataset cache), --no-joint (without the GAME phase),
-    #        --batch [N] (a batch of formulas), --spread X (parameter spread).
+    #        --batch (grid mode), --configs N, --seeds N, --spread X.
     args = [a.lower() for a in sys.argv[2:]]
     reuse_data = '--reuse-data' in args
     do_joint = '--no-joint' not in args
 
-    batch_n = None
-    if '--batch' in args:
-        batch_n = config.EML_BATCH_VARIANTS
-        idx = args.index('--batch')
-        if idx + 1 < len(args):
-            try:
-                batch_n = int(args[idx + 1])
-            except ValueError:
-                pass
-    spread = config.EML_BATCH_SPREAD
-    if '--spread' in args:
-        idx = args.index('--spread')
-        if idx + 1 < len(args):
-            try:
-                spread = float(args[idx + 1])
-            except ValueError:
-                pass
+    def _num(flag, default, cast=int):
+        if flag in args:
+            idx = args.index(flag)
+            if idx + 1 < len(args):
+                try:
+                    return cast(args[idx + 1])
+                except ValueError:
+                    pass
+        return default
+
+    def _flagval(flag, default=None):
+        if flag in args:
+            idx = args.index(flag)
+            if idx + 1 < len(args) and not args[idx + 1].startswith('--'):
+                return args[idx + 1]
+        return default
+
+    # --basis eml|classic   : which primitives the search may use (B1)
+    # --k N                 : hard node budget, for the fixed-K anchor runs that
+    #                         check the NSGA-II curve against dedicated ones
+    # --single-objective    : plain GA instead of NSGA-II (no R(K) spread)
+    basis_name = _flagval('--basis', config.EML_BASIS)
+    max_nodes = _num('--k', None)
+    multi_objective = '--single-objective' not in args
+
+    do_batch = '--batch' in args or '--configs' in args or '--seeds' in args
+    n_configs = _num('--configs', config.EML_BATCH_CONFIGS)
+    # `--batch N` keeps working and now means N replicate seeds of one config,
+    # which is what the old flag should have meant all along.
+    n_seeds = _num('--seeds', _num('--batch', config.EML_BATCH_SEEDS))
+    spread = _num('--spread', config.EML_BATCH_SPREAD, float)
+
+    # --resume DIR      : continue an earlier run (its run dir or checkpoints/)
+    # --from P          : latest | best | <generation> (DATA phase point)
+    # --extra-gens N    : run N generations past the saved end (fine-tuning)
+    # --allow-new-data  : continue although the dataset changed (e.g. DAgger)
+    raw = sys.argv[2:]
+    resume = None
+    if '--resume' in args:
+        i = args.index('--resume')
+        if i + 1 < len(raw):
+            resume = raw[i + 1]          # not lower-cased: it is a path
+    resume_point = _flagval('--from', 'latest')
+    extra_gens = _num('--extra-gens', 0)
+    allow_changes = ('data', 'val') if '--allow-new-data' in args else ()
 
     print("=" * 56)
     print("   EML Distillation — TetrisCNN -> formula")
     print("=" * 56)
-    mode = f"batch x{batch_n} (spread ±{spread:.0%})" if batch_n else "single"
+    mode = (f"batch {n_configs} configs x {n_seeds} seeds (spread ±{spread:.0%})"
+            if do_batch else "single")
     print(f"  Device: {get_device()}  | {mode}  reuse_data={reuse_data}  "
           f"joint={do_joint}")
+    print(f"  Basis: {basis_name}  "
+          f"K={max_nodes if max_nodes else 'unbounded'}  "
+          f"selection={'NSGA-II' if multi_objective else 'single-objective'}")
 
-    if batch_n:
+    if do_batch:
         summary = batch_distill(
-            n_variants=batch_n, spread=spread,
-            reuse_data=reuse_data, joint=do_joint, verbose=True)
+            n_configs=n_configs, n_seeds=n_seeds, spread=spread,
+            basis_name=basis_name, max_nodes=max_nodes,
+            multi_objective=multi_objective,
+            reuse_data=reuse_data, joint=do_joint, verbose=True,
+            resume=resume)
     else:
         summary = full_distill(
-            reuse_data=reuse_data, joint=do_joint, verbose=True)
+            basis_name=basis_name, max_nodes=max_nodes,
+            multi_objective=multi_objective,
+            reuse_data=reuse_data, joint=do_joint, verbose=True,
+            resume=resume, resume_point=resume_point,
+            extra_generations=extra_gens, allow_changes=allow_changes)
 
     print("\n" + "=" * 56)
     print("   Distillation summary")
     print("=" * 56)
     if 'variants' in summary:
-        print(f"  {'#':<3}{'lines':>8}{'size':>6}{'depth':>7}"
-              f"{'dp':>8}{'gen':>6}{'pop':>6}")
-        for v in sorted(summary['variants'],
-                        key=lambda x: -x['final_lines']):
+        print(f"  {'run':<10}{'cfg':>4}{'seed':>6}{'val':>8}{'TEST':>8}"
+              f"{'size':>6}{'depth':>7}{'dp':>8}{'gen':>6}{'pop':>6}")
+        for v in sorted(summary['variants'], key=lambda x: -x['val_lines']):
             p = v['params']
-            print(f"  {v['variant']:<3}{v['final_lines']:>8.1f}"
-                  f"{v['size']:>6}{v['depth']:>7}{p['depth_penalty']:>8}"
-                  f"{p['generations']:>6}{p['population']:>6}")
+            print(f"  {v['label']:<10}{v['config_id']:>4}{v['ga_seed']:>6}"
+                  f"{v['val_lines']:>8.1f}"
+                  f"{v.get('test_lines', float('nan')):>8.1f}"
+                  f"{v['size']:>6}{v['depth']:>7}"
+                  f"{p['depth_penalty']:>8}{p['generations']:>6}"
+                  f"{p['population']:>6}")
+        # Seed spread within a configuration: if it swamps the gap between
+        # configurations, the ranking above is noise.
+        print(f"\n  {'cfg':<5}{'seeds':>6}{'val mean':>10}{'std':>8}"
+              f"{'min':>8}{'max':>8}{'TEST mean':>11}{'std':>8}{'min':>8}")
+        for row in summary['per_config']:
+            print(f"  {row['config_id']:<5}{row['n_seeds']:>6}"
+                  f"{row['val_mean']:>10.2f}{row['val_std']:>8.2f}"
+                  f"{row['val_min']:>8.2f}{row['val_max']:>8.2f}"
+                  f"{row.get('test_mean', float('nan')):>11.2f}"
+                  f"{row.get('test_std', float('nan')):>8.2f}"
+                  f"{row.get('test_min', float('nan')):>8.2f}")
+        print("  TEST mean is over ALL seeds of a configuration: that is the")
+        print("  method's number. The winner's HOLDOUT below is one formula's.")
         print(f"  Run dir: {summary['run_dir']}")
     t = summary['trees'][0]
     print(f"\n  BEST f[PLACE]  D{t.depth()} S{t.size()} V{t.n_unique_vars()}:")
     print(f"    {t.to_string()[:200]}")
-    print(f"\n  EML lines/game:    {summary['eml_lines']:.2f}")
-    print(f"  Oracle lines/game: {summary['oracle_lines']:.2f}")
+    print(f"\n  Selection (val):   {summary['val_lines']:.2f} lines/game")
+    print(f"  HOLDOUT EML:       {summary['eml_lines']:.2f} lines/game")
+    print(f"  HOLDOUT oracle:    {summary['oracle_lines']:.2f} lines/game")
     print(f"  EML / Oracle:      {summary['ratio_pct']:.1f}%  (target >= 50%)")
     print(f"  AST size:          {summary['total_size']} nodes")
     print(f"  Saved formula ->   {summary['path']}")
+    print("\n  Report the HOLDOUT numbers: they come from seeds nothing was")
+    print("  selected on. The val figure is a maximum over runs and is biased.")
 
 
 def cmd_bench():
@@ -604,6 +666,55 @@ def cmd_bench():
     print(f"         {games_path}")
 
 
+def cmd_checkc():
+    """
+    Does the exported float32 C agree with the float64 search?
+
+    The generated header uses expf/logf while every number in this project was
+    produced in float64. Nested exp amplifies the difference, and it only
+    matters when it flips an argmax — that flip rate is what this reports. Run
+    it before any hardware timing: timing a policy that plays differently from
+    the one in the results is worse than not timing at all.
+    """
+    import numpy as np
+    from eml_distiller import EMLNode
+    from emlcore import cexport
+    from dataset_collector import load_dataset
+    import storage
+    import config
+    import os
+
+    src = sys.argv[2] if len(sys.argv) > 2 else None
+    trees, _ = storage.load_formulas(EMLNode, src)
+    tree = trees[0]
+
+    data_path = os.path.join(config.RESULTS_DIR, 'eml_dataset.npz')
+    if os.path.exists(data_path):
+        features, _, groups = load_dataset(data_path)
+        source = f"{data_path} ({len(features):,} rows)"
+    else:
+        features = np.random.uniform(-1, 1, size=(20000, config.N_FEATURES))
+        groups = np.repeat(np.arange(20000 // 32), 32)
+        source = "random inputs in [-1,1] (no dataset cached)"
+
+    res = cexport.check_float32_agreement(tree, features, groups=groups)
+
+    print("=" * 56)
+    print("   float32 (C) vs float64 (search) agreement")
+    print("=" * 56)
+    print(f"  Inputs: {source}")
+    print(f"  Samples:            {res['n_samples']:,}")
+    print(f"  Max relative error: {res['max_rel_error']:.3e}")
+    print(f"  Mean relative error:{res['mean_rel_error']:.3e}")
+    print(f"  Non-finite values:  {res['n_nonfinite']}")
+    if 'argmax_flip_rate' in res:
+        flip = res['argmax_flip_rate']
+        print(f"  argmax flips:       {flip:.4%} "
+              f"over {res['n_groups']:,} real placement decisions")
+        verdict = "same policy" if flip < 0.001 else "DIFFERENT POLICY"
+        print(f"  -> {verdict}")
+
+
 def cmd_export():
     """Export the EML formula to inline C (for the MCU / latency measurement)."""
     import os
@@ -615,66 +726,72 @@ def cmd_export():
     trees, meta = storage.load_formulas(EMLNode, src)
     tree = trees[0]
 
-    def _c_expr(node) -> str:
-        if node.kind == 'const':
-            return f"{node.value:.6f}f"
-        if node.kind == 'var':
-            return f"f[{node.var_idx}]"
-        return f"eml_op({_c_expr(node.left)}, {_c_expr(node.right)})"
+    from emlcore import cexport, static_metrics
 
-    lines = [
-        "/*",
-        " * eml_formula.h — distilled Tetris EML policy (auto-generated).",
-        " *",
-        f" * Source: {src or 'models/best_eml.json'}",
-        f" * AST: size={tree.size()}  depth={tree.depth()}  "
-        f"unique_vars={tree.n_unique_vars()}",
-        f" * Distillation metrics: {meta}",
-        " *",
-        " * Usage: for every legal placement fill f[26] (normalized as in",
-        " * features.py: [-1,1]) and choose the placement with the maximum",
-        " * eml_formula(f).",
-        " *",
-        " * Feature indices:",
-    ]
-    for i, name in enumerate(config.FEATURE_NAMES):
-        lines.append(f" *   f[{i:2d}] = {name}")
-    lines += [
-        " */",
-        "#ifndef EML_FORMULA_H",
-        "#define EML_FORMULA_H",
-        "",
-        "#include <math.h>",
-        "",
-        f"#define EML_EPS {config.EML_EPSILON:g}f",
-        "",
-        "static inline float eml_op(float x, float y) {",
-        "    if (x > 10.0f) x = 10.0f;",
-        "    if (x < -10.0f) x = -10.0f;",
-        "    return expf(x) - logf(fabsf(y) + EML_EPS);",
-        "}",
-        "",
-        "static inline float eml_formula(const float f[26]) {",
-        f"    return {_c_expr(tree)};",
-        "}",
-        "",
-        "#endif /* EML_FORMULA_H */",
-        "",
-    ]
+    metrics = static_metrics(tree)
+    lines = cexport.generate_header(
+        tree,
+        guard='EML_FORMULA_H',
+        func_name='eml_formula',
+        title='distilled Tetris EML policy',
+        metrics=metrics,
+        notes=[
+            f"Source: {src or 'models/best_eml.json'}",
+            f"Distillation metrics: {meta}",
+            "Usage: for every legal placement fill f[] (normalised as in",
+            "features.py: [-1,1]) and take the placement with the largest",
+            "eml_formula(f).",
+            "NOTE: this is float32 (expf/logf) while the search ran in float64.",
+            "Run `main.py checkc` before trusting hardware timings.",
+        ],
+    )
 
     os.makedirs(config.RESULTS_DIR, exist_ok=True)
     path = os.path.join(config.RESULTS_DIR, 'eml_formula.h')
     with open(path, 'w', encoding='utf-8') as fh:
-        fh.write("\n".join(lines))
+        fh.write(lines)
 
     print("=" * 56)
     print("   EML -> C export")
     print("=" * 56)
     print(f"  AST size {tree.size()}, depth {tree.depth()}, "
           f"vars {tree.n_unique_vars()}")
+    print(f"  Transcendental calls per evaluation: "
+          f"{metrics['n_exp']} expf + {metrics['n_log']} logf")
     print(f"  Saved -> {path}")
     print("  The formula is a single C expression of expf/logf: it evaluates on")
     print("  an MCU in a few microseconds; a CNN oracle does not fit there.")
+
+
+def cmd_points():
+    """List the resumable states and the hall of fame of a run."""
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from emlcore import checkpoint
+
+    if len(sys.argv) < 3:
+        print("Usage: python main.py points <run dir | checkpoints dir>")
+        return
+    root = sys.argv[2]
+    if os.path.isdir(os.path.join(root, 'checkpoints')):
+        root = os.path.join(root, 'checkpoints')
+    phases = [d for d in ('data', 'game') if os.path.isdir(os.path.join(root, d))]
+    if not phases:      # a batch: one sub-directory per variant
+        phases = sorted(os.path.join(v, ph) for v in os.listdir(root)
+                        for ph in ('data', 'game')
+                        if os.path.isdir(os.path.join(root, v, ph)))
+    for ph in phases:
+        d = os.path.join(root, ph)
+        print(f"\n[{ph}]")
+        for p in checkpoint.list_points(d):
+            print(f"  gen {p['generation']:>5}  {p['kind']:<9} {p['path']}")
+        try:
+            hof = checkpoint.load_hall_of_fame(d)
+        except (OSError, ValueError):
+            hof = []
+        for r in hof[:5]:
+            print(f"  hof  {r['score']:10.3f}  gen {r['generation']:>4}  "
+                  f"S{r['nodes']}  {r['formula'][:60]}")
 
 
 def main():
@@ -688,9 +805,15 @@ def main():
         print("  train       — CNN oracle training (PPO, placement-based)")
         print("  distill     — EML distillation of the oracle into a formula")
         print("                 [--reuse-data] [--no-joint]")
+        print("                 [--basis eml|classic] [--k N] "
+              "[--single-objective]")
+        print("                 [--resume DIR [--from latest|best|GEN] "
+              "[--extra-gens N] [--allow-new-data]]")
+        print("  points DIR  — resumable GA states and hall of fame of a run")
         print("  bench [N]   — CNN vs EML over N games (+CSV in results/)")
         print("  export [f]  — export the EML formula to inline C "
               "(results/eml_formula.h)")
+        print("  checkc [f]  — does the float32 C export agree with float64?")
         print("  gui         — GUI (training · distillation · play · formulas)")
         print("  play        — GUI on the Play tab (watch the model play)")
         return
@@ -718,6 +841,10 @@ def main():
         gui_main(initial_tab='play')
     elif cmd == 'export':
         cmd_export()
+    elif cmd == 'checkc':
+        cmd_checkc()
+    elif cmd == 'points':
+        cmd_points()
     else:
         print(f"Command '{cmd}' not found (see python main.py).")
 
