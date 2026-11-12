@@ -1,0 +1,345 @@
+{
+  "trees": [
+    {
+      "kind": "op",
+      "op": "eml",
+      "children": [
+        {
+          "kind": "op",
+          "op": "eml",
+          "children": [
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "var",
+                  "var_idx": 17
+                },
+                {
+                  "kind": "const",
+                  "value": -1.0336023826720058
+                }
+              ]
+            },
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "op",
+                  "op": "eml",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 21
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 4
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "var",
+                              "var_idx": 22
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 7
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 8
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "var",
+                              "var_idx": 0
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 2
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 3
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 25
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 13
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 1
+                                },
+                                {
+                                  "kind": "const",
+                                  "value": -1.2232497040520531
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "const",
+                                  "value": -1.3899476204568217
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 19
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "op",
+                  "op": "eml",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "const",
+                          "value": -1.3899476204568217
+                        },
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "const",
+                              "value": -0.8855987227960842
+                            },
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "const",
+                                  "value": -2.0795311519419437
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 19
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 16
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 18
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "const",
+                                  "value": 1.6677074571228991
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 17
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 24
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 19
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 21
+                                },
+                                {
+                                  "kind": "const",
+                                  "value": 0.13946642701289091
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "op",
+          "op": "eml",
+          "children": [
+            {
+              "kind": "var",
+              "var_idx": 15
+            },
+            {
+              "kind": "var",
+              "var_idx": 10
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "feature_names": [
+    "h0",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h8",
+    "h9",
+    "holes",
+    "bumpiness",
+    "agg_h",
+    "max_h",
+    "wells",
+    "row_trans",
+    "col_trans",
+    "cleared",
+    "landing_h",
+    "next_I",
+    "next_O",
+    "next_T",
+    "next_S",
+    "next_Z",
+    "next_J",
+    "next_L"
+  ],
+  "meta": {
+    "method": "DAgger+GAME",
+    "ga_seed": 4,
+    "task": "tetris",
+    "tag": "",
+    "test_lines": 112.53333333333333,
+    "test_std": 19.62885513785734,
+    "oracle_lines": 111.76666666666667,
+    "pct_oracle": 100.68595287801969,
+    "paired_diff": 0.7666666666666667,
+    "test_placements": 288.76666666666665,
+    "top1_oracle_states": 0.622,
+    "nodes": 59,
+    "depth": 7,
+    "n_transcendental": 58,
+    "dagger_s": 905,
+    "formula": "eml(eml(eml(cleared, -1.034), eml(eml(eml(eml(eml(next_T, h4), next_S), eml(eml(h7, h8), h0)), eml(eml(eml(h2, h3), eml(next_L, max_h)), eml(eml(h1, -1.223), eml(-1.390, next_I)))), eml(eml(-1.390, eml(-0.886, eml(-2.080, next_I))), eml(eml(eml(col_trans, landing_h), eml(1.668, cleared)), eml(eml(next_J, next_I), eml(next_T, 0.139)))))), eml(row_trans, holes))",
+    "game_s": 181
+  }
+}

@@ -167,6 +167,7 @@ def evolve_formula(
     extra_generations: int = 0,
     allow_changes: tuple = (),
     init_trees: list | None = None,
+    init_warm_fraction: float | None = None,
     search_opts: dict | None = None,
     cache: FitnessCache | None = None,
 ) -> dict:
@@ -192,6 +193,11 @@ def evolve_formula(
           continue on a regrown dataset;
       init_trees — start a NEW run from these formulas (e.g. a hall of fame)
           instead of random trees.
+      init_warm_fraction — with init_trees: only this share of the initial
+          population are mutants of them (intensity 0.5, the trees included)
+          and the rest stays random, so a poor warm start cannot capture the
+          run (DAgger refits on a grown dataset use 0.5). None (default): the
+          whole population starts around init_trees.
 
     Returns: {'best_tree', 'best_fitness', 'best_val_fitness', 'history',
               'val_history', 'archive', 'generation', 'cache', ...}.
@@ -249,8 +255,21 @@ def evolve_formula(
         # different across runs (a hardcoded default_rng(0) handed every "seed"
         # the very same subsample sequence).
         rng = np.random.default_rng(random.randrange(2 ** 63))
-        population = search.seed_population(basis, population_size, max_depth=3,
-                                            seed_trees=init_trees)
+        if init_trees and init_warm_fraction is not None:
+            population = search.seed_population(basis, population_size,
+                                                max_depth=3)
+            n_warm = int(population_size * init_warm_fraction)
+            warm: list = []
+            for i, t in enumerate(init_trees):
+                share = (n_warm // len(init_trees)
+                         + (i < n_warm % len(init_trees)))
+                warm += search.seed_population(basis, share, seed_tree=t,
+                                               intensity=0.5)
+            population = warm[:n_warm] + population[:population_size - n_warm]
+        else:
+            population = search.seed_population(basis, population_size,
+                                                max_depth=3,
+                                                seed_trees=init_trees)
         history: list[float] = []
         val_history: list[float] = []
         best_fitness_ever = -1.0

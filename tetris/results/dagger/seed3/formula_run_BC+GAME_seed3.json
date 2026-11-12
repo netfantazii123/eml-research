@@ -1,0 +1,125 @@
+{
+  "trees": [
+    {
+      "kind": "op",
+      "op": "eml",
+      "children": [
+        {
+          "kind": "op",
+          "op": "eml",
+          "children": [
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "var",
+                  "var_idx": 17
+                },
+                {
+                  "kind": "op",
+                  "op": "eml",
+                  "children": [
+                    {
+                      "kind": "var",
+                      "var_idx": 17
+                    },
+                    {
+                      "kind": "var",
+                      "var_idx": 12
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "var",
+                  "var_idx": 15
+                },
+                {
+                  "kind": "const",
+                  "value": 0.39998337800782124
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "op",
+          "op": "eml",
+          "children": [
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "const",
+                  "value": 1.2884415793040684
+                },
+                {
+                  "kind": "var",
+                  "var_idx": 10
+                }
+              ]
+            },
+            {
+              "kind": "const",
+              "value": 3.639330008193317
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "feature_names": [
+    "h0",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h8",
+    "h9",
+    "holes",
+    "bumpiness",
+    "agg_h",
+    "max_h",
+    "wells",
+    "row_trans",
+    "col_trans",
+    "cleared",
+    "landing_h",
+    "next_I",
+    "next_O",
+    "next_T",
+    "next_S",
+    "next_Z",
+    "next_J",
+    "next_L"
+  ],
+  "meta": {
+    "method": "BC+GAME",
+    "ga_seed": 3,
+    "task": "tetris",
+    "tag": "",
+    "test_lines": 106.86666666666666,
+    "test_std": 23.516294179866502,
+    "oracle_lines": 111.76666666666667,
+    "pct_oracle": 95.61586638830897,
+    "paired_diff": -4.9,
+    "test_placements": 279.46666666666664,
+    "top1_oracle_states": 0.686,
+    "nodes": 15,
+    "depth": 4,
+    "n_transcendental": 14,
+    "dagger_s": 1114,
+    "formula": "eml(eml(eml(cleared, eml(cleared, agg_h)), eml(row_trans, 0.400)), eml(eml(1.288, holes), 3.639))",
+    "game_s": 95
+  }
+}

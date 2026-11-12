@@ -1,0 +1,6 @@
+task,method,ga_seed,test_pipes,test_std,pct_oracle,nodes,depth,n_transcendental,elapsed_s,formula,iterations,rows,best_iter
+flappy,BC,1,0.0,0.0,0.0,27,5,26,0,"eml(eml(vel, eml(dx, eml(eml(gap, y), eml(0.704, dx)))), eml(eml(eml(gap, eml(-1.793, dx)), dx), eml(eml(eml(-0.915, vel), dx), vel)))",1,90000,
+flappy,DAgger,1,0.26666666666666666,0.5832922809856749,0.8333333333333334,35,5,34,247.9,"eml(eml(vel, eml(y, eml(eml(gap, y), dx))), eml(eml(eml(gap, eml(-2.082, gap)), eml(y, eml(vel, y))), eml(eml(eml(-0.049, vel), eml(0.427, dx)), eml(eml(1.280, gap), vel))))",6,126870,1
+flappy,BC+GAME,1,17.0,10.706105251452202,53.125,29,5,28,559.3,"eml(eml(y, eml(-0.881, eml(eml(dx, y), eml(y, -1.373)))), eml(eml(eml(eml(gap, 1.384), eml(2.196, 0.187)), y), eml(eml(-0.842, dx), eml(vel, vel))))",1,,
+flappy,DAgger+GAME,1,27.633333333333333,9.52124062234044,86.35416666666667,25,5,24,803.8,"eml(y, eml(eml(gap, eml(-0.937, eml(y, gap))), eml(eml(eml(gap, -0.657), eml(1.409, gap)), eml(eml(y, 1.822), eml(y, dx)))))",1,,
+flappy,EML-GAME,1,31.233333333333334,4.199206274206274,97.60416666666667,13,4,12,255.6,"eml(eml(y, eml(eml(gap, y), eml(1.458, y))), eml(gap, -1.582))",1,,

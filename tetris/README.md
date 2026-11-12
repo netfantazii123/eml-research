@@ -58,3 +58,16 @@ of formulas, e.g. `emlcore.checkpoint.load_hall_of_fame(dir, basis)`.
 Speed: fitness is memoised by (formula, data) (`EML_FITNESS_CACHE`) and the
 GAME phase can play its games in parallel (`EML_INGAME_WORKERS`, 0 = all
 cores). Neither changes the result.
+
+## DAgger (dataset aggregation)
+
+`dagger_distill.py` runs DAgger on top of the DATA phase: the current formula
+plays, the oracle labels every legal placement on the boards the formula
+reaches, the dataset grows, the formula is refit (warm-started). It compares
+BC, DAgger, BC+GAME (the existing pipeline) and DAgger+GAME on the same oracle
+and the same TEST seeds. The generic loop is `emlcore/dagger.py`.
+
+```bash
+python dagger_distill.py --seeds 0 1 2 --iters 5      # -> results/dagger/
+python ../report/make_report.py                        # refresh report/REPORT.md
+```

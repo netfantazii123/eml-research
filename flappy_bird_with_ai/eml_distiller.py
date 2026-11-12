@@ -264,9 +264,13 @@ def evolve_eml(
     patience: int | None = None,
     verbose: bool = True,
     should_stop=None,
+    init_trees: list | None = None,
 ) -> dict:
     """
     GA evolution of EML trees.
+
+    init_trees: optional warm start (e.g. a DAgger formula): half the initial
+    population become mutants of these trees, the rest stays random.
 
     Hyperparameters: taken from the current `config` when not passed.
 
@@ -301,6 +305,14 @@ def evolve_eml(
     # Initialization
     population = [search.random_tree(basis, max_depth=3, force_op=True)
                   for _ in range(population_size)]
+    if init_trees:
+        n_warm = population_size // 2
+        warm = []
+        for i, t in enumerate(init_trees):
+            share = n_warm // len(init_trees) + (i < n_warm % len(init_trees))
+            warm += search.seed_population(basis, share, seed_tree=t,
+                                           intensity=0.5)
+        population = warm[:n_warm] + population[:population_size - n_warm]
     history = []
     best_fitness_ever = -1.0
     best_tree_ever = None

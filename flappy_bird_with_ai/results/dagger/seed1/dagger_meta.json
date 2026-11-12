@@ -1,0 +1,19 @@
+{
+  "oracle_test_pipes": 32.0,
+  "test_games": 30,
+  "max_frames": 3000,
+  "seeds": [
+    1
+  ],
+  "n_iters": 6,
+  "generations": 300,
+  "population": 400,
+  "game_generations": 150,
+  "game_population": 200,
+  "loss": "balacc",
+  "chunk_balance": true,
+  "bc_episodes": 30,
+  "dagger_episodes": 60,
+  "depth_penalty": "medium",
+  "beta": "exp p=0.5"
+}

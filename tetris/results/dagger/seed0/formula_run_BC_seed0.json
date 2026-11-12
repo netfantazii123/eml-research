@@ -1,0 +1,85 @@
+{
+  "trees": [
+    {
+      "kind": "op",
+      "op": "eml",
+      "children": [
+        {
+          "kind": "const",
+          "value": 0.26824486072450027
+        },
+        {
+          "kind": "op",
+          "op": "eml",
+          "children": [
+            {
+              "kind": "const",
+              "value": -1.5179769525322344
+            },
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "var",
+                  "var_idx": 16
+                },
+                {
+                  "kind": "var",
+                  "var_idx": 17
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "feature_names": [
+    "h0",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h8",
+    "h9",
+    "holes",
+    "bumpiness",
+    "agg_h",
+    "max_h",
+    "wells",
+    "row_trans",
+    "col_trans",
+    "cleared",
+    "landing_h",
+    "next_I",
+    "next_O",
+    "next_T",
+    "next_S",
+    "next_Z",
+    "next_J",
+    "next_L"
+  ],
+  "meta": {
+    "method": "BC",
+    "ga_seed": 0,
+    "task": "tetris",
+    "tag": "",
+    "test_lines": 0.03333333333333333,
+    "test_std": 0.18257418583505533,
+    "oracle_lines": 111.76666666666667,
+    "pct_oracle": 0.029824038174768867,
+    "paired_diff": -111.73333333333333,
+    "test_placements": 14.866666666666667,
+    "top1_oracle_states": 0.298,
+    "nodes": 7,
+    "depth": 3,
+    "n_transcendental": 6,
+    "dagger_s": 665,
+    "formula": "eml(0.268, eml(-1.518, eml(col_trans, cleared)))",
+    "best_iter": 0
+  }
+}
