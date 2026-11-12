@@ -747,8 +747,10 @@ def evolve_ingame(
             population, fitness_scores, basis,
             size=population_size, elitism=elitism, intensity=intensity,
             p_mutate=0.5, p_cross=0.85, p_cross_mutate=0.4, tournament_k=4,
-            fresh=lambda: search.mutate_tree(seed_tree, basis,
-                                             intensity=intensity),
+            # No-oracle control (seed_tree None): random immigrants.
+            fresh=(None if seed_tree is None else
+                   lambda: search.mutate_tree(seed_tree, basis,
+                                              intensity=intensity)),
             unique=opts.get('unique', False),
             simplify=opts.get('simplify', False))
     else:
