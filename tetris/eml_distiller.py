@@ -38,7 +38,8 @@ from config import DEPTH_PENALTIES, FEATURE_NAMES, N_FEATURES
 from env import TetrisEnv
 
 from emlcore import (Node, search, static_metrics, pool_slice,
-                     ParetoArchive, nsga2)
+                     ParetoArchive, nsga2, checkpoint, parallel)
+from emlcore.cache import FitnessCache
 from emlcore import make_basis as _make_basis
 
 
@@ -115,6 +116,32 @@ def _regression_fitness(tree: EMLNode, X: np.ndarray, y: np.ndarray,
     return var_bonus / (mse + depth_penalty * depth + 1e-8)
 
 
+def _search_opts(**over) -> dict:
+    """The search options from config, overridable per call."""
+    opts = {
+        'unique': getattr(config, 'EML_UNIQUE_CHILDREN', False),
+        'simplify': getattr(config, 'EML_FOLD_CONSTANTS', False),
+        'tune_top': getattr(config, 'EML_TUNE_CONSTANTS_TOP', 0),
+        'tune_steps': getattr(config, 'EML_TUNE_CONSTANTS_STEPS', 6),
+    }
+    opts.update({k: v for k, v in over.items() if v is not None})
+    return opts
+
+
+def _run_control(phase: str, basis, signature: dict, generations: int, *,
+                 checkpoint_dir, resume, resume_point, extra_generations,
+                 allow_changes, verbose) -> checkpoint.ResumableRun:
+    return checkpoint.ResumableRun(
+        phase=phase, basis=basis, signature=signature, generations=generations,
+        checkpoint_dir=checkpoint_dir, resume=resume, point=resume_point,
+        extra_generations=extra_generations, allow_changes=allow_changes,
+        checkpoint_every=getattr(config, 'EML_CHECKPOINT_EVERY', 10),
+        snapshot_every=getattr(config, 'EML_SNAPSHOT_EVERY', 50),
+        keep_best=getattr(config, 'EML_KEEP_BEST_STATES', 5),
+        hof_size=getattr(config, 'EML_HOF_SIZE', 20),
+        verbose=verbose)
+
+
 def evolve_formula(
     X: np.ndarray,
     y: np.ndarray,
@@ -130,11 +157,19 @@ def evolve_formula(
     basis=None,
     multi_objective: bool | None = None,
     archive: ParetoArchive | None = None,
-    init_trees: list | None = None,
     verbose: bool = False,
     label: str = 'PLACE',
     should_stop=None,
     on_event=None,
+    checkpoint_dir: str | None = None,
+    resume=None,
+    resume_point='latest',
+    extra_generations: int = 0,
+    allow_changes: tuple = (),
+    init_trees: list | None = None,
+    init_warm_fraction: float | None = None,
+    search_opts: dict | None = None,
+    cache: FitnessCache | None = None,
 ) -> dict:
     """
     GA evolution of an EML formula (symbolic regression to the target y).
@@ -148,42 +183,35 @@ def evolve_formula(
     on_event: an optional callback(dict) for progress (GUI). Invoked every
     generation with {'type':'data_gen', ...}.
 
-    init_trees: optional warm start (DAgger refits on a grown dataset). Half of
-    the initial population become mutants of these trees, the trees themselves
-    included; the rest stays random so a poor warm start cannot capture the run.
+    Run state (see emlcore/checkpoint.py):
+      checkpoint_dir — save latest / snapshots / best-performer states and the
+          hall of fame there;
+      resume — a checkpoint directory or state file to continue from, at
+          resume_point ('latest', 'best' or a generation number);
+      extra_generations — continue past the saved run's end (fine-tuning);
+      allow_changes — signature keys allowed to differ, e.g. ('data',) to
+          continue on a regrown dataset;
+      init_trees — start a NEW run from these formulas (e.g. a hall of fame)
+          instead of random trees.
+      init_warm_fraction — with init_trees: only this share of the initial
+          population are mutants of them (intensity 0.5, the trees included)
+          and the rest stays random, so a poor warm start cannot capture the
+          run (DAgger refits on a grown dataset use 0.5). None (default): the
+          whole population starts around init_trees.
 
     Returns: {'best_tree', 'best_fitness', 'best_val_fitness', 'history',
-              'val_history'}.
+              'val_history', 'archive', 'generation', 'cache', ...}.
     """
     if subsample is None:
         subsample = config.EML_DATA_SUBSAMPLE
     if basis is None:
         basis = make_basis()
     elitism = max(1, min(elitism, population_size))
-
-    # Derived from the seeded global RNG: reproducible per run, yet actually
-    # different across runs (a hardcoded default_rng(0) handed every "seed" the
-    # very same subsample sequence).
-    rng = np.random.default_rng(random.randrange(2 ** 63))
-    population = search.seed_population(basis, population_size, max_depth=3)
-    if init_trees:
-        n_warm = population_size // 2
-        warm: list = []
-        for i, t in enumerate(init_trees):
-            share = n_warm // len(init_trees) + (i < n_warm % len(init_trees))
-            warm += search.seed_population(basis, share, seed_tree=t,
-                                           intensity=0.5)
-        population = warm[:n_warm] + population[:population_size - n_warm]
-    history: list[float] = []
-    val_history: list[float] = []
-    best_fitness_ever = -1.0
-    best_val_fitness = -math.inf
-    best_tree_ever: EMLNode | None = None
-    patience_counter = 0
     if multi_objective is None:
         multi_objective = config.EML_MULTI_OBJECTIVE
-    if archive is None:
-        archive = ParetoArchive()
+    opts = search_opts if search_opts is not None else _search_opts()
+    if cache is None and getattr(config, 'EML_FITNESS_CACHE', True):
+        cache = FitnessCache()
 
     # Size is an explicit objective under NSGA-II, so keeping a size penalty
     # inside the fitness too would count it twice: the front collapses onto the
@@ -193,21 +221,97 @@ def evolve_formula(
     if multi_objective:
         depth_penalty = 0.0
 
-    for gen in range(generations):
+    signature = {
+        'data': checkpoint.data_fingerprint(X, y, w),
+        'val': checkpoint.data_fingerprint(*(val_data or (None,))),
+        'population_size': int(population_size), 'elitism': int(elitism),
+        'multi_objective': bool(multi_objective),
+        'depth_penalty': float(depth_penalty), 'subsample': int(subsample),
+        'search': {k: opts[k] for k in sorted(opts)},
+    }
+    run = _run_control('data', basis, signature, generations,
+                       checkpoint_dir=checkpoint_dir, resume=resume,
+                       resume_point=resume_point,
+                       extra_generations=extra_generations,
+                       allow_changes=allow_changes, verbose=verbose)
+
+    if run.restored is not None:
+        st = run.restored
+        population = st['population']
+        c = st['counters']
+        history = list(c['history'])
+        val_history = list(c['val_history'])
+        best_fitness_ever = c['best_fitness_ever']
+        best_val_fitness = c['best_val_fitness']
+        best_tree_ever = c['best_tree_ever']
+        patience_counter = c['patience_counter']
+        rng = st['np_rng']
+        if archive is None:
+            archive = st['archive'] or ParetoArchive()
+        else:
+            archive.best.update((st['archive'] or ParetoArchive()).best)
+    else:
+        # Derived from the seeded global RNG: reproducible per run, yet actually
+        # different across runs (a hardcoded default_rng(0) handed every "seed"
+        # the very same subsample sequence).
+        rng = np.random.default_rng(random.randrange(2 ** 63))
+        if init_trees and init_warm_fraction is not None:
+            population = search.seed_population(basis, population_size,
+                                                max_depth=3)
+            n_warm = int(population_size * init_warm_fraction)
+            warm: list = []
+            for i, t in enumerate(init_trees):
+                share = (n_warm // len(init_trees)
+                         + (i < n_warm % len(init_trees)))
+                warm += search.seed_population(basis, share, seed_tree=t,
+                                               intensity=0.5)
+            population = warm[:n_warm] + population[:population_size - n_warm]
+        else:
+            population = search.seed_population(basis, population_size,
+                                                max_depth=3,
+                                                seed_trees=init_trees)
+        history: list[float] = []
+        val_history: list[float] = []
+        best_fitness_ever = -1.0
+        best_val_fitness = -math.inf
+        best_tree_ever: EMLNode | None = None
+        patience_counter = 0
+        if archive is None:
+            archive = ParetoArchive()
+
+    def _fit(trees, Xs, ys, ws, ctx):
+        def one(t):
+            return _regression_fitness(t, Xs, ys, ws, depth_penalty)
+        if cache is None:
+            return [one(t) for t in trees]
+        return cache.map(trees, ctx, one)
+
+    def _counters():
+        return {'history': history, 'val_history': val_history,
+                'best_fitness_ever': best_fitness_ever,
+                'best_val_fitness': best_val_fitness,
+                'best_tree_ever': best_tree_ever,
+                'patience_counter': patience_counter}
+
+    gen = run.start_gen
+    finished = False
+    for gen in range(run.start_gen, run.generations):
+        run.top(gen, population, counters=_counters(), rng=rng, archive=archive)
         if should_stop is not None and should_stop():
             break
 
-        intensity = max(0.1, 1.0 - gen / (generations * 0.7))
+        intensity = run.intensity(gen, floor=0.1, span=0.7)
 
         # Subsample for speed (fresh every generation -> less overfitting).
         if len(X) > subsample:
             idx = rng.choice(len(X), subsample, replace=False)
             Xs, ys, ws = X[idx], y[idx], w[idx]
+            ctx = ('gen', gen)
         else:
             Xs, ys, ws = X, y, w
+            ctx = 'full'
 
-        fitness_scores = [_regression_fitness(t, Xs, ys, ws, depth_penalty)
-                          for t in population]
+        fitness_scores = _fit(population, Xs, ys, ws, ctx)
         # The archive is what the R(K) curve is read from. Filled from training
         # fitness because it is already computed; the front is re-scored on
         # validation once the run is over, so no curve point is a subsample fluke.
@@ -218,6 +322,19 @@ def evolve_formula(
         fitness_scores = [f for f, _ in ranked]
         population = [t for _, t in ranked]
 
+        if opts.get('tune_top', 0) > 0:
+            # Local constant search on the elites, on this generation's data.
+            for i in range(min(opts['tune_top'], len(population))):
+                t, f = search.tune_constants(
+                    population[i],
+                    lambda tr: _regression_fitness(tr, Xs, ys, ws, depth_penalty),
+                    steps=opts.get('tune_steps', 6), current=fitness_scores[i])
+                population[i], fitness_scores[i] = t, f
+            order = sorted(range(len(population)),
+                           key=lambda i: fitness_scores[i], reverse=True)
+            population = [population[i] for i in order]
+            fitness_scores = [fitness_scores[i] for i in order]
+
         best_fitness = fitness_scores[0]
         history.append(best_fitness)
         best_fitness_ever = max(best_fitness_ever, best_fitness)
@@ -225,29 +342,30 @@ def evolve_formula(
         # Hall of fame on held-out groups (falls back to train fitness when no
         # validation split was supplied, e.g. tiny debug datasets).
         if val_data is not None:
-            val_fitness = _regression_fitness(
-                population[0], val_data[0], val_data[1], val_data[2],
-                depth_penalty)
+            val_fitness = _fit([population[0]], *val_data, 'val')[0]
         else:
             val_fitness = best_fitness
         val_history.append(val_fitness)
 
-        if val_fitness > best_val_fitness:
+        improved = val_fitness > best_val_fitness
+        if improved:
             best_val_fitness = val_fitness
             best_tree_ever = population[0].clone()
             patience_counter = 0
         else:
             patience_counter += 1
+        run.end_of_generation(improved, population[0], val_fitness,
+                              train_fitness=best_fitness)
 
         bt = population[0]
-        if verbose and (gen % 25 == 0 or gen == generations - 1):
+        if verbose and (gen % 25 == 0 or gen == run.generations - 1):
             print(f"      [{label}] gen {gen:>4} | fit {best_fitness:10.2f} | "
                   f"val {val_fitness:10.2f} | "
                   f"D{bt.depth()} S{bt.size()} V{bt.n_unique_vars()} | "
                   f"i={intensity:.2f}")
         if on_event is not None:
             on_event({'type': 'data_gen', 'action': 0, 'name': label,
-                      'gen': gen, 'generations': generations,
+                      'gen': gen, 'generations': run.generations,
                       'fitness': best_fitness, 'val_fitness': val_fitness,
                       'depth': bt.depth(),
                       'size': bt.size(), 'nvars': bt.n_unique_vars()})
@@ -271,9 +389,9 @@ def evolve_formula(
                 population, ranks, crowd, basis,
                 size=population_size, intensity=intensity,
                 p_mutate=0.45, p_cross=0.75, p_cross_mutate=0.3,
-                tournament_k=3)
-            off_fitness = [_regression_fitness(t, Xs, ys, ws, depth_penalty)
-                           for t in offspring]
+                tournament_k=3, unique=opts.get('unique', False),
+                simplify=opts.get('simplify', False))
+            off_fitness = _fit(offspring, Xs, ys, ws, ctx)
             archive.update_many(offspring, off_fitness)
 
             combined = population + offspring
@@ -288,7 +406,16 @@ def evolve_formula(
                 population, fitness_scores, basis,
                 size=population_size, elitism=elitism, intensity=intensity,
                 p_mutate=0.45, p_cross=0.75, p_cross_mutate=0.3,
-                tournament_k=5)
+                tournament_k=5, unique=opts.get('unique', False),
+                simplify=opts.get('simplify', False))
+    else:
+        finished = True
+
+    if finished:
+        run.finish(population, counters=_counters(), rng=rng, archive=archive,
+                   next_gen=run.generations)
+    else:
+        run.finish()
 
     if best_tree_ever is None:
         best_tree_ever = population[0]
@@ -299,7 +426,10 @@ def evolve_formula(
             'archive': archive,
             'multi_objective': multi_objective,
             'history': history,
-            'val_history': val_history}
+            'val_history': val_history,
+            'generation': gen,
+            'resumed_from': run.resumed_from,
+            'cache': cache.stats() if cache is not None else None}
 
 
 # ── EML policy (one formula, argmax over placements) ──────────────────────────
@@ -397,6 +527,40 @@ def _ingame_fitness(tree, seeds, max_placements) -> float:
     return sum(lines) / len(lines) * 100.0 + sum(steps) / len(steps)
 
 
+_WORKER_BASES: dict = {}
+
+
+def _ingame_worker(payload: dict) -> float:
+    """One GAME-phase fitness inside a worker process (see emlcore.parallel)."""
+    spec = payload['basis']
+    key = (spec['name'], spec['max_depth'], spec['max_nodes'])
+    if key not in _WORKER_BASES:
+        _WORKER_BASES[key] = make_basis(spec['name'], max_depth=spec['max_depth'],
+                                        max_nodes=spec['max_nodes'])
+    tree = Node.from_dict(payload['tree'], _WORKER_BASES[key])
+    return _ingame_fitness(tree, payload['seeds'], payload['max_placements'])
+
+
+def _ingame_scores(trees, seeds, max_placements, basis, *, workers: int = 1,
+                   cache: FitnessCache | None = None) -> list[float]:
+    """GAME fitness of a population: cached, and in parallel when workers > 1."""
+    seeds = [int(s) for s in seeds]
+
+    def batch(ts):
+        if workers <= 1:
+            return [_ingame_fitness(t, seeds, max_placements) for t in ts]
+        spec = checkpoint.basis_spec(basis)
+        return parallel.map_ordered(
+            _ingame_worker,
+            [{'tree': t.to_dict(), 'basis': spec, 'seeds': seeds,
+              'max_placements': max_placements} for t in ts], workers)
+
+    if cache is None:
+        return batch(list(trees))
+    return cache.map(trees, ('game', tuple(seeds), max_placements), None,
+                     batch_compute=batch)
+
+
 def evolve_ingame(
     seed_tree: EMLNode,
     *,
@@ -413,6 +577,15 @@ def evolve_ingame(
     verbose: bool = True,
     should_stop=None,
     on_event=None,
+    checkpoint_dir: str | None = None,
+    resume=None,
+    resume_point='latest',
+    extra_generations: int = 0,
+    allow_changes: tuple = (),
+    init_trees: list | None = None,
+    search_opts: dict | None = None,
+    workers: int | None = None,
+    cache: FitnessCache | None = None,
 ) -> dict:
     """
     In-game evolution of the formula: fitness = the actual score in TetrisEnv.
@@ -430,11 +603,20 @@ def evolve_ingame(
         best formula — the rotation makes that failure mode certain, so the
         hall-of-fame is not optional here.
 
+    Cost: the val re-scoring of a champion that is still last generation's
+    champion (the usual case once the run settles) and duplicate formulas inside
+    a generation are served from the fitness cache instead of being replayed.
+    workers > 1 plays a generation's games in parallel processes. Neither
+    changes the result.
+
+    Run state: the same checkpoint_dir / resume / resume_point /
+    extra_generations / allow_changes / init_trees as evolve_formula.
+
     on_event: an optional callback(dict), {'type':'joint_gen', ...} every
     generation.
 
     Returns: {'best_tree', 'best_fitness', 'best_lines', 'val_result',
-              'history', 'val_history'}.
+              'history', 'val_history', 'generation', 'cache'}.
     """
     if generations is None:     generations = config.EML_JOINT_GENERATIONS
     if population_size is None:  population_size = config.EML_JOINT_POPULATION
@@ -446,30 +628,78 @@ def evolve_ingame(
     if val_pool is None:        val_pool = config.EML_SEED_POOL_VAL
     if val_games is None:       val_games = config.EML_VAL_GAMES
     if basis is None:           basis = make_basis()
+    if workers is None:
+        workers = getattr(config, 'EML_INGAME_WORKERS', 1)
+    workers = parallel.resolve_workers(workers)
+    if cache is None and getattr(config, 'EML_FITNESS_CACHE', True):
+        cache = FitnessCache()
+    opts = search_opts if search_opts is not None else _search_opts()
     elitism = max(1, min(elitism, population_size))
 
     val_seeds = pool_slice(val_pool, val_games)
+    val_ctx = ('val', tuple(int(s) for s in val_seeds), max_placements)
 
-    # Population: the original plus mutants of the seed formula.
-    population = search.seed_population(basis, population_size,
-                                        seed_tree=seed_tree, intensity=0.7)
+    def _val(tree):
+        if cache is None:
+            return score_episodes(tree, val_seeds, max_placements)
+        return cache.get(tree, val_ctx,
+                         lambda t: score_episodes(t, val_seeds, max_placements))
 
-    history: list[float] = []
-    val_history: list[float] = []
-    best_val_fitness = -math.inf
-    best_val_result: dict | None = None
-    best_tree_ever: EMLNode | None = None
-    patience_counter = 0
+    signature = {
+        'seed_tree': seed_tree.key(),
+        'population_size': int(population_size), 'elitism': int(elitism),
+        'n_games': int(n_games), 'max_placements': int(max_placements),
+        'train_pool': [int(s) for s in train_pool],
+        'val_seeds': [int(s) for s in val_seeds],
+        'search': {k: opts[k] for k in ('unique', 'simplify')},
+    }
+    run = _run_control('game', basis, signature, generations,
+                       checkpoint_dir=checkpoint_dir, resume=resume,
+                       resume_point=resume_point,
+                       extra_generations=extra_generations,
+                       allow_changes=allow_changes, verbose=verbose)
 
-    for gen in range(generations):
+    if run.restored is not None:
+        c = run.restored['counters']
+        population = run.restored['population']
+        history = list(c['history'])
+        val_history = list(c['val_history'])
+        best_val_fitness = c['best_val_fitness']
+        best_tree_ever = c['best_tree_ever']
+        best_val_result = c['best_val_result']
+        patience_counter = c['patience_counter']
+    else:
+        # Population: the original plus mutants of the seed formula (or of a
+        # whole hall of fame, when fine-tuning from one).
+        population = search.seed_population(
+            basis, population_size, seed_tree=seed_tree, intensity=0.7,
+            seed_trees=init_trees)
+        history: list[float] = []
+        val_history: list[float] = []
+        best_val_fitness = -math.inf
+        best_val_result: dict | None = None
+        best_tree_ever: EMLNode | None = None
+        patience_counter = 0
+
+    def _counters():
+        return {'history': history, 'val_history': val_history,
+                'best_val_fitness': best_val_fitness,
+                'best_val_result': best_val_result,
+                'best_tree_ever': best_tree_ever,
+                'patience_counter': patience_counter}
+
+    gen = run.start_gen
+    finished = False
+    for gen in range(run.start_gen, run.generations):
+        run.top(gen, population, counters=_counters())
         if should_stop is not None and should_stop():
             break
 
-        intensity = max(0.15, 1.0 - gen / (generations * 0.8))
+        intensity = run.intensity(gen, floor=0.15, span=0.8)
         # Rotate the seeds every generation, share them within the generation.
         gen_seeds = pool_slice(train_pool, n_games, offset=gen * n_games)
-        fitness_scores = [_ingame_fitness(t, gen_seeds, max_placements)
-                          for t in population]
+        fitness_scores = _ingame_scores(population, gen_seeds, max_placements,
+                                        basis, workers=workers, cache=cache)
 
         ranked = sorted(zip(fitness_scores, population),
                         key=lambda p: p[0], reverse=True)
@@ -480,15 +710,18 @@ def evolve_ingame(
         history.append(best_fitness)
 
         # Hall of fame: the champion is judged on seeds it never trained on.
-        val_res = score_episodes(population[0], val_seeds, max_placements)
+        val_res = _val(population[0])
         val_history.append(val_res['fitness'])
-        if val_res['fitness'] > best_val_fitness:
+        improved = val_res['fitness'] > best_val_fitness
+        if improved:
             best_val_fitness = val_res['fitness']
             best_val_result = val_res
             best_tree_ever = population[0].clone()
             patience_counter = 0
         else:
             patience_counter += 1
+        run.end_of_generation(improved, population[0], val_res['fitness'],
+                              val_lines=val_res['avg_lines'])
 
         best_lines = best_fitness / 100.0
         if verbose:
@@ -496,7 +729,8 @@ def evolve_ingame(
                   f"(~{best_lines:.1f} lines) | val {val_res['avg_lines']:6.2f}"
                   f"±{val_res['std_lines']:.2f} lines | i={intensity:.2f}")
         if on_event is not None:
-            on_event({'type': 'joint_gen', 'gen': gen, 'generations': generations,
+            on_event({'type': 'joint_gen', 'gen': gen,
+                      'generations': run.generations,
                       'fitness': best_fitness, 'lines': best_lines,
                       'val_lines': val_res['avg_lines']})
 
@@ -513,7 +747,16 @@ def evolve_ingame(
             size=population_size, elitism=elitism, intensity=intensity,
             p_mutate=0.5, p_cross=0.85, p_cross_mutate=0.4, tournament_k=4,
             fresh=lambda: search.mutate_tree(seed_tree, basis,
-                                             intensity=intensity))
+                                             intensity=intensity),
+            unique=opts.get('unique', False),
+            simplify=opts.get('simplify', False))
+    else:
+        finished = True
+
+    if finished:
+        run.finish(population, counters=_counters(), next_gen=run.generations)
+    else:
+        run.finish()
 
     if best_tree_ever is None:
         best_tree_ever = population[0]
@@ -525,6 +768,9 @@ def evolve_ingame(
         'val_result': best_val_result,
         'history': history,
         'val_history': val_history,
+        'generation': gen,
+        'resumed_from': run.resumed_from,
+        'cache': cache.stats() if cache is not None else None,
     }
 
 
@@ -651,6 +897,32 @@ def _standardize_per_group(y: np.ndarray, groups: np.ndarray) -> np.ndarray:
 
 # ── Full distillation pipeline ────────────────────────────────────────────────
 
+def _phase_dir(root: str | None, phase: str, must_exist: bool = False):
+    """<root>/<phase>, or None (no root, or nothing saved there yet)."""
+    if not root:
+        return None
+    d = os.path.join(root, phase)
+    if must_exist and not checkpoint.list_points(d):
+        return None
+    return d
+
+
+def _read_run_meta(root: str | None) -> dict:
+    if not root:
+        return {}
+    p = os.path.join(root, 'run.json')
+    try:
+        return checkpoint.read_json(p)
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_run_meta(root: str | None, meta: dict) -> None:
+    if root:
+        checkpoint.atomic_write_json(os.path.join(root, 'run.json'),
+                                     {**_read_run_meta(root), **meta})
+
+
 def distill(
     features: np.ndarray,
     logits: np.ndarray,
@@ -667,9 +939,23 @@ def distill(
     verbose: bool = True,
     should_stop=None,
     on_event=None,
+    checkpoint_dir: str | None = None,
+    resume: str | None = None,
+    resume_point='latest',
+    extra_generations: int = 0,
+    allow_changes: tuple = (),
+    workers: int | None = None,
 ) -> dict:
     """
     DATA phase (regression to the logits) -> GAME phase (in-game evolution).
+
+    Run state: checkpoint_dir keeps each phase's states under <dir>/data and
+    <dir>/game. resume=<an earlier checkpoint_dir> continues where that run
+    stopped — the DATA phase from <resume>/data at resume_point, the GAME phase
+    from <resume>/game if the earlier run got that far. extra_generations
+    extends whichever phase is resumed. The dataset split is drawn from the
+    global RNG, so resume with the same GA seed or the data signature will not
+    match (allow_changes=('data', 'val') to continue on purpose anyway).
 
     Args:
         features: (N, 19), logits: (N,) — from dataset_collector.
@@ -718,7 +1004,16 @@ def distill(
 
     # Group-wise train/val split of the dataset (see split_groups).
     if groups is not None:
-        split_rng = np.random.default_rng(random.randrange(2 ** 63))
+        # The split seed is drawn from the global RNG as before (so seeded runs
+        # reproduce), and recorded next to the checkpoints: a resumed run must
+        # split the dataset the same way, or its train/val data — and with it
+        # the checkpoint signature — would differ from the run it continues.
+        split_seed = random.randrange(2 ** 63)
+        saved = _read_run_meta(resume)
+        if saved.get('split_seed') is not None:
+            split_seed = int(saved['split_seed'])
+        _write_run_meta(checkpoint_dir, {'split_seed': split_seed})
+        split_rng = np.random.default_rng(split_seed)
         tr_mask, va_mask = split_groups(
             np.asarray(groups), config.EML_DATA_VAL_FRACTION, split_rng)
         val_data = (X[va_mask], y[va_mask], w[va_mask]) if va_mask.any() else None
@@ -750,6 +1045,11 @@ def distill(
         label='PLACE',
         should_stop=should_stop,
         on_event=on_event,
+        checkpoint_dir=_phase_dir(checkpoint_dir, 'data'),
+        resume=_phase_dir(resume, 'data', must_exist=True),
+        resume_point=resume_point,
+        extra_generations=extra_generations,
+        allow_changes=allow_changes,
     )
     data_tree = res['best_tree']
     if verbose:
@@ -789,8 +1089,17 @@ def distill(
         if verbose:
             print("  [GAME] in-game evolution...")
         _emit({'type': 'phase', 'phase': 'joint'})
+        game_resume = _phase_dir(resume, 'game', must_exist=True)
         jres = evolve_ingame(data_tree, basis=basis, verbose=verbose,
-                             should_stop=should_stop, on_event=on_event)
+                             should_stop=should_stop, on_event=on_event,
+                             checkpoint_dir=_phase_dir(checkpoint_dir, 'game'),
+                             resume=game_resume,
+                             # A chosen generation refers to the DATA phase;
+                             # the GAME phase continues where it stopped.
+                             resume_point='latest',
+                             extra_generations=(extra_generations
+                                                if game_resume else 0),
+                             allow_changes=allow_changes, workers=workers)
         final_tree = jres['best_tree']
         val_result = jres['val_result']
         # Do not let the GAME phase make the result worse than DATA (both

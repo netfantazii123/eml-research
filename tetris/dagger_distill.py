@@ -135,7 +135,8 @@ def fit_data_phase(chunks, warm, *, generations, population, dp_name,
         elitism=config.EML_ELITISM, patience=config.EML_PATIENCE,
         depth_penalty=DEPTH_PENALTIES[dp_name], val_data=val,
         basis=make_basis(basis_name),
-        init_trees=[warm] if warm is not None else None)
+        init_trees=[warm] if warm is not None else None,
+        init_warm_fraction=0.5)
     t = res['best_tree']
     FIT_INFO[id(t)] = {'data_val_fitness': res['best_val_fitness'],
                        'nodes': t.size(), 'depth': t.depth(),

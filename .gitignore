@@ -97,3 +97,8 @@ PROJECT_BLUEPRINT.md
 
 # Archives and backups
 *.zip
+
+# distill_compare: downloaded benchmark CSVs (re-fetched and SHA-pinned by
+# datasets.py). Teacher checkpoints are *.pt and already ignored above; the
+# result CSVs and REPORT.md are tracked.
+distill_compare/data/

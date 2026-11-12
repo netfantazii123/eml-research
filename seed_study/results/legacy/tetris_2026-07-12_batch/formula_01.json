@@ -1,0 +1,126 @@
+{
+  "trees": [
+    {
+      "kind": "eml",
+      "left": {
+        "kind": "eml",
+        "left": {
+          "kind": "var",
+          "var_idx": 19
+        },
+        "right": {
+          "kind": "eml",
+          "left": {
+            "kind": "var",
+            "var_idx": 17
+          },
+          "right": {
+            "kind": "eml",
+            "left": {
+              "kind": "eml",
+              "left": {
+                "kind": "eml",
+                "left": {
+                  "kind": "const",
+                  "value": 0.69612993331083
+                },
+                "right": {
+                  "kind": "var",
+                  "var_idx": 18
+                }
+              },
+              "right": {
+                "kind": "eml",
+                "left": {
+                  "kind": "const",
+                  "value": -0.12118190908133863
+                },
+                "right": {
+                  "kind": "var",
+                  "var_idx": 18
+                }
+              }
+            },
+            "right": {
+              "kind": "eml",
+              "left": {
+                "kind": "const",
+                "value": -0.9649902086177358
+              },
+              "right": {
+                "kind": "var",
+                "var_idx": 18
+              }
+            }
+          }
+        }
+      },
+      "right": {
+        "kind": "eml",
+        "left": {
+          "kind": "var",
+          "var_idx": 15
+        },
+        "right": {
+          "kind": "eml",
+          "left": {
+            "kind": "eml",
+            "left": {
+              "kind": "const",
+              "value": -1.2843758779288303
+            },
+            "right": {
+              "kind": "var",
+              "var_idx": 15
+            }
+          },
+          "right": {
+            "kind": "var",
+            "var_idx": 10
+          }
+        }
+      }
+    }
+  ],
+  "feature_names": [
+    "h0",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h8",
+    "h9",
+    "holes",
+    "bumpiness",
+    "agg_h",
+    "max_h",
+    "wells",
+    "row_trans",
+    "col_trans",
+    "cleared",
+    "landing_h",
+    "next_I",
+    "next_O",
+    "next_T",
+    "next_S",
+    "next_Z",
+    "next_J",
+    "next_L"
+  ],
+  "meta": {
+    "variant": 1,
+    "params": {
+      "seed": 1001,
+      "generations": 502,
+      "population": 534,
+      "depth_penalty": "weak",
+      "max_depth": 6,
+      "var_bonus": 0.03317258407351754
+    },
+    "final_lines": 121.66666666666669,
+    "base_lines": 0.0
+  }
+}

@@ -129,6 +129,20 @@ class Node:
             return self.basis.var_name(self.var_idx)
         return self.op.text.format(*(c.to_string() for c in self.children))
 
+    def key(self) -> str:
+        """
+        Canonical identity of the formula, for caching and de-duplication.
+
+        Not to_string(): that rounds constants to 3 decimals, so two trees that
+        differ only in the fourth decimal would share a cache entry and one of
+        them would be handed the other's fitness. repr() of a float round-trips.
+        """
+        if self.kind == 'const':
+            return repr(self.value)
+        if self.kind == 'var':
+            return f"x{self.var_idx}"
+        return f"{self.op.name}(" + ",".join(c.key() for c in self.children) + ")"
+
     def clone(self) -> "Node":
         if self.kind == 'const':
             return Node.const(self.basis, self.value)

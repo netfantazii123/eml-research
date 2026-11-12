@@ -1,0 +1,61 @@
+  [DATA] evolving placement-value formula (213,142 train / 38,350 val samples)
+      [PLACE] gen    0 | fit       0.48 | val       0.36 | D3 S7 V4 | i=1.00
+      [PLACE] gen   25 | fit       0.68 | val       0.70 | D4 S15 V5 | i=0.94
+      [PLACE] gen   50 | fit       0.82 | val       0.82 | D4 S17 V5 | i=0.88
+      [PLACE] gen   75 | fit       0.86 | val       0.91 | D2 S5 V1 | i=0.82
+      [PLACE] gen  100 | fit       0.94 | val       0.91 | D2 S5 V1 | i=0.76
+      [PLACE] gen  125 | fit       0.91 | val       0.91 | D2 S5 V1 | i=0.70
+      [PLACE] gen  150 | fit       0.91 | val       0.91 | D2 S5 V1 | i=0.64
+      [PLACE] gen  175 | fit       0.89 | val       0.96 | D3 S7 V2 | i=0.58
+      [PLACE] gen  200 | fit       0.93 | val       0.92 | D3 S7 V2 | i=0.52
+      [PLACE] gen  225 | fit       0.94 | val       0.95 | D3 S7 V2 | i=0.46
+      [PLACE] gen  250 | fit       0.94 | val       0.95 | D3 S7 V2 | i=0.40
+      [PLACE] gen  275 | fit       0.86 | val       0.92 | D2 S5 V1 | i=0.35
+      [PLACE] early stop @ gen 292 (no improve 120)
+    -> fit=1.03  D3 S7 V2  eml(cleared, eml(cleared, eml(0.594, bumpiness)))
+  DATA-phase val score: 10.75±6.07 lines/game (8 games)
+  [PARETO] scoring the size front on validation...
+      K=   1 | val_fit     0.21 |   0.00±0.00 lines |   0 transcendental
+      K=   3 | val_fit     0.55 |   0.00±0.00 lines |   2 transcendental
+      K=   5 | val_fit     0.91 |   0.00±0.00 lines |   4 transcendental
+      K=   7 | val_fit     0.95 |   0.50±0.53 lines |   6 transcendental
+  [GAME] in-game evolution...
+    [GAME] gen   0 | train    6296.3 (~63.0 lines) | val  64.00±25.32 lines | i=1.00
+    [GAME] gen   1 | train    5029.0 (~50.3 lines) | val  64.00±25.32 lines | i=0.97
+    [GAME] gen   2 | train   10135.7 (~101.4 lines) | val 107.50±9.30 lines | i=0.94
+    [GAME] gen   3 | train   11066.7 (~110.7 lines) | val 107.50±9.30 lines | i=0.91
+    [GAME] gen   4 | train   11133.3 (~111.3 lines) | val 107.50±9.30 lines | i=0.88
+    [GAME] gen   5 | train   11233.3 (~112.3 lines) | val 107.50±9.30 lines | i=0.84
+    [GAME] gen   6 | train   11433.3 (~114.3 lines) | val 107.50±9.30 lines | i=0.81
+    [GAME] gen   7 | train   11066.7 (~110.7 lines) | val 107.50±9.30 lines | i=0.78
+    [GAME] gen   8 | train   12033.3 (~120.3 lines) | val 112.62±11.20 lines | i=0.75
+    [GAME] gen   9 | train   12166.7 (~121.7 lines) | val 112.62±11.20 lines | i=0.72
+    [GAME] gen  10 | train   12066.7 (~120.7 lines) | val 106.00±21.32 lines | i=0.69
+    [GAME] gen  11 | train   12133.3 (~121.3 lines) | val 117.62±1.19 lines | i=0.66
+    [GAME] gen  12 | train   12133.3 (~121.3 lines) | val 110.75±12.98 lines | i=0.62
+    [GAME] gen  13 | train   12100.0 (~121.0 lines) | val 117.62±1.19 lines | i=0.59
+    [GAME] gen  14 | train   12166.7 (~121.7 lines) | val 117.75±1.04 lines | i=0.56
+    [GAME] gen  15 | train   12200.0 (~122.0 lines) | val  88.12±31.47 lines | i=0.53
+    [GAME] gen  16 | train   12133.3 (~121.3 lines) | val 117.00±2.14 lines | i=0.50
+    [GAME] gen  17 | train   12100.0 (~121.0 lines) | val 117.00±2.14 lines | i=0.47
+    [GAME] gen  18 | train   12133.3 (~121.3 lines) | val 117.00±2.14 lines | i=0.44
+    [GAME] gen  19 | train   12133.3 (~121.3 lines) | val 117.62±1.06 lines | i=0.41
+    [GAME] gen  20 | train   12166.7 (~121.7 lines) | val 105.50±32.18 lines | i=0.38
+    [GAME] gen  21 | train   12133.3 (~121.3 lines) | val 117.12±1.64 lines | i=0.34
+    [GAME] gen  22 | train   12133.3 (~121.3 lines) | val 117.00±2.14 lines | i=0.31
+    [GAME] gen  23 | train   12133.3 (~121.3 lines) | val 117.25±1.98 lines | i=0.28
+    [GAME] gen  24 | train   12166.7 (~121.7 lines) | val 118.38±0.52 lines | i=0.25
+    [GAME] gen  25 | train   12166.7 (~121.7 lines) | val 117.00±2.14 lines | i=0.22
+    [GAME] gen  26 | train   12166.7 (~121.7 lines) | val 116.88±1.81 lines | i=0.19
+    [GAME] gen  27 | train   12100.0 (~121.0 lines) | val 105.50±32.18 lines | i=0.16
+    [GAME] gen  28 | train   12166.7 (~121.7 lines) | val 105.38±31.28 lines | i=0.15
+    [GAME] gen  29 | train   12066.7 (~120.7 lines) | val 118.38±0.92 lines | i=0.15
+    [GAME] gen  30 | train   12133.3 (~121.3 lines) | val 117.12±2.23 lines | i=0.15
+    [GAME] gen  31 | train   12200.0 (~122.0 lines) | val 117.00±2.20 lines | i=0.15
+    [GAME] gen  32 | train   12100.0 (~121.0 lines) | val 117.75±0.89 lines | i=0.15
+    [GAME] gen  33 | train   12166.7 (~121.7 lines) | val 116.50±3.16 lines | i=0.15
+    [GAME] gen  34 | train   12133.3 (~121.3 lines) | val 115.88±3.48 lines | i=0.15
+    [GAME] gen  35 | train   12200.0 (~122.0 lines) | val 113.75±13.65 lines | i=0.15
+    [GAME] gen  36 | train   12166.7 (~121.7 lines) | val 117.75±0.89 lines | i=0.15
+    [GAME] early stop @ gen 36
+VAL 118.375 eml(eml(1.369, eml(-1.926, col_trans)), eml(eml(max_h, bumpiness), eml(next_T, eml(eml(next_S, 0.260), eml(col_trans, h3)))))
