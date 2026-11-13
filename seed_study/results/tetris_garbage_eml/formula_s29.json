@@ -1,0 +1,187 @@
+{
+  "trees": [
+    {
+      "kind": "op",
+      "op": "eml",
+      "children": [
+        {
+          "kind": "op",
+          "op": "eml",
+          "children": [
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "const",
+                  "value": 0.09261258076834489
+                },
+                {
+                  "kind": "op",
+                  "op": "eml",
+                  "children": [
+                    {
+                      "kind": "const",
+                      "value": 1.409808521001454
+                    },
+                    {
+                      "kind": "var",
+                      "var_idx": 11
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "op",
+                  "op": "eml",
+                  "children": [
+                    {
+                      "kind": "var",
+                      "var_idx": 14
+                    },
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "const",
+                              "value": -0.9691580621046986
+                            },
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 13
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 15
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "const",
+                          "value": 0.09261258076834489
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "var",
+                  "var_idx": 10
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "op",
+          "op": "eml",
+          "children": [
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "var",
+                  "var_idx": 10
+                },
+                {
+                  "kind": "const",
+                  "value": -1.1214591808665562
+                }
+              ]
+            },
+            {
+              "kind": "var",
+              "var_idx": 10
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "feature_names": [
+    "h0",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h8",
+    "h9",
+    "holes",
+    "bumpiness",
+    "agg_h",
+    "max_h",
+    "wells",
+    "row_trans",
+    "col_trans",
+    "cleared",
+    "landing_h",
+    "next_I",
+    "next_O",
+    "next_T",
+    "next_S",
+    "next_Z",
+    "next_J",
+    "next_L"
+  ],
+  "meta": {
+    "ga_seed": 29,
+    "params": {
+      "generations": 600,
+      "population": 600,
+      "depth_penalty": "medium",
+      "max_depth": 7,
+      "var_bonus": 0.03,
+      "game_generations": 40,
+      "game_population": 60,
+      "no_oracle": false
+    },
+    "basis": "eml",
+    "val_lines": 561.375,
+    "static": {
+      "nodes": 23,
+      "depth": 7,
+      "n_ops": 11,
+      "ops": {
+        "eml": 11
+      },
+      "n_leaves": 12,
+      "n_const": 5,
+      "n_vars_unique": 5,
+      "n_exp": 11,
+      "n_log": 11,
+      "n_transcendental": 22,
+      "n_eml": 11,
+      "n_arith": 55,
+      "est_code_bytes": 416,
+      "est_stack_floats": 8,
+      "est_stack_bytes": 32
+    },
+    "provenance": {
+      "commit": "10e7f3c",
+      "dirty": false,
+      "branch": "claude/project-thread-oe8r5q",
+      "config_hash": "602cd5be3b85",
+      "timestamp": "2026-11-13 02:27:17"
+    }
+  }
+}

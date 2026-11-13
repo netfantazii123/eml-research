@@ -1,0 +1,246 @@
+{
+  "task": "flappy",
+  "ga_seed": 5,
+  "penalty": "medium",
+  "profile": "ramp",
+  "basis": "classic",
+  "no_oracle": false,
+  "max_frames": {
+    "train_val": 1000000,
+    "test": 1000000
+  },
+  "val_games": 32,
+  "oracle": "flappy_bird_with_ai/models/ramp_ga.pt",
+  "budget": {
+    "population": 500,
+    "generations": 500,
+    "patience": 100,
+    "dataset_episodes": 500
+  },
+  "dataset_size": 2694234,
+  "val_score": 57.4375,
+  "val_scores": [
+    58,
+    57,
+    58,
+    62,
+    41,
+    53,
+    66,
+    66,
+    65,
+    65,
+    59,
+    65,
+    53,
+    61,
+    52,
+    60,
+    63,
+    36,
+    52,
+    57,
+    62,
+    47,
+    41,
+    57,
+    64,
+    63,
+    60,
+    63,
+    61,
+    64,
+    43,
+    64
+  ],
+  "test_score": 55.6,
+  "test_std": 9.29812736059219,
+  "test_per_game": [
+    64,
+    45,
+    65,
+    66,
+    61,
+    65,
+    25,
+    62,
+    61,
+    61,
+    63,
+    59,
+    64,
+    58,
+    52,
+    48,
+    35,
+    56,
+    57,
+    60,
+    47,
+    51,
+    60,
+    47,
+    61,
+    55,
+    47,
+    55,
+    59,
+    59
+  ],
+  "test_seeds": [
+    5000,
+    5001,
+    5002,
+    5003,
+    5004,
+    5005,
+    5006,
+    5007,
+    5008,
+    5009,
+    5010,
+    5011,
+    5012,
+    5013,
+    5014,
+    5015,
+    5016,
+    5017,
+    5018,
+    5019,
+    5020,
+    5021,
+    5022,
+    5023,
+    5024,
+    5025,
+    5026,
+    5027,
+    5028,
+    5029
+  ],
+  "size": 23,
+  "depth": 5,
+  "nvars": 4,
+  "formula": "(((y - gap) / exp(((dx - gap) / gap))) / exp(((-1.845 + (gap / gap)) + ((dx * dx) - vel))))",
+  "tree": {
+    "kind": "op",
+    "op": "div",
+    "children": [
+      {
+        "kind": "op",
+        "op": "div",
+        "children": [
+          {
+            "kind": "op",
+            "op": "sub",
+            "children": [
+              {
+                "kind": "var",
+                "var_idx": 0
+              },
+              {
+                "kind": "var",
+                "var_idx": 3
+              }
+            ]
+          },
+          {
+            "kind": "op",
+            "op": "exp",
+            "children": [
+              {
+                "kind": "op",
+                "op": "div",
+                "children": [
+                  {
+                    "kind": "op",
+                    "op": "sub",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 2
+                      },
+                      {
+                        "kind": "var",
+                        "var_idx": 3
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "var",
+                    "var_idx": 3
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "op",
+        "op": "exp",
+        "children": [
+          {
+            "kind": "op",
+            "op": "add",
+            "children": [
+              {
+                "kind": "op",
+                "op": "add",
+                "children": [
+                  {
+                    "kind": "const",
+                    "value": -1.8449428247242081
+                  },
+                  {
+                    "kind": "op",
+                    "op": "div",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 3
+                      },
+                      {
+                        "kind": "var",
+                        "var_idx": 3
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "kind": "op",
+                "op": "sub",
+                "children": [
+                  {
+                    "kind": "op",
+                    "op": "mul",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 2
+                      },
+                      {
+                        "kind": "var",
+                        "var_idx": 2
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "var",
+                    "var_idx": 1
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "stop_reason": "plateau_100",
+  "generations_run": 238,
+  "fit_sec": 1777.4184243679047,
+  "code_root": "/home/user/eml-research"
+}

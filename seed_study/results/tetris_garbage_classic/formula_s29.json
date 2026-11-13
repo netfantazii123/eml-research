@@ -1,0 +1,279 @@
+{
+  "trees": [
+    {
+      "kind": "op",
+      "op": "add",
+      "children": [
+        {
+          "kind": "op",
+          "op": "sub",
+          "children": [
+            {
+              "kind": "op",
+              "op": "sub",
+              "children": [
+                {
+                  "kind": "op",
+                  "op": "add",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "log",
+                      "children": [
+                        {
+                          "kind": "op",
+                          "op": "div",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "add",
+                              "children": [
+                                {
+                                  "kind": "const",
+                                  "value": -0.2748865722116429
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 15
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "op",
+                              "op": "tanh",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 24
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "op",
+                      "op": "tanh",
+                      "children": [
+                        {
+                          "kind": "op",
+                          "op": "mul",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "sub",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 23
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 21
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "op",
+                              "op": "exp",
+                              "children": [
+                                {
+                                  "kind": "const",
+                                  "value": -1.6301596513937353
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "var",
+                  "var_idx": 10
+                }
+              ]
+            },
+            {
+              "kind": "var",
+              "var_idx": 18
+            }
+          ]
+        },
+        {
+          "kind": "op",
+          "op": "sub",
+          "children": [
+            {
+              "kind": "op",
+              "op": "add",
+              "children": [
+                {
+                  "kind": "op",
+                  "op": "log",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "div",
+                      "children": [
+                        {
+                          "kind": "op",
+                          "op": "add",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "log",
+                              "children": [
+                                {
+                                  "kind": "const",
+                                  "value": 1.2715031403058394
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "var",
+                              "var_idx": 15
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "op",
+                          "op": "tanh",
+                          "children": [
+                            {
+                              "kind": "var",
+                              "var_idx": 24
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "op",
+                  "op": "tanh",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "mul",
+                      "children": [
+                        {
+                          "kind": "op",
+                          "op": "exp",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "log",
+                              "children": [
+                                {
+                                  "kind": "const",
+                                  "value": 0.18299900363585975
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "op",
+                          "op": "exp",
+                          "children": [
+                            {
+                              "kind": "var",
+                              "var_idx": 24
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "var",
+              "var_idx": 10
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "feature_names": [
+    "h0",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h8",
+    "h9",
+    "holes",
+    "bumpiness",
+    "agg_h",
+    "max_h",
+    "wells",
+    "row_trans",
+    "col_trans",
+    "cleared",
+    "landing_h",
+    "next_I",
+    "next_O",
+    "next_T",
+    "next_S",
+    "next_Z",
+    "next_J",
+    "next_L"
+  ],
+  "meta": {
+    "ga_seed": 29,
+    "params": {
+      "generations": 600,
+      "population": 600,
+      "depth_penalty": "medium",
+      "max_depth": 7,
+      "var_bonus": 0.03,
+      "game_generations": 40,
+      "game_population": 60,
+      "no_oracle": false
+    },
+    "basis": "classic",
+    "val_lines": 249.5,
+    "static": {
+      "nodes": 38,
+      "depth": 7,
+      "n_ops": 24,
+      "ops": {
+        "add": 5,
+        "sub": 4,
+        "log": 4,
+        "div": 2,
+        "tanh": 4,
+        "mul": 2,
+        "exp": 3
+      },
+      "n_leaves": 14,
+      "n_const": 4,
+      "n_vars_unique": 6,
+      "n_exp": 3,
+      "n_log": 4,
+      "n_transcendental": 11,
+      "n_eml": 0,
+      "n_arith": 33,
+      "est_code_bytes": 236,
+      "est_stack_floats": 8,
+      "est_stack_bytes": 32
+    },
+    "provenance": {
+      "commit": "10e7f3c",
+      "dirty": false,
+      "branch": "claude/project-thread-oe8r5q",
+      "config_hash": "602cd5be3b85",
+      "timestamp": "2026-11-13 02:35:26"
+    }
+  }
+}

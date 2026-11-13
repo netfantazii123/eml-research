@@ -1,0 +1,214 @@
+{
+  "task": "flappy",
+  "ga_seed": 7,
+  "penalty": "medium",
+  "profile": "ramp",
+  "basis": "eml",
+  "no_oracle": true,
+  "max_frames": {
+    "train_val": 1000000,
+    "test": 1000000
+  },
+  "val_games": 32,
+  "oracle": "flappy_bird_with_ai/models/ramp_ga.pt",
+  "budget": {
+    "population": 500,
+    "generations": 500,
+    "patience": 100,
+    "dataset_episodes": 500
+  },
+  "dataset_size": 2694234,
+  "val_score": 43.8125,
+  "val_scores": [
+    54,
+    51,
+    56,
+    20,
+    50,
+    33,
+    52,
+    56,
+    58,
+    33,
+    0,
+    32,
+    26,
+    57,
+    47,
+    35,
+    44,
+    55,
+    57,
+    52,
+    37,
+    24,
+    53,
+    60,
+    34,
+    58,
+    51,
+    38,
+    33,
+    61,
+    60,
+    25
+  ],
+  "test_score": 44.3,
+  "test_std": 14.874532736793148,
+  "test_per_game": [
+    59,
+    53,
+    40,
+    42,
+    61,
+    57,
+    21,
+    54,
+    27,
+    56,
+    51,
+    30,
+    27,
+    51,
+    40,
+    34,
+    53,
+    60,
+    57,
+    16,
+    22,
+    58,
+    20,
+    58,
+    51,
+    23,
+    57,
+    58,
+    58,
+    35
+  ],
+  "test_seeds": [
+    5000,
+    5001,
+    5002,
+    5003,
+    5004,
+    5005,
+    5006,
+    5007,
+    5008,
+    5009,
+    5010,
+    5011,
+    5012,
+    5013,
+    5014,
+    5015,
+    5016,
+    5017,
+    5018,
+    5019,
+    5020,
+    5021,
+    5022,
+    5023,
+    5024,
+    5025,
+    5026,
+    5027,
+    5028,
+    5029
+  ],
+  "size": 17,
+  "depth": 5,
+  "nvars": 3,
+  "formula": "eml(y, eml(eml(gap, eml(0.413, eml(dx, 1.004))), eml(gap, eml(eml(y, -0.422), y))))",
+  "tree": {
+    "kind": "op",
+    "op": "eml",
+    "children": [
+      {
+        "kind": "var",
+        "var_idx": 0
+      },
+      {
+        "kind": "op",
+        "op": "eml",
+        "children": [
+          {
+            "kind": "op",
+            "op": "eml",
+            "children": [
+              {
+                "kind": "var",
+                "var_idx": 3
+              },
+              {
+                "kind": "op",
+                "op": "eml",
+                "children": [
+                  {
+                    "kind": "const",
+                    "value": 0.4132841469045849
+                  },
+                  {
+                    "kind": "op",
+                    "op": "eml",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 2
+                      },
+                      {
+                        "kind": "const",
+                        "value": 1.0039660393970609
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "kind": "op",
+            "op": "eml",
+            "children": [
+              {
+                "kind": "var",
+                "var_idx": 3
+              },
+              {
+                "kind": "op",
+                "op": "eml",
+                "children": [
+                  {
+                    "kind": "op",
+                    "op": "eml",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 0
+                      },
+                      {
+                        "kind": "const",
+                        "value": -0.4219714676919742
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "var",
+                    "var_idx": 0
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "stop_reason": "plateau_100",
+  "generations_run": 150,
+  "fit_sec": 295.0274250507355,
+  "code_root": "/home/user/eml-research"
+}
