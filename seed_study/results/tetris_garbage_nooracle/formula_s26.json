@@ -1,0 +1,357 @@
+{
+  "trees": [
+    {
+      "kind": "op",
+      "op": "eml",
+      "children": [
+        {
+          "kind": "op",
+          "op": "eml",
+          "children": [
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "op",
+                  "op": "eml",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "var",
+                          "var_idx": 4
+                        },
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 13
+                                },
+                                {
+                                  "kind": "const",
+                                  "value": 1.3902077181704962
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "var",
+                              "var_idx": 10
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "const",
+                                  "value": -0.2546761856629214
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 15
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "const",
+                              "value": 0.7552096752606636
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "var",
+                          "var_idx": 23
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "op",
+                  "op": "eml",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "var",
+                          "var_idx": 18
+                        },
+                        {
+                          "kind": "const",
+                          "value": 0.24061789091684904
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "const",
+                          "value": -0.40886162691964034
+                        },
+                        {
+                          "kind": "const",
+                          "value": 2.347083503014575
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "var",
+                  "var_idx": 10
+                },
+                {
+                  "kind": "const",
+                  "value": 0.5999639019189535
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "op",
+          "op": "eml",
+          "children": [
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "const",
+                  "value": 1.9870210007999698
+                },
+                {
+                  "kind": "var",
+                  "var_idx": 15
+                }
+              ]
+            },
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "op",
+                  "op": "eml",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "var",
+                          "var_idx": 19
+                        },
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "var",
+                              "var_idx": 16
+                            },
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "const",
+                                  "value": 0.9604452100760743
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 21
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "var",
+                          "var_idx": 10
+                        },
+                        {
+                          "kind": "const",
+                          "value": 0.5999639019189535
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "op",
+                  "op": "eml",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "var",
+                          "var_idx": 12
+                        },
+                        {
+                          "kind": "var",
+                          "var_idx": 4
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "const",
+                              "value": 0.2354291033475584
+                            },
+                            {
+                              "kind": "var",
+                              "var_idx": 18
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "const",
+                                  "value": -1.0273428553538673
+                                },
+                                {
+                                  "kind": "const",
+                                  "value": -1.7632230245463765
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "var",
+                              "var_idx": 6
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "feature_names": [
+    "h0",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h8",
+    "h9",
+    "holes",
+    "bumpiness",
+    "agg_h",
+    "max_h",
+    "wells",
+    "row_trans",
+    "col_trans",
+    "cleared",
+    "landing_h",
+    "next_I",
+    "next_O",
+    "next_T",
+    "next_S",
+    "next_Z",
+    "next_J",
+    "next_L"
+  ],
+  "meta": {
+    "ga_seed": 26,
+    "params": {
+      "generations": 600,
+      "population": 600,
+      "depth_penalty": "medium",
+      "max_depth": 7,
+      "var_bonus": 0.03,
+      "game_generations": 40,
+      "game_population": 60,
+      "no_oracle": true
+    },
+    "basis": "eml",
+    "val_lines": 546.125,
+    "static": {
+      "nodes": 57,
+      "depth": 7,
+      "n_ops": 28,
+      "ops": {
+        "eml": 28
+      },
+      "n_leaves": 29,
+      "n_const": 13,
+      "n_vars_unique": 11,
+      "n_exp": 28,
+      "n_log": 28,
+      "n_transcendental": 56,
+      "n_eml": 28,
+      "n_arith": 140,
+      "est_code_bytes": 1060,
+      "est_stack_floats": 8,
+      "est_stack_bytes": 32
+    },
+    "provenance": {
+      "commit": "5d9dc3d",
+      "dirty": false,
+      "branch": "claude/project-thread-oe8r5q",
+      "config_hash": "602cd5be3b85",
+      "timestamp": "2026-11-12 23:40:40"
+    }
+  }
+}

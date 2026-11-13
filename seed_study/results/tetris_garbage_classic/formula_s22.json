@@ -1,0 +1,236 @@
+{
+  "trees": [
+    {
+      "kind": "op",
+      "op": "mul",
+      "children": [
+        {
+          "kind": "op",
+          "op": "mul",
+          "children": [
+            {
+              "kind": "op",
+              "op": "add",
+              "children": [
+                {
+                  "kind": "op",
+                  "op": "mul",
+                  "children": [
+                    {
+                      "kind": "var",
+                      "var_idx": 16
+                    },
+                    {
+                      "kind": "var",
+                      "var_idx": 20
+                    }
+                  ]
+                },
+                {
+                  "kind": "const",
+                  "value": 1.3861537576674223
+                }
+              ]
+            },
+            {
+              "kind": "op",
+              "op": "mul",
+              "children": [
+                {
+                  "kind": "op",
+                  "op": "mul",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "add",
+                      "children": [
+                        {
+                          "kind": "op",
+                          "op": "mul",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "add",
+                              "children": [
+                                {
+                                  "kind": "const",
+                                  "value": -1.2755912189884904
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 10
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "op",
+                              "op": "exp",
+                              "children": [
+                                {
+                                  "kind": "const",
+                                  "value": 0.7865549181888047
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "const",
+                          "value": 2.9706721232499964
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "op",
+                      "op": "mul",
+                      "children": [
+                        {
+                          "kind": "op",
+                          "op": "add",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "mul",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 18
+                                },
+                                {
+                                  "kind": "const",
+                                  "value": -0.536253301035702
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "const",
+                              "value": 2.011526201048947
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "op",
+                          "op": "add",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "sub",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 20
+                                },
+                                {
+                                  "kind": "const",
+                                  "value": 1.6531535374000215
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "op",
+                              "op": "add",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 16
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 22
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "var",
+                  "var_idx": 15
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "var",
+          "var_idx": 15
+        }
+      ]
+    }
+  ],
+  "feature_names": [
+    "h0",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h8",
+    "h9",
+    "holes",
+    "bumpiness",
+    "agg_h",
+    "max_h",
+    "wells",
+    "row_trans",
+    "col_trans",
+    "cleared",
+    "landing_h",
+    "next_I",
+    "next_O",
+    "next_T",
+    "next_S",
+    "next_Z",
+    "next_J",
+    "next_L"
+  ],
+  "meta": {
+    "ga_seed": 22,
+    "params": {
+      "generations": 600,
+      "population": 600,
+      "depth_penalty": "medium",
+      "max_depth": 7,
+      "var_bonus": 0.03,
+      "game_generations": 40,
+      "game_population": 60,
+      "no_oracle": false
+    },
+    "basis": "classic",
+    "val_lines": 522.75,
+    "static": {
+      "nodes": 32,
+      "depth": 7,
+      "n_ops": 16,
+      "ops": {
+        "mul": 8,
+        "add": 6,
+        "exp": 1,
+        "sub": 1
+      },
+      "n_leaves": 16,
+      "n_const": 7,
+      "n_vars_unique": 6,
+      "n_exp": 1,
+      "n_log": 0,
+      "n_transcendental": 1,
+      "n_eml": 0,
+      "n_arith": 17,
+      "est_code_bytes": 104,
+      "est_stack_floats": 8,
+      "est_stack_bytes": 32
+    },
+    "provenance": {
+      "commit": "aa9f4fd",
+      "dirty": true,
+      "branch": "claude/project-thread-oe8r5q",
+      "config_hash": "602cd5be3b85",
+      "timestamp": "2026-11-12 20:54:29"
+    }
+  }
+}

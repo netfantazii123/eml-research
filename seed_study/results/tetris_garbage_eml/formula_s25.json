@@ -1,0 +1,227 @@
+{
+  "trees": [
+    {
+      "kind": "op",
+      "op": "eml",
+      "children": [
+        {
+          "kind": "op",
+          "op": "eml",
+          "children": [
+            {
+              "kind": "var",
+              "var_idx": 23
+            },
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "op",
+                  "op": "eml",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "const",
+                          "value": 0.6217029891932779
+                        },
+                        {
+                          "kind": "var",
+                          "var_idx": 10
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "var",
+                              "var_idx": 23
+                            },
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "const",
+                                  "value": 0.2961293930443638
+                                },
+                                {
+                                  "kind": "const",
+                                  "value": 0.6786177200244854
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "var",
+                              "var_idx": 14
+                            },
+                            {
+                              "kind": "var",
+                              "var_idx": 18
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "const",
+                  "value": 0.4140222720496465
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "op",
+          "op": "eml",
+          "children": [
+            {
+              "kind": "const",
+              "value": -1.9258347242300462
+            },
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "op",
+                  "op": "eml",
+                  "children": [
+                    {
+                      "kind": "const",
+                      "value": 0.6217029891932779
+                    },
+                    {
+                      "kind": "var",
+                      "var_idx": 10
+                    }
+                  ]
+                },
+                {
+                  "kind": "op",
+                  "op": "eml",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "const",
+                          "value": -0.42875149701789494
+                        },
+                        {
+                          "kind": "const",
+                          "value": 0.7341723015054225
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "var",
+                          "var_idx": 14
+                        },
+                        {
+                          "kind": "var",
+                          "var_idx": 11
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "feature_names": [
+    "h0",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h8",
+    "h9",
+    "holes",
+    "bumpiness",
+    "agg_h",
+    "max_h",
+    "wells",
+    "row_trans",
+    "col_trans",
+    "cleared",
+    "landing_h",
+    "next_I",
+    "next_O",
+    "next_T",
+    "next_S",
+    "next_Z",
+    "next_J",
+    "next_L"
+  ],
+  "meta": {
+    "ga_seed": 25,
+    "params": {
+      "generations": 600,
+      "population": 600,
+      "depth_penalty": "medium",
+      "max_depth": 7,
+      "var_bonus": 0.03,
+      "game_generations": 40,
+      "game_population": 60,
+      "no_oracle": false
+    },
+    "basis": "eml",
+    "val_lines": 476.875,
+    "static": {
+      "nodes": 31,
+      "depth": 7,
+      "n_ops": 15,
+      "ops": {
+        "eml": 15
+      },
+      "n_leaves": 16,
+      "n_const": 8,
+      "n_vars_unique": 5,
+      "n_exp": 15,
+      "n_log": 15,
+      "n_transcendental": 30,
+      "n_eml": 15,
+      "n_arith": 75,
+      "est_code_bytes": 572,
+      "est_stack_floats": 8,
+      "est_stack_bytes": 32
+    },
+    "provenance": {
+      "commit": "5d9dc3d",
+      "dirty": false,
+      "branch": "claude/project-thread-oe8r5q",
+      "config_hash": "602cd5be3b85",
+      "timestamp": "2026-11-12 22:21:05"
+    }
+  }
+}

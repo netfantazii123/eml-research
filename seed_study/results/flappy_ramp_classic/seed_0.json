@@ -1,0 +1,382 @@
+{
+  "task": "flappy",
+  "ga_seed": 0,
+  "penalty": "medium",
+  "profile": "ramp",
+  "basis": "classic",
+  "no_oracle": false,
+  "max_frames": {
+    "train_val": 1000000,
+    "test": 1000000
+  },
+  "val_games": 32,
+  "oracle": "flappy_bird_with_ai/models/ramp_ga.pt",
+  "budget": {
+    "population": 500,
+    "generations": 500,
+    "patience": 100,
+    "dataset_episodes": 500
+  },
+  "dataset_size": 2694234,
+  "val_score": 87.65625,
+  "val_scores": [
+    89,
+    90,
+    87,
+    87,
+    90,
+    85,
+    89,
+    89,
+    91,
+    91,
+    87,
+    85,
+    90,
+    81,
+    86,
+    90,
+    87,
+    87,
+    90,
+    91,
+    89,
+    86,
+    89,
+    86,
+    85,
+    89,
+    85,
+    86,
+    90,
+    88,
+    85,
+    85
+  ],
+  "test_score": 86.73333333333333,
+  "test_std": 2.288401540201239,
+  "test_per_game": [
+    85,
+    85,
+    91,
+    87,
+    88,
+    88,
+    85,
+    90,
+    87,
+    90,
+    91,
+    87,
+    86,
+    83,
+    88,
+    90,
+    85,
+    87,
+    87,
+    85,
+    88,
+    87,
+    86,
+    85,
+    86,
+    82,
+    84,
+    84,
+    86,
+    89
+  ],
+  "test_seeds": [
+    5000,
+    5001,
+    5002,
+    5003,
+    5004,
+    5005,
+    5006,
+    5007,
+    5008,
+    5009,
+    5010,
+    5011,
+    5012,
+    5013,
+    5014,
+    5015,
+    5016,
+    5017,
+    5018,
+    5019,
+    5020,
+    5021,
+    5022,
+    5023,
+    5024,
+    5025,
+    5026,
+    5027,
+    5028,
+    5029
+  ],
+  "size": 50,
+  "depth": 5,
+  "nvars": 4,
+  "formula": "((((-1.943 - (vel * 2.188)) * ((gap * dx) - vel)) / ((log(dx) - -0.629) / ((dx * 1.593) - (vel - vel)))) + ((((dx + dx) / (gap / y)) + ((dx * 0.542) + -1.943)) / (tanh((y * vel)) - (log(-0.811) / (gap - y)))))",
+  "tree": {
+    "kind": "op",
+    "op": "add",
+    "children": [
+      {
+        "kind": "op",
+        "op": "div",
+        "children": [
+          {
+            "kind": "op",
+            "op": "mul",
+            "children": [
+              {
+                "kind": "op",
+                "op": "sub",
+                "children": [
+                  {
+                    "kind": "const",
+                    "value": -1.943487941767834
+                  },
+                  {
+                    "kind": "op",
+                    "op": "mul",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 1
+                      },
+                      {
+                        "kind": "const",
+                        "value": 2.1881086807910757
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "kind": "op",
+                "op": "sub",
+                "children": [
+                  {
+                    "kind": "op",
+                    "op": "mul",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 3
+                      },
+                      {
+                        "kind": "var",
+                        "var_idx": 2
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "var",
+                    "var_idx": 1
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "kind": "op",
+            "op": "div",
+            "children": [
+              {
+                "kind": "op",
+                "op": "sub",
+                "children": [
+                  {
+                    "kind": "op",
+                    "op": "log",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 2
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "const",
+                    "value": -0.6289641779376693
+                  }
+                ]
+              },
+              {
+                "kind": "op",
+                "op": "sub",
+                "children": [
+                  {
+                    "kind": "op",
+                    "op": "mul",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 2
+                      },
+                      {
+                        "kind": "const",
+                        "value": 1.5934526014849926
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "op",
+                    "op": "sub",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 1
+                      },
+                      {
+                        "kind": "var",
+                        "var_idx": 1
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "op",
+        "op": "div",
+        "children": [
+          {
+            "kind": "op",
+            "op": "add",
+            "children": [
+              {
+                "kind": "op",
+                "op": "div",
+                "children": [
+                  {
+                    "kind": "op",
+                    "op": "add",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 2
+                      },
+                      {
+                        "kind": "var",
+                        "var_idx": 2
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "op",
+                    "op": "div",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 3
+                      },
+                      {
+                        "kind": "var",
+                        "var_idx": 0
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "kind": "op",
+                "op": "add",
+                "children": [
+                  {
+                    "kind": "op",
+                    "op": "mul",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 2
+                      },
+                      {
+                        "kind": "const",
+                        "value": 0.5420375157420008
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "const",
+                    "value": -1.943487941767834
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "kind": "op",
+            "op": "sub",
+            "children": [
+              {
+                "kind": "op",
+                "op": "tanh",
+                "children": [
+                  {
+                    "kind": "op",
+                    "op": "mul",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 0
+                      },
+                      {
+                        "kind": "var",
+                        "var_idx": 1
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "kind": "op",
+                "op": "div",
+                "children": [
+                  {
+                    "kind": "op",
+                    "op": "log",
+                    "children": [
+                      {
+                        "kind": "const",
+                        "value": -0.8113440237926843
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "op",
+                    "op": "sub",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 3
+                      },
+                      {
+                        "kind": "var",
+                        "var_idx": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "stop_reason": "",
+  "generations_run": 500,
+  "fit_sec": 9049.87999033928,
+  "code_root": "/home/user/eml-research"
+}
