@@ -54,7 +54,8 @@ class TetrisEnv:
     """Headless Tetris. Board (24x10): rows 0..3 are the spawn buffer, 4..23 visible."""
 
     def __init__(self, seed: int | None = None,
-                 max_placements: int | None = None):
+                 max_placements: int | None = None,
+                 profile: str | None = None):
         """
         Args:
             seed: bag randomization seed.
@@ -62,7 +63,10 @@ class TetrisEnv:
                 0 -> no limit (Play mode: play until a real game over).
         """
         self._max_placements = max_placements
+        self.profile = config.TETRIS_PROFILES[profile or config.TETRIS_ENV]
+        self._seed = seed
         self.rng = np.random.default_rng(seed)
+        self.garbage_rows = 0
         self.board = np.zeros((BOARD_H_TOTAL, BOARD_W), dtype=np.int8)
         self._bag: list[int] = []
         self.cur_type = 0
@@ -91,6 +95,13 @@ class TetrisEnv:
         self.placements = 0
         self.gravity_counter = 0
         self.done = False
+        self.garbage_rows = 0
+        # Garbage holes: a separate stream, so the pieces do not change. Like
+        # the piece RNG it is NOT re-seeded by reset() of a seeded env, and it
+        # is created on the first reset, which the constructor makes.
+        if not hasattr(self, '_grng'):
+            self._grng = np.random.default_rng(
+                None if self._seed is None else [int(self._seed), 0x6A7B])
         self.next_type = self._draw_from_bag()
         self._spawn()   # on a clean board the spawn cannot hit game over
         return self.get_placement_state()
@@ -196,6 +207,7 @@ class TetrisEnv:
         self.cur_y = self._drop_y(self.cur_type, rot, x, SPAWN_Y)
         n_cleared = self._lock_piece()
         self.placements += 1
+        overflow = self._maybe_add_garbage()
 
         reward = config.REWARD_PIECE
         if n_cleared > 0:
@@ -208,7 +220,7 @@ class TetrisEnv:
 
         cap = (self._max_placements if self._max_placements is not None
                else config.MAX_EPISODE_PLACEMENTS)
-        if not self._spawn():
+        if overflow or not self._spawn():
             self.done = True
             reward += config.REWARD_GAME_OVER
         elif cap > 0 and self.placements >= cap:
@@ -216,6 +228,26 @@ class TetrisEnv:
 
         return (self.get_placement_state(), reward, self.done,
                 {'score': self.score, 'lines': n_cleared})
+
+    def _maybe_add_garbage(self) -> bool:
+        """Garbage profile: push a holed row in from the bottom when due.
+
+        Returns True when the push shoves a block out of the top of the board
+        (game over)."""
+        p = self.profile
+        if p is None:
+            return False
+        every = max(p['min_every'],
+                    p['every'] - self.placements // p['faster_every'])
+        if self.placements % every:
+            return False
+        overflow = bool(self.board[0].any())
+        self.board[:-1] = self.board[1:]
+        row = np.ones(BOARD_W, dtype=self.board.dtype)
+        row[int(self._grng.integers(BOARD_W))] = 0
+        self.board[-1] = row
+        self.garbage_rows += 1
+        return overflow
 
     def get_placement_state(self) -> dict:
         """

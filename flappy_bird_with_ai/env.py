@@ -4,6 +4,7 @@ FlappyEnv — a headless Flappy Bird environment with a gym-like interface.
 """
 
 import numpy as np
+import config
 from config import (
     SCREEN_W, SCREEN_H, PIPE_GAP, PIPE_SPEED, PIPE_FREQ,
     GRAVITY, FLAP_POWER, BIRD_X, BIRD_RADIUS, PIPE_WIDTH,
@@ -31,7 +32,7 @@ class FlappyEnv:
         -1.0  for a collision (death)
     """
 
-    def __init__(self, seed: int | None = None):
+    def __init__(self, seed: int | None = None, profile: str | None = None):
         """
         seed: pipe-layout seed. None keeps the old behaviour (a fresh random
         layout every episode) and is right for interactive play; evaluation must
@@ -40,6 +41,7 @@ class FlappyEnv:
         afford the ranking is mostly which individual drew the easier layouts.
         """
         self.seed = seed
+        self.profile = dict(config.FLAPPY_PROFILES[profile or config.FLAPPY_ENV])
         self.rng = np.random.default_rng(seed)
         self.bird_y: float = 0.0
         self.bird_vel: float = 0.0
@@ -67,6 +69,7 @@ class FlappyEnv:
         self.score = 0
         self.frame = 0
         self.done = False
+        self.n_spawned = 0
         self._spawn_pipe()
         return self.get_state()
 
@@ -132,13 +135,20 @@ class FlappyEnv:
     def _spawn_pipe(self):
         """Create a new pipe with a random gap_y."""
         margin = 80
+        p = self.profile
+        gap = max(p['gap_min'], p['gap'] - p['gap_shrink'] * self.n_spawned)
+        gap = int(gap)
+        # The gap centre is drawn from the same range for every gap width, so
+        # the classic profile keeps its exact pipe stream (the same rng call).
         gap_y = self.rng.integers(
             margin + PIPE_GAP // 2,
             SCREEN_H - margin - PIPE_GAP // 2
         )
+        self.n_spawned += 1
         self.pipes.append({
             'x': float(SCREEN_W),
             'gap_y': float(gap_y),
+            'gap': gap,
             'scored': False
         })
 
@@ -157,8 +167,8 @@ class FlappyEnv:
         for pipe in self.pipes:
             if pipe['x'] < BIRD_X + BIRD_RADIUS and \
                pipe['x'] + PIPE_WIDTH > BIRD_X - BIRD_RADIUS:
-                top_pipe_bottom = pipe['gap_y'] - PIPE_GAP // 2
-                bottom_pipe_top = pipe['gap_y'] + PIPE_GAP // 2
+                top_pipe_bottom = pipe['gap_y'] - pipe['gap'] // 2
+                bottom_pipe_top = pipe['gap_y'] + pipe['gap'] // 2
                 if self.bird_y - BIRD_RADIUS < top_pipe_bottom or \
                    self.bird_y + BIRD_RADIUS > bottom_pipe_top:
                     return True

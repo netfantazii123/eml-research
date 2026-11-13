@@ -1,0 +1,13 @@
+{
+ "profile": "garbage",
+ "profile_params": {
+  "every": 16,
+  "faster_every": 120,
+  "min_every": 1
+ },
+ "total_steps": 1998848,
+ "best_avg_lines": 121.41,
+ "stop_reason": "",
+ "seed": 0,
+ "elapsed_min": 233.1
+}

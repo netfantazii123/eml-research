@@ -479,6 +479,8 @@ def cmd_distill():
     resume_point = _flagval('--from', 'latest')
     extra_gens = _num('--extra-gens', 0)
     allow_changes = ('data', 'val') if '--allow-new-data' in args else ()
+    # --ga-seed N       : GA seed of a single run (default EML_GA_SEED_BASE)
+    ga_seed = _num('--ga-seed', None)
 
     print("=" * 56)
     print("   EML Distillation — TetrisCNN -> formula")
@@ -504,7 +506,8 @@ def cmd_distill():
             multi_objective=multi_objective,
             reuse_data=reuse_data, joint=do_joint, verbose=True,
             resume=resume, resume_point=resume_point,
-            extra_generations=extra_gens, allow_changes=allow_changes)
+            extra_generations=extra_gens, allow_changes=allow_changes,
+            ga_seed=ga_seed)
 
     print("\n" + "=" * 56)
     print("   Distillation summary")

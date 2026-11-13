@@ -29,6 +29,23 @@ import random
 import numpy as np
 
 
+def _sanitize(objectives) -> np.ndarray:
+    """Objectives as float64 with every non-finite value replaced by a finite
+    value just below that objective's worst finite one (NaN and -inf), or just
+    above its best (+inf). Keeps domination and crowding arithmetic finite."""
+    obj = np.array(objectives, dtype=np.float64, copy=True)
+    if obj.size == 0 or np.isfinite(obj).all():
+        return obj
+    for m in range(obj.shape[1]):
+        col = obj[:, m]
+        fin = col[np.isfinite(col)]
+        lo = fin.min() if fin.size else 0.0
+        hi = fin.max() if fin.size else 0.0
+        col[np.isnan(col) | (col == -np.inf)] = lo - 1.0 - abs(lo)
+        col[col == np.inf] = hi + 1.0 + abs(hi)
+    return obj
+
+
 def nondominated_sort(objectives: np.ndarray) -> list[list[int]]:
     """
     Split indices into Pareto fronts, best first (all objectives maximised).
@@ -40,7 +57,9 @@ def nondominated_sort(objectives: np.ndarray) -> list[list[int]]:
     n = len(objectives)
     if n == 0:
         return []
-    obj = np.asarray(objectives, dtype=np.float64)
+    # NaN compares False both ways, so a NaN objective could never be dominated
+    # and would sit in front 0 for good. Treat it as the worst possible value.
+    obj = _sanitize(objectives)
 
     # dominates[i, j] = i dominates j
     ge = (obj[:, None, :] >= obj[None, :, :]).all(axis=2)
@@ -70,7 +89,7 @@ def crowding_distance(objectives: np.ndarray, front: list[int]) -> np.ndarray:
     if k <= 2:
         return np.full(k, np.inf)
 
-    obj = np.asarray(objectives, dtype=np.float64)[front]
+    obj = _sanitize(objectives)[front]
     for m in range(obj.shape[1]):
         order = np.argsort(obj[:, m])
         lo, hi = obj[order[0], m], obj[order[-1], m]
@@ -137,6 +156,10 @@ class ParetoArchive:
         self.best: dict[int, tuple[float, object]] = {}
 
     def update(self, tree, score: float) -> bool:
+        # A NaN entry would block every later score at that size (nan > x and
+        # x > nan are both False), so it is never stored.
+        if score != score:
+            return False
         size = tree.size()
         cur = self.best.get(size)
         if cur is None or score > cur[0]:

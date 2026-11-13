@@ -26,6 +26,21 @@ from typing import Callable
 import numpy as np
 
 
+def c_float(x: float) -> str:
+    """A C float literal for x that keeps float32 precision and always parses.
+
+    '{:g}f' gave '10f' (not C: an integer constant cannot take an f suffix) and
+    '{:.6f}f' rounded small constants to 0.000000f.
+    """
+    x = float(x)
+    if not np.isfinite(x):
+        raise ValueError(f'non-finite constant {x!r} cannot be exported to C')
+    t = f"{x:.9g}"
+    if not any(ch in t for ch in '.en'):
+        t += '.0'
+    return t + 'f'
+
+
 @dataclass(frozen=True)
 class Op:
     """
@@ -56,8 +71,8 @@ def make_eml_op(epsilon: float = 1e-10, clamp: float = 10.0) -> Op:
         return math.exp(xc) - math.log(abs(y) + epsilon)
 
     helper = (
-        f"#define EML_EPS {epsilon:g}f\n"
-        f"#define EML_CLAMP {clamp:g}f\n"
+        f"#define EML_EPS {c_float(epsilon)}\n"
+        f"#define EML_CLAMP {c_float(clamp)}\n"
         "static inline float eml_op(float x, float y) {\n"
         "    if (x > EML_CLAMP) x = EML_CLAMP;\n"
         "    if (x < -EML_CLAMP) x = -EML_CLAMP;\n"
@@ -98,14 +113,14 @@ def make_classic_ops(epsilon: float = 1e-10, clamp: float = 10.0) -> tuple[Op, .
         return math.log(abs(x) + epsilon)
 
     div_helper = (
-        f"#define EML_EPS {epsilon:g}f\n"
+        f"#define EML_EPS {c_float(epsilon)}\n"
         "static inline float eml_div(float x, float y) {\n"
         "    float s = (y >= 0.0f) ? 1.0f : -1.0f;\n"
         "    return x / (fabsf(y) + EML_EPS) * s;\n"
         "}"
     )
     exp_helper = (
-        f"#define EML_CLAMP {clamp:g}f\n"
+        f"#define EML_CLAMP {c_float(clamp)}\n"
         "static inline float eml_exp(float x) {\n"
         "    if (x > EML_CLAMP) x = EML_CLAMP;\n"
         "    if (x < -EML_CLAMP) x = -EML_CLAMP;\n"
@@ -113,7 +128,7 @@ def make_classic_ops(epsilon: float = 1e-10, clamp: float = 10.0) -> tuple[Op, .
         "}"
     )
     log_helper = (
-        f"#define EML_EPS {epsilon:g}f\n"
+        f"#define EML_EPS {c_float(epsilon)}\n"
         "static inline float eml_log(float x) {\n"
         "    return logf(fabsf(x) + EML_EPS);\n"
         "}"

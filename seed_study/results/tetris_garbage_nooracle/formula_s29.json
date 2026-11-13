@@ -1,0 +1,227 @@
+{
+  "trees": [
+    {
+      "kind": "op",
+      "op": "eml",
+      "children": [
+        {
+          "kind": "op",
+          "op": "eml",
+          "children": [
+            {
+              "kind": "const",
+              "value": 0.16577171892512643
+            },
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "var",
+                  "var_idx": 22
+                },
+                {
+                  "kind": "var",
+                  "var_idx": 16
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "op",
+          "op": "eml",
+          "children": [
+            {
+              "kind": "op",
+              "op": "eml",
+              "children": [
+                {
+                  "kind": "op",
+                  "op": "eml",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "const",
+                                  "value": 1.6048822847340949
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 20
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "var",
+                              "var_idx": 16
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "eml",
+                              "children": [
+                                {
+                                  "kind": "var",
+                                  "var_idx": 16
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 11
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "var",
+                              "var_idx": 10
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "op",
+                      "op": "eml",
+                      "children": [
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "const",
+                              "value": -0.21097619466504458
+                            },
+                            {
+                              "kind": "var",
+                              "var_idx": 6
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "op",
+                          "op": "eml",
+                          "children": [
+                            {
+                              "kind": "var",
+                              "var_idx": 17
+                            },
+                            {
+                              "kind": "const",
+                              "value": 0.994848042626097
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "op",
+                  "op": "eml",
+                  "children": [
+                    {
+                      "kind": "var",
+                      "var_idx": 1
+                    },
+                    {
+                      "kind": "var",
+                      "var_idx": 5
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "var",
+              "var_idx": 11
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "feature_names": [
+    "h0",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h8",
+    "h9",
+    "holes",
+    "bumpiness",
+    "agg_h",
+    "max_h",
+    "wells",
+    "row_trans",
+    "col_trans",
+    "cleared",
+    "landing_h",
+    "next_I",
+    "next_O",
+    "next_T",
+    "next_S",
+    "next_Z",
+    "next_J",
+    "next_L"
+  ],
+  "meta": {
+    "ga_seed": 29,
+    "params": {
+      "generations": 600,
+      "population": 600,
+      "depth_penalty": "medium",
+      "max_depth": 7,
+      "var_bonus": 0.03,
+      "game_generations": 40,
+      "game_population": 60,
+      "no_oracle": true
+    },
+    "basis": "eml",
+    "val_lines": 302.5,
+    "static": {
+      "nodes": 31,
+      "depth": 7,
+      "n_ops": 15,
+      "ops": {
+        "eml": 15
+      },
+      "n_leaves": 16,
+      "n_const": 4,
+      "n_vars_unique": 9,
+      "n_exp": 15,
+      "n_log": 15,
+      "n_transcendental": 30,
+      "n_eml": 15,
+      "n_arith": 75,
+      "est_code_bytes": 556,
+      "est_stack_floats": 8,
+      "est_stack_bytes": 32
+    },
+    "provenance": {
+      "commit": "10e7f3c",
+      "dirty": false,
+      "branch": "claude/project-thread-oe8r5q",
+      "config_hash": "602cd5be3b85",
+      "timestamp": "2026-11-13 02:52:43"
+    }
+  }
+}

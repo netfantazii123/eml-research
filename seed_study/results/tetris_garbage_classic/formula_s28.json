@@ -1,0 +1,225 @@
+{
+  "trees": [
+    {
+      "kind": "op",
+      "op": "exp",
+      "children": [
+        {
+          "kind": "op",
+          "op": "add",
+          "children": [
+            {
+              "kind": "op",
+              "op": "mul",
+              "children": [
+                {
+                  "kind": "op",
+                  "op": "mul",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "mul",
+                      "children": [
+                        {
+                          "kind": "op",
+                          "op": "mul",
+                          "children": [
+                            {
+                              "kind": "var",
+                              "var_idx": 11
+                            },
+                            {
+                              "kind": "var",
+                              "var_idx": 18
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "op",
+                          "op": "exp",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "add",
+                              "children": [
+                                {
+                                  "kind": "const",
+                                  "value": -1.9743095531221435
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 17
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "var",
+                      "var_idx": 14
+                    }
+                  ]
+                },
+                {
+                  "kind": "op",
+                  "op": "sub",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "tanh",
+                      "children": [
+                        {
+                          "kind": "var",
+                          "var_idx": 16
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "op",
+                      "op": "div",
+                      "children": [
+                        {
+                          "kind": "op",
+                          "op": "log",
+                          "children": [
+                            {
+                              "kind": "const",
+                              "value": 0.9768618291972073
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "op",
+                          "op": "tanh",
+                          "children": [
+                            {
+                              "kind": "op",
+                              "op": "div",
+                              "children": [
+                                {
+                                  "kind": "const",
+                                  "value": 1.482040011914843
+                                },
+                                {
+                                  "kind": "var",
+                                  "var_idx": 0
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "kind": "op",
+              "op": "sub",
+              "children": [
+                {
+                  "kind": "op",
+                  "op": "tanh",
+                  "children": [
+                    {
+                      "kind": "op",
+                      "op": "tanh",
+                      "children": [
+                        {
+                          "kind": "var",
+                          "var_idx": 17
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "var",
+                  "var_idx": 12
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "feature_names": [
+    "h0",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h8",
+    "h9",
+    "holes",
+    "bumpiness",
+    "agg_h",
+    "max_h",
+    "wells",
+    "row_trans",
+    "col_trans",
+    "cleared",
+    "landing_h",
+    "next_I",
+    "next_O",
+    "next_T",
+    "next_S",
+    "next_Z",
+    "next_J",
+    "next_L"
+  ],
+  "meta": {
+    "ga_seed": 28,
+    "params": {
+      "generations": 600,
+      "population": 600,
+      "depth_penalty": "medium",
+      "max_depth": 7,
+      "var_bonus": 0.03,
+      "game_generations": 40,
+      "game_population": 60,
+      "no_oracle": false
+    },
+    "basis": "classic",
+    "val_lines": 138.625,
+    "static": {
+      "nodes": 28,
+      "depth": 7,
+      "n_ops": 17,
+      "ops": {
+        "exp": 2,
+        "add": 2,
+        "mul": 4,
+        "sub": 2,
+        "tanh": 4,
+        "div": 2,
+        "log": 1
+      },
+      "n_leaves": 11,
+      "n_const": 3,
+      "n_vars_unique": 7,
+      "n_exp": 2,
+      "n_log": 1,
+      "n_transcendental": 7,
+      "n_eml": 0,
+      "n_arith": 22,
+      "est_code_bytes": 156,
+      "est_stack_floats": 8,
+      "est_stack_bytes": 32
+    },
+    "provenance": {
+      "commit": "5d9dc3d",
+      "dirty": false,
+      "branch": "claude/project-thread-oe8r5q",
+      "config_hash": "602cd5be3b85",
+      "timestamp": "2026-11-13 01:49:07"
+    }
+  }
+}

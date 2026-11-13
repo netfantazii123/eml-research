@@ -48,7 +48,7 @@ def oracle_score(oracle, seeds, max_placements: int, device) -> dict:
     lines: list[int] = []
     steps: list[int] = []
     for s in seeds:
-        env = TetrisEnv(seed=int(s))
+        env = TetrisEnv(seed=int(s), max_placements=0)   # the loop is the cap
         obs = env.reset()
         f = 0
         while not env.done and f < max_placements:
@@ -67,6 +67,7 @@ def oracle_score(oracle, seeds, max_placements: int, device) -> dict:
         'avg_lines': float(la.mean()),
         'std_lines': float(la.std(ddof=1)) if len(la) > 1 else 0.0,
         'avg_steps': float(sa.mean()),
+        'n_capped': int((sa >= max_placements).sum()),
     }
 
 
@@ -336,9 +337,15 @@ def full_distill(
     resume_point='latest',
     extra_generations: int = 0,
     allow_changes: tuple = (),
+    ga_seed: int | None = None,
 ) -> dict:
     """
     The full single-distillation pipeline. None parameters -> from config.
+
+    ga_seed seeds the GA (the global `random` module, which also derives the
+    DATA-phase subsample RNG and the train/val split). Default:
+    config.EML_GA_SEED_BASE, the first seed of a batch, so a single run is
+    reproducible and recorded. A resumed run restores its own RNG state.
 
     GA states are saved under <run_dir>/checkpoints. resume=<an earlier run's
     checkpoints dir> continues that run (see eml_distiller.distill); the new
@@ -355,7 +362,12 @@ def full_distill(
     if data_path is None:
         data_path = os.path.join(config.RESULTS_DIR, 'eml_dataset.npz')
     if eval_games is None:
-        eval_games = config.EML_INGAME_GAMES
+        # The HOLDOUT size, the same as batch_distill and seed_study. It used to
+        # default to EML_INGAME_GAMES (3, the GAME-phase fitness games), so a
+        # single run reported TEST over 3 games.
+        eval_games = config.EML_TEST_GAMES
+    if ga_seed is None:
+        ga_seed = config.EML_GA_SEED_BASE
     if run_dir is None:
         run_dir = runs_mod.create_run_dir('distill')
     _emit({'type': 'log', 'msg': f"Run dir: {run_dir}"})
@@ -373,6 +385,7 @@ def full_distill(
         return {'cancelled': True}
 
     # ── Formula evolution ────────────────────────────────────────────────
+    random.seed(ga_seed)
     result = distill(
         features, logits, weights,
         groups=groups,
@@ -418,12 +431,13 @@ def full_distill(
         'dataset_size': result['dataset_size'],
         'depth_penalty': depth_penalty_name,
         'joint': joint,
+        'ga_seed': ga_seed,
         'provenance': runs_mod.provenance(),
     }
     prov = meta['provenance']
-    write_val_rows(run_dir, result, prov=prov)
-    write_test_rows(run_dir, holdout, result, prov=prov)
-    write_pareto_rows(run_dir, result, prov=prov)
+    write_val_rows(run_dir, result, ga_seed=ga_seed, prov=prov)
+    write_test_rows(run_dir, holdout, result, ga_seed=ga_seed, prov=prov)
+    write_pareto_rows(run_dir, result, ga_seed=ga_seed, prov=prov)
     path = storage.save_formulas(trees, meta=meta)
     _save_reports(result, run_dir, _emit, meta)
     runs_mod.copy_into(run_dir, path)

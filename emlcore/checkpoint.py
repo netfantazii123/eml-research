@@ -256,7 +256,8 @@ class RunCheckpointer:
     def __init__(self, directory: str, *, phase: str, signature: dict,
                  generations: int, schedule: int | None = None,
                  every: int = 10, snapshot_every: int = 50,
-                 keep_best: int = 5, hof_size: int = 20):
+                 keep_best: int = 5, hof_size: int = 20,
+                 resume_gen: int | None = None):
         self.directory = directory
         self.phase = phase
         self.signature = signature
@@ -269,13 +270,56 @@ class RunCheckpointer:
         self._hof: dict[str, dict] = {}
         self._dirty = False
         os.makedirs(directory, exist_ok=True)
+        self._set_aside_stale(resume_gen)
         hof_path = os.path.join(directory, 'hall_of_fame.json')
-        if os.path.exists(hof_path):
+        if resume_gen is not None and os.path.exists(hof_path):
             try:
                 for row in read_json(hof_path).get('entries', []):
                     self._hof[row['key']] = row
             except (OSError, ValueError, KeyError):
                 pass
+
+    def _set_aside_stale(self, resume_gen: int | None) -> None:
+        """
+        Move files that do not belong to this run's timeline out of the way.
+
+        A fresh run in a directory that already holds checkpoints would otherwise
+        inherit the old hall of fame, and best/ pruning (by file name) would
+        delete the NEW run's states while keeping the old run's later
+        generations — resolve_point('best') then returns another run's state.
+        A resume from generation g keeps everything up to g and sets aside the
+        best/ and snapshots/ files after g (an abandoned continuation).
+        Nothing is deleted: the files go to superseded/<timestamp>/.
+        """
+        d = self.directory
+        stale: list[str] = []
+        for sub in ('best', 'snapshots'):
+            for p in glob.glob(os.path.join(d, sub, 'gen_*.json')):
+                try:
+                    g = int(os.path.basename(p)[4:-5])
+                except ValueError:
+                    continue
+                if resume_gen is None or g > resume_gen:
+                    stale.append(p)
+        latest = os.path.join(d, 'latest.json')
+        if os.path.exists(latest):
+            try:
+                lg = int(read_json(latest)['generation'])
+            except (OSError, ValueError, KeyError):
+                lg = None
+            if resume_gen is None or lg is None or lg > resume_gen:
+                stale.append(latest)
+        hof = os.path.join(d, 'hall_of_fame.json')
+        if resume_gen is None and os.path.exists(hof):
+            stale.append(hof)
+        if not stale:
+            return
+        dest = os.path.join(d, 'superseded',
+                            time.strftime('%Y%m%d-%H%M%S') + f'-{os.getpid()}')
+        for p in stale:
+            rel = os.path.relpath(p, d)
+            os.makedirs(os.path.dirname(os.path.join(dest, rel)), exist_ok=True)
+            os.replace(p, os.path.join(dest, rel))
 
     # paths
     @property
@@ -486,7 +530,8 @@ class ResumableRun:
                 generations=self.generations, schedule=self.schedule,
                 every=checkpoint_every,
                 snapshot_every=snapshot_every, keep_best=keep_best,
-                hof_size=hof_size)
+                hof_size=hof_size,
+                resume_gen=self.start_gen if self.restored is not None else None)
         self._cap = None
         self._gen = self.start_gen
 

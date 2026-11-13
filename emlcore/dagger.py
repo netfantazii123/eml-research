@@ -174,7 +174,14 @@ def run_dagger(
         if on_iter is not None:
             on_iter(rec)
 
-        score = metrics.get(score_key, it) if metrics else it
+        if metrics:
+            if score_key not in metrics:
+                # Falling back to the iteration index made the last student win.
+                raise KeyError(f"eval_fn returned no {score_key!r} "
+                               f"(got {sorted(metrics)})")
+            score = metrics[score_key]
+        else:
+            score = it
         if score > best_score:
             best, best_it, best_score = student, it, score
 

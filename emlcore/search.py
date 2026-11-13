@@ -134,7 +134,10 @@ def tournament_select(fitness_scores: list[float], k: int = 5) -> int:
     """Index of the best of k random candidates."""
     n = len(fitness_scores)
     candidates = random.sample(range(n), min(k, n))
-    return max(candidates, key=lambda i: fitness_scores[i])
+    # NaN would make the pick depend on candidate order; count it as worst.
+    return max(candidates, key=lambda i: (fitness_scores[i]
+                                         if fitness_scores[i] == fitness_scores[i]
+                                         else float('-inf')))
 
 
 def fold_constants(node: Node) -> Node:

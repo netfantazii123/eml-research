@@ -1,0 +1,342 @@
+{
+  "task": "flappy",
+  "ga_seed": 2,
+  "penalty": "medium",
+  "profile": "ramp",
+  "basis": "classic",
+  "no_oracle": false,
+  "max_frames": {
+    "train_val": 1000000,
+    "test": 1000000
+  },
+  "val_games": 32,
+  "oracle": "flappy_bird_with_ai/models/ramp_ga.pt",
+  "budget": {
+    "population": 500,
+    "generations": 500,
+    "patience": 100,
+    "dataset_episodes": 500
+  },
+  "dataset_size": 2694234,
+  "val_score": 60.15625,
+  "val_scores": [
+    59,
+    66,
+    64,
+    62,
+    63,
+    54,
+    56,
+    54,
+    60,
+    56,
+    62,
+    60,
+    63,
+    65,
+    66,
+    56,
+    64,
+    59,
+    57,
+    58,
+    59,
+    62,
+    57,
+    61,
+    64,
+    65,
+    50,
+    59,
+    62,
+    60,
+    59,
+    63
+  ],
+  "test_score": 48.2,
+  "test_std": 20.072970331543722,
+  "test_per_game": [
+    65,
+    40,
+    47,
+    65,
+    0,
+    63,
+    53,
+    50,
+    58,
+    56,
+    43,
+    56,
+    61,
+    60,
+    57,
+    58,
+    47,
+    0,
+    57,
+    58,
+    60,
+    59,
+    60,
+    55,
+    0,
+    55,
+    0,
+    51,
+    56,
+    56
+  ],
+  "test_seeds": [
+    5000,
+    5001,
+    5002,
+    5003,
+    5004,
+    5005,
+    5006,
+    5007,
+    5008,
+    5009,
+    5010,
+    5011,
+    5012,
+    5013,
+    5014,
+    5015,
+    5016,
+    5017,
+    5018,
+    5019,
+    5020,
+    5021,
+    5022,
+    5023,
+    5024,
+    5025,
+    5026,
+    5027,
+    5028,
+    5029
+  ],
+  "size": 42,
+  "depth": 5,
+  "nvars": 4,
+  "formula": "((((gap / (y + dx)) * ((gap - y) / -0.061)) / (((dx * y) + log(1.881)) + ((0.535 * 1.364) + (dx / gap)))) * tanh((((y + vel) + (1.082 + gap)) + ((y + gap) + tanh(dx)))))",
+  "tree": {
+    "kind": "op",
+    "op": "mul",
+    "children": [
+      {
+        "kind": "op",
+        "op": "div",
+        "children": [
+          {
+            "kind": "op",
+            "op": "mul",
+            "children": [
+              {
+                "kind": "op",
+                "op": "div",
+                "children": [
+                  {
+                    "kind": "var",
+                    "var_idx": 3
+                  },
+                  {
+                    "kind": "op",
+                    "op": "add",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 0
+                      },
+                      {
+                        "kind": "var",
+                        "var_idx": 2
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "kind": "op",
+                "op": "div",
+                "children": [
+                  {
+                    "kind": "op",
+                    "op": "sub",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 3
+                      },
+                      {
+                        "kind": "var",
+                        "var_idx": 0
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "const",
+                    "value": -0.06113577786575686
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "kind": "op",
+            "op": "add",
+            "children": [
+              {
+                "kind": "op",
+                "op": "add",
+                "children": [
+                  {
+                    "kind": "op",
+                    "op": "mul",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 2
+                      },
+                      {
+                        "kind": "var",
+                        "var_idx": 0
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "op",
+                    "op": "log",
+                    "children": [
+                      {
+                        "kind": "const",
+                        "value": 1.8807134511165686
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "kind": "op",
+                "op": "add",
+                "children": [
+                  {
+                    "kind": "op",
+                    "op": "mul",
+                    "children": [
+                      {
+                        "kind": "const",
+                        "value": 0.534580305908348
+                      },
+                      {
+                        "kind": "const",
+                        "value": 1.3644502698765302
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "op",
+                    "op": "div",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 2
+                      },
+                      {
+                        "kind": "var",
+                        "var_idx": 3
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "op",
+        "op": "tanh",
+        "children": [
+          {
+            "kind": "op",
+            "op": "add",
+            "children": [
+              {
+                "kind": "op",
+                "op": "add",
+                "children": [
+                  {
+                    "kind": "op",
+                    "op": "add",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 0
+                      },
+                      {
+                        "kind": "var",
+                        "var_idx": 1
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "op",
+                    "op": "add",
+                    "children": [
+                      {
+                        "kind": "const",
+                        "value": 1.0819403405396333
+                      },
+                      {
+                        "kind": "var",
+                        "var_idx": 3
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "kind": "op",
+                "op": "add",
+                "children": [
+                  {
+                    "kind": "op",
+                    "op": "add",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 0
+                      },
+                      {
+                        "kind": "var",
+                        "var_idx": 3
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "op",
+                    "op": "tanh",
+                    "children": [
+                      {
+                        "kind": "var",
+                        "var_idx": 2
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "stop_reason": "",
+  "generations_run": 500,
+  "fit_sec": 8262.183091640472,
+  "code_root": "/home/user/eml-research"
+}

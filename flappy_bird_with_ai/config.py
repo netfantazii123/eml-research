@@ -17,6 +17,26 @@ BIRD_RADIUS = 12        # bird hitbox radius (circle)
 PIPE_WIDTH = 50         # pipe width (px)
 STATE_SIZE = 4          # dimensionality of the state vector
 
+# ── Environment difficulty profiles ──────────────────────────────────────────
+# 'classic' is the original game (fixed 150 px gap). Its oracle never dies
+# (1110 pipes in 100 000 frames), so every score is set by the frame cap, not by
+# skill. 'ramp' makes the game end on its own: every pipe's gap is gap_shrink px
+# narrower than the previous one, down to gap_min, so the score measures how
+# narrow a gap a policy can still thread, and no frame cap is needed for it.
+# Select with the environment variable EML_FLAPPY_ENV (read at import).
+#   gap        — the first pipe's gap (px)
+#   gap_shrink — px removed per spawned pipe
+#   gap_min    — floor of the gap (px); the bird is 2*BIRD_RADIUS = 24 px
+FLAPPY_PROFILES = {
+    'classic': {'gap': PIPE_GAP, 'gap_shrink': 0.0, 'gap_min': PIPE_GAP},
+    'ramp':    {'gap': PIPE_GAP, 'gap_shrink': 1.0, 'gap_min': 40},
+}
+import os as _os
+FLAPPY_ENV = _os.environ.get('EML_FLAPPY_ENV', 'classic')
+if FLAPPY_ENV not in FLAPPY_PROFILES:
+    raise ValueError(f'EML_FLAPPY_ENV={FLAPPY_ENV!r}, expected one of '
+                     f'{sorted(FLAPPY_PROFILES)}')
+
 # ── Genetic algorithm constants (neuroevolution) ─────────────────────────────
 
 GA_POPULATION = 1000    # population size (number of birds)
@@ -30,6 +50,7 @@ GA_TARGET_SCORE = 0     # 0 = off; otherwise stop early at this score
 
 # ── EML distillation constants ───────────────────────────────────────────────
 
+EML_BASIS = 'eml'       # 'eml' or 'classic' (the control basis)
 EML_POPULATION = 500    # EML tree population size
 EML_GENERATIONS = 500   # maximum number of generations
 EML_ELITISM = 10         # elite individuals carried over unchanged
@@ -67,3 +88,16 @@ DEPTH_PENALTIES = {
 
 MODELS_DIR = 'models'
 RESULTS_DIR = 'results'
+
+# ── Frame caps per profile ───────────────────────────────────────────────────
+# classic keeps the historical caps (GA/VAL 3000 frames = 32 pipes, TEST 5000
+# = 55 pipes) so old numbers reproduce; that VAL and TEST disagree there is a
+# known defect of the classic setup (9 of 10 seed-study seeds tie at VAL 32).
+# ramp has no ceiling: one cap, far above any game (the ramp oracle dies after
+# ~60 pipes, ~5500 frames), for training, VAL and TEST alike, and VAL uses the
+# whole VAL pool so champion selection is not decided by 8 layouts.
+EML_TEST_MAX_FRAMES = 5000
+if FLAPPY_ENV == 'ramp':
+    GA_MAX_FRAMES = 1_000_000
+    EML_TEST_MAX_FRAMES = 1_000_000
+    EML_VAL_GAMES = len(EML_SEED_POOL_VAL)
